@@ -2,6 +2,7 @@ import streamlit as st
 import subprocess
 import datetime
 import os
+import json
 
 st.set_page_config(page_title="Gong Wizard", layout="centered")
 st.title("🚀 Gong Wizard Web App")
@@ -24,8 +25,8 @@ if run_button:
     if not api_key or not uploaded_orgs or not uploaded_industries:
         st.error("Please fill in all required fields.")
     else:
-        # Save uploaded files locally
         os.makedirs(output_dir, exist_ok=True)
+
         orgs_path = os.path.join(output_dir, "normalized_orgs.csv")
         inds_path = os.path.join(output_dir, "industry_mapping.csv")
 
@@ -34,21 +35,24 @@ if run_button:
         with open(inds_path, "wb") as f:
             f.write(uploaded_industries.getbuffer())
 
-        # Save config file for wizard
         config = {
             "gong_api_key": api_key,
             "start_date": str(start_date),
             "end_date": str(end_date),
             "output_path": output_dir
         }
-        import json
+
         config_path = os.path.join(output_dir, "gong_wizard_config.json")
         with open(config_path, "w") as f:
             json.dump(config, f, indent=2)
 
         st.info("Running Gong Wizard script...")
         try:
-            subprocess.run(["python3", "gong_wizard_extensive_final.py"], check=True)
-            st.success("Gong Wizard run complete. Check the output folder for results.")
+            subprocess.run(
+                ["python3", "gong_wizard_extensive_final.py"],
+                check=True,
+                cwd=os.getcwd()
+            )
+            st.success("✅ Gong Wizard run complete. Check the output folder for results.")
         except subprocess.CalledProcessError as e:
-            st.error("Error while running Gong Wizard. See terminal logs.")
+            st.error("❌ Error while running Gong Wizard. See logs for details.")
