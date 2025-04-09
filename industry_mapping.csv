@@ -1,0 +1,41 @@
+Industry (API),Industry (Normalized)
+Higher Education,Education
+K-12 Education,Education
+Sports,Entertainment
+Hospitality,Entertainment
+Broadcasting,Entertainment
+"Electricity, Oil & Gas",Industrial
+Building Materials,Industrial
+"Hand, Power & Lawn-care Tools",Industrial
+Machinery,Industrial
+"Energy, Utilities & Waste",Industrial
+Engineering,Industrial
+Manufacturing,Industrial
+Healthcare,Healthcare
+Hospitals & Physicians Clinics,Healthcare
+Physicians Clinics,Healthcare
+Organizations,Not For Profit
+"Architecture, Engineering & Design",Real Estate
+Commercial Real Estate,Real Estate
+Construction,Real Estate
+Offices,Real Estate
+Automobile Dealers,Retail
+Apparel & Accessories Retail,Retail
+"Department Stores, Shopping Centers & Superstores",Retail
+Insurance,Services
+"Airlines, Airports & Air Services",Services
+Business Services,Services
+Consumer Services,Services
+Corporate,Services
+Food & Beverage,Services
+Government,Services
+HR & Staffing,Services
+Law Firms & Legal Services,Services
+Transportation,Services
+Media & Internet,Technology
+Telecommunication Equipment,Technology
+Telecommunications,Technology
+Database & File Management Software,Technology
+Financial Software,Technology
+Human Resources Software,Technology
+Security Software,Technology
