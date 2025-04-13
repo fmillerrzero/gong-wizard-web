@@ -9,28 +9,53 @@ import pandas as pd
 from fuzzywuzzy import fuzz
 from urllib.parse import urlparse
 
-# Check for webhook trigger
-query_params = st.experimental_get_query_params()
-webhook_call_id = query_params.get("call_id", [None])[0]
-webhook_mode = bool(webhook_call_id)
-
 # App header
 st.title("Gong Wizard")
 st.write("Process your Gong call data")
 
-# Sidebar with configuration (only shown in manual mode)
-if not webhook_mode:
-    with st.sidebar:
-        st.header("Configuration")
-        access_key = st.text_input("Gong Access Key", type="password")
-        secret_key = st.text_input("Gong Secret Key", type="password")
-        today = datetime.today()
-        default_start = today - timedelta(days=7)
-        start_date = st.date_input("From Date", value=default_start)
-        end_date = st.date_input("To Date", value=today)
-        process_button = st.button("Process Data", type="primary")
-else:
-    process_button = False  # Skip button in webhook mode
+# Sidebar with configuration (webhook mode removed, always manual mode)
+with st.sidebar:
+    st.header("Configuration")
+    access_key = st.text_input("Gong Access Key", type="password")
+    secret_key = st.text_input("Gong Secret Key", type="password")
+
+    # Quick date range selection dropdown (Edit 2)
+    date_range_options = ["Last 7 days", "Last 30 days", "Last 90 days"]
+    if "selected_range" not in st.session_state:
+        st.session_state.selected_range = "Last 7 days"
+
+    selected_range = st.selectbox("Quick Date Range", date_range_options, 
+                                  index=date_range_options.index(st.session_state.selected_range))
+
+    # Initialize today's date
+    today = datetime.today().date()
+
+    # Set initial date values
+    if "start_date" not in st.session_state:
+        st.session_state.start_date = today - timedelta(days=7)
+    if "end_date" not in st.session_state:
+        st.session_state.end_date = today
+
+    # Update dates when dropdown selection changes
+    if selected_range != st.session_state.selected_range:
+        st.session_state.selected_range = selected_range
+        if selected_range == "Last 7 days":
+            st.session_state.start_date = today - timedelta(days=7)
+        elif selected_range == "Last 30 days":
+            st.session_state.start_date = today - timedelta(days=30)
+        elif selected_range == "Last 90 days":
+            st.session_state.start_date = today - timedelta(days=90)
+        st.session_state.end_date = today
+
+    # Date input fields below the dropdown
+    start_date = st.date_input("From Date", value=st.session_state.start_date)
+    end_date = st.date_input("To Date", value=st.session_state.end_date)
+
+    # Update session state when date fields are manually edited
+    st.session_state.start_date = start_date
+    st.session_state.end_date = end_date
+
+    process_button = st.button("Process Data", type="primary")
 
 # Load mapping files
 def load_normalized_orgs():
@@ -74,36 +99,22 @@ def normalize_org(account_name, website, industry_api):
     
     return account_name, industry_api, industry_api
 
-# Main processing
-if process_button or webhook_mode:
-    if webhook_mode:
-        # Webhook mode: Process single call
-        call_ids = [webhook_call_id]
-        config = {
-            "access_key": st.secrets["GONG_ACCESS_KEY"],
-            "secret_key": st.secrets["GONG_SECRET_KEY"],
-            "from_date": (datetime.today() - timedelta(days=30)).strftime("%Y-%m-%d"),
-            "to_date": datetime.today().strftime("%Y-%m-%d"),
-            "output_folder": ".",
-            "excluded_topics": ["Call Setup", "Small Talk", "Wrap-up"],
-            "excluded_affiliations": ["Internal"],
-            "min_word_count": 5
-        }
-    else:
-        # Manual mode: Use form inputs
-        if not access_key or not secret_key:
-            st.error("Please enter your Gong API credentials.")
-            st.stop()
-        config = {
-            "access_key": access_key,
-            "secret_key": secret_key,
-            "from_date": start_date.strftime("%Y-%m-%d"),
-            "to_date": end_date.strftime("%Y-%m-%d"),
-            "output_folder": ".",
-            "excluded_topics": ["Call Setup", "Small Talk", "Wrap-up"],
-            "excluded_affiliations": ["Internal"],
-            "min_word_count": 5
-        }
+# Main processing (webhook mode removed, Edit 3)
+if process_button:
+    if not access_key or not secret_key:
+        st.error("Please enter your Gong API credentials.")
+        st.stop()
+    
+    config = {
+        "access_key": access_key,
+        "secret_key": secret_key,
+        "from_date": start_date.strftime("%Y-%m-%d"),
+        "to_date": end_date.strftime("%Y-%m-%d"),
+        "output_folder": ".",
+        "excluded_topics": ["Call Setup", "Small Talk", "Wrap-up"],
+        "excluded_affiliations": ["Internal"],
+        "min_word_count": 5
+    }
     
     status_container = st.container()
     with status_container:
@@ -116,41 +127,38 @@ if process_button or webhook_mode:
             session = requests.Session()
             auth = (config['access_key'], config['secret_key'])
             
-            # Fetch call list (skip in webhook mode since we have the call ID)
-            if not webhook_mode:
-                status.info("Fetching call list...")
-                all_calls = []
-                cursor = None
-                params = {
-                    "fromDateTime": f"{config['from_date']}T00:00:00-00:00",
-                    "toDateTime": f"{config['to_date']}T23:59:59-00:00"
-                }
-                
-                while True:
-                    if cursor:
-                        params["cursor"] = cursor
-                    resp = session.get(
-                        f"{BASE_URL}/v2/calls", 
-                        headers={"Content-Type": "application/json"}, 
-                        params=params, 
-                        auth=auth, 
-                        timeout=30
-                    )
-                    if resp.status_code != 200:
-                        status.error(f"Error fetching call list: {resp.status_code} - {resp.text}")
-                        st.stop()
-                    data = resp.json()
-                    all_calls.extend(data.get("calls", []))
-                    status.info(f"Fetched {len(all_calls)} calls so far...")
-                    cursor = data.get("records", {}).get("cursor")
-                    if not cursor:
-                        break
-                    time.sleep(1)
-                
-                status.success(f"✅ Successfully fetched {len(all_calls)} calls")
-                call_ids = [call["id"] for call in all_calls]
-            else:
-                call_ids = [webhook_call_id]
+            # Fetch call list
+            status.info("Fetching call list...")
+            all_calls = []
+            cursor = None
+            params = {
+                "fromDateTime": f"{config['from_date']}T00:00:00-00:00",
+                "toDateTime": f"{config['to_date']}T23:59:59-00:00"
+            }
+            
+            while True:
+                if cursor:
+                    params["cursor"] = cursor
+                resp = session.get(
+                    f"{BASE_URL}/v2/calls", 
+                    headers={"Content-Type": "application/json"}, 
+                    params=params, 
+                    auth=auth, 
+                    timeout=30
+                )
+                if resp.status_code != 200:
+                    status.error(f"Error fetching call list: {resp.status_code} - {resp.text}")
+                    st.stop()
+                data = resp.json()
+                all_calls.extend(data.get("calls", []))
+                status.info(f"Fetched {len(all_calls)} calls so far...")
+                cursor = data.get("records", {}).get("cursor")
+                if not cursor:
+                    break
+                time.sleep(1)
+            
+            status.success(f"✅ Successfully fetched {len(all_calls)} calls")
+            call_ids = [call["id"] for call in all_calls]
 
             # Fetch detailed metadata and transcripts
             status.info("Fetching metadata and transcripts...")
@@ -246,12 +254,22 @@ if process_button or webhook_mode:
                 call_data['industry_normalized'] = normalized_industry
                 call_data['account_normalized'] = normalized_account
 
-            # Save JSON
+            # Save JSON (Edit 1: Add download button)
             status.info("Saving JSON...")
             date_range = f"{config['from_date'].replace('-', '')}-{config['to_date'].replace('-', '')}"
             json_path = f"JSON_gong_data_{date_range}.json"
             with open(json_path, 'w', encoding='utf-8') as f:
                 json.dump(full_data, f, indent=4)
+
+            # Add download button for JSON (Edit 1)
+            with open(json_path, 'r') as file:
+                json_data = file.read()
+            st.download_button(
+                label="Download Full Transcript JSON",
+                data=json_data,
+                file_name=json_path,
+                mime="application/json",
+            )
 
             # Save quality CSV
             status.info("Saving quality CSV...")
