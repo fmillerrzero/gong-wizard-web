@@ -362,7 +362,7 @@ if process_button:
                 call_id = call_data['call_id']
                 short_call_id = call_data['short_call_id']
                 meta = call_data['call_metadata'].get('metaData', {})
-                title = meta.get('title', 'N/A')
+                title = meta.get('title', 'N/A')  # Ensure we get the correct title
                 started = meta.get('started', 'N/A')
                 call_date = 'N/A'
                 if started != 'N/A':
@@ -384,7 +384,7 @@ if process_button:
                 deal_stage = next((field.get('value', 'N/A') for field in opportunity.get('fields', []) if field.get('name') == 'StageName'), 'N/A')
                 forecast_category = next((field.get('value', 'N/A') for field in opportunity.get('fields', []) if field.get('name') == 'ForecastCategoryName'), 'N/A')
                 
-                # Update 12: Format INTERNAL_PARTICIPANTS and EXTERNAL_PARTICIPANTS
+                # Format INTERNAL_PARTICIPANTS and EXTERNAL_PARTICIPANTS
                 parties = call_data['call_metadata'].get('parties', [])
                 speakers = call_data['call_metadata'].get('interaction', {}).get('speakers', [])
                 
