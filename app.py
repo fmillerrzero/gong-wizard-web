@@ -262,14 +262,17 @@ if process_button:
 
             # Save JSON
             status.info("Saving JSON...")
-            date_range = f"{config['from_date'].replace('-', '')}-{config['to_date'].replace('-', '')}"
-            json_path = f"JSON_gong_data_{date_range}.json"
+            # --- Update 15: Change JSON file name to json_gong_<start_date>_to_<end_date>.json ---
+            start_date_str = start_date.strftime("%d%b%y").lower()  # e.g., 07apr25
+            end_date_str = end_date.strftime("%d%b%y").lower()      # e.g., 14apr25
+            json_path = f"json_gong_{start_date_str}_to_{end_date_str}.json"
             with open(json_path, 'w', encoding='utf-8') as f:
                 json.dump(full_data, f, indent=4)
 
             # Save quality CSV
             status.info("Saving quality CSV...")
-            quality_csv_path = f"quality_gong_data_{date_range}.csv"
+            # --- Update 15: Change Quality CSV file name to utterances_gong_<start_date>_to_<end_date>.csv ---
+            quality_csv_path = f"utterances_gong_{start_date_str}_to_{end_date_str}.csv"
             with open(quality_csv_path, 'w', newline='', encoding='utf-8') as csvfile:
                 csv_writer = csv.writer(csvfile, quoting=csv.QUOTE_MINIMAL)
                 headers = [
@@ -320,12 +323,15 @@ if process_button:
 
             # Save summary CSV
             status.info("Saving summary CSV...")
-            summary_csv_path = f"summary_gong_data_{date_range}.csv"
+            # --- Update 15: Change Summary CSV file name to summary_gong_<start_date>_to_<end_date>.csv ---
+            summary_csv_path = f"summary_gong_{start_date_str}_to_{end_date_str}.csv"
             with open(summary_csv_path, 'w', newline='', encoding='utf-8') as summary_file:
                 summary_writer = csv.writer(summary_file, quoting=csv.QUOTE_MINIMAL)
+                # --- Update 11: Remove INDUSTRY, ensure ACCOUNT_NORMALIZED and INDUSTRY_NORMALIZED are included ---
                 summary_headers = [
                     'CALL_ID', 'SHORT_CALL_ID', 'CALL_TITLE', 'CALL_START_TIME', 'DURATION', 'MEETING_URL',
-                    'INDUSTRY', 'ACCOUNT_NAME', 'INDUSTRY_API', 'ACCOUNT_NORMALIZED', 'INDUSTRY_NORMALIZED'
+                    # Removed 'INDUSTRY' per Update 11
+                    'ACCOUNT_NAME', 'INDUSTRY_API', 'ACCOUNT_NORMALIZED', 'INDUSTRY_NORMALIZED'
                 ]
                 summary_writer.writerow(summary_headers)
                 for call_data in full_data:
@@ -342,7 +348,8 @@ if process_button:
                     normalized_industry = call_data.get('industry_normalized', 'Unknown')
                     summary_row = [
                         f'"{call_id}"', str(short_call_id), str(title), str(started), str(duration), str(meeting_url),
-                        str(industry), str(account_name), str(industry), str(normalized_account), str(normalized_industry)
+                        # Removed 'INDUSTRY' per Update 11
+                        str(account_name), str(industry), str(normalized_account), str(normalized_industry)
                     ]
                     summary_writer.writerow(summary_row)
 
@@ -363,8 +370,9 @@ if process_button:
 
             with open(quality_csv_path, 'r') as file:
                 csv_data = file.read()
+            # --- Update 15: Change button text to "Download Utterances CSV" ---
             st.download_button(
-                label="Download Quality CSV",
+                label="Download Utterances CSV",
                 data=csv_data,
                 file_name=quality_csv_path,
                 mime="text/csv",
