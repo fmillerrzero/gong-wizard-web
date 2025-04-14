@@ -117,6 +117,18 @@ def normalize_org(account_name, website, industry_api):
     
     return account_name, industry_api, industry_api
 
+# Function to safely escape and quote CSV values
+def csv_safe_value(value):
+    if value is None:
+        return '""'
+    str_value = str(value)
+    # If the value contains comma, newline, or double quote, enclose it in double quotes
+    if ',' in str_value or '\n' in str_value or '"' in str_value:
+        # Replace double quotes with two double quotes (CSV escaping)
+        str_value = str_value.replace('"', '""')
+        return f'"{str_value}"'
+    return str_value
+
 # Main processing logic
 if process_button:
     if not access_key or not secret_key:
@@ -327,11 +339,16 @@ if process_button:
                     except (ValueError, TypeError):
                         utterance_duration = 'N/A'
                     row = [
-                        f'"{call_id}"', str(short_call_id), str(call_title), str(call_date),
-                        str(normalized_account), str(normalized_industry),
-                        str(speaker['title']),
-                        str(utterance_duration), str(utterance_text),
-                        str(topic)
+                        csv_safe_value(call_id),
+                        csv_safe_value(short_call_id),
+                        csv_safe_value(call_title),
+                        csv_safe_value(call_date),
+                        csv_safe_value(normalized_account),
+                        csv_safe_value(normalized_industry),
+                        csv_safe_value(speaker['title']),
+                        csv_safe_value(utterance_duration),
+                        csv_safe_value(utterance_text),
+                        csv_safe_value(topic)
                     ]
                     utterances_rows.append(row)
 
@@ -362,11 +379,10 @@ if process_button:
                 call_id = call_data['call_id']
                 short_call_id = call_data['short_call_id']
                 meta = call_data['call_metadata'].get('metaData', {})
-                # Ensure title is correctly extracted and converted to string
-                title = str(meta.get('title', 'N/A'))
-                # Debug print to check the title value
-                print(f"CALL_ID: {call_id}, CALL_TITLE: {title}")
-                started = str(meta.get('started', 'N/A'))
+                title = meta.get('title', 'N/A')
+                # Debug print to check the title value after extraction
+                print(f"Step 1 - CALL_ID: {call_id}, CALL_TITLE after extraction: {title}")
+                started = meta.get('started', 'N/A')
                 call_date = 'N/A'
                 if started != 'N/A':
                     try:
@@ -374,18 +390,18 @@ if process_button:
                         call_date = call_date_obj.strftime("%Y-%m-%d")
                     except ValueError:
                         call_date = 'N/A'
-                duration = str(meta.get('duration', 'N/A'))
-                meeting_url = str(meta.get('meetingUrl', 'N/A'))
-                normalized_account = str(call_data.get('account_normalized', 'N/A'))
-                normalized_industry = str(call_data.get('industry_normalized', 'Unknown'))
+                duration = meta.get('duration', 'N/A')
+                meeting_url = meta.get('meetingUrl', 'N/A')
+                normalized_account = call_data.get('account_normalized', 'N/A')
+                normalized_industry = call_data.get('industry_normalized', 'Unknown')
                 account_context = next((ctx for ctx in call_data['call_metadata'].get('context', []) if any(obj.get('objectType') == 'Account' for obj in ctx.get('objects', []))), {})
-                website = str(next((field.get('value', 'N/A') for obj in account_context.get('objects', []) for field in obj.get('fields', []) if field.get('name') == 'Website'), 'N/A'))
+                website = next((field.get('value', 'N/A') for obj in account_context.get('objects', []) for field in obj.get('fields', []) if field.get('name') == 'Website'), 'N/A')
                 opportunity = next((obj for obj in account_context.get('objects', []) if obj.get('objectType') == 'Opportunity'), {})
-                opportunity_name = str(next((field.get('value', 'N/A') for field in opportunity.get('fields', []) if field.get('name') == 'Name'), 'N/A'))
-                lead_source = str(next((field.get('value', 'N/A') for field in opportunity.get('fields', []) if field.get('name') == 'LeadSource'), 'N/A'))
-                opportunity_type = str(next((field.get('value', 'N/A') for field in opportunity.get('fields', []) if field.get('name') == 'Type'), 'N/A'))
-                deal_stage = str(next((field.get('value', 'N/A') for field in opportunity.get('fields', []) if field.get('name') == 'StageName'), 'N/A'))
-                forecast_category = str(next((field.get('value', 'N/A') for field in opportunity.get('fields', []) if field.get('name') == 'ForecastCategoryName'), 'N/A'))
+                opportunity_name = next((field.get('value', 'N/A') for field in opportunity.get('fields', []) if field.get('name') == 'Name'), 'N/A')
+                lead_source = next((field.get('value', 'N/A') for field in opportunity.get('fields', []) if field.get('name') == 'LeadSource'), 'N/A')
+                opportunity_type = next((field.get('value', 'N/A') for field in opportunity.get('fields', []) if field.get('name') == 'Type'), 'N/A')
+                deal_stage = next((field.get('value', 'N/A') for field in opportunity.get('fields', []) if field.get('name') == 'StageName'), 'N/A')
+                forecast_category = next((field.get('value', 'N/A') for field in opportunity.get('fields', []) if field.get('name') == 'ForecastCategoryName'), 'N/A')
                 
                 # Format INTERNAL_PARTICIPANTS and EXTERNAL_PARTICIPANTS
                 parties = call_data['call_metadata'].get('parties', [])
@@ -461,22 +477,40 @@ if process_button:
                 trackers_all = " | ".join([f"{tracker.get('name', 'N/A')}:{tracker.get('count', 0)}" for tracker in filtered_trackers]) if filtered_trackers else 'N/A'
                 
                 topics = call_data['call_metadata'].get('content', {}).get('topics', [])
-                pricing_duration = str(next((topic.get('duration', 0) for topic in topics if topic.get('name') == 'Pricing'), 0))
-                next_steps_duration = str(next((topic.get('duration', 0) for topic in topics if topic.get('name') == 'Next Steps'), 0))
-                call_brief = str(call_data['call_metadata'].get('content', {}).get('brief', 'N/A'))
+                pricing_duration = next((topic.get('duration', 0) for topic in topics if topic.get('name') == 'Pricing'), 0)
+                next_steps_duration = next((topic.get('duration', 0) for topic in topics if topic.get('name') == 'Next Steps'), 0)
+                call_brief = call_data['call_metadata'].get('content', {}).get('brief', 'N/A')
                 key_points = call_data['call_metadata'].get('content', {}).get('keyPoints', [])
-                key_points_str = ";".join([str(point.get('text', 'N/A')) for point in key_points]) if key_points else 'N/A'
+                key_points_str = ";".join([point.get('text', 'N/A') for point in key_points]) if key_points else 'N/A'
                 summary_row = [
-                    f'"{call_id}"', str(short_call_id), title, started, str(call_date),
-                    duration, meeting_url, website,
-                    normalized_account, normalized_industry,
-                    opportunity_name, lead_source, opportunity_type,
-                    deal_stage, forecast_category,
-                    external_participants, internal_participants,
-                    str(total_speakers), str(internal_speakers), str(external_speakers),
-                    trackers_all, pricing_duration, next_steps_duration,
-                    call_brief, key_points_str
+                    csv_safe_value(call_id),
+                    csv_safe_value(short_call_id),
+                    csv_safe_value(title),
+                    csv_safe_value(started),
+                    csv_safe_value(call_date),
+                    csv_safe_value(duration),
+                    csv_safe_value(meeting_url),
+                    csv_safe_value(website),
+                    csv_safe_value(normalized_account),
+                    csv_safe_value(normalized_industry),
+                    csv_safe_value(opportunity_name),
+                    csv_safe_value(lead_source),
+                    csv_safe_value(opportunity_type),
+                    csv_safe_value(deal_stage),
+                    csv_safe_value(forecast_category),
+                    csv_safe_value(external_participants),
+                    csv_safe_value(internal_participants),
+                    csv_safe_value(total_speakers),
+                    csv_safe_value(internal_speakers),
+                    csv_safe_value(external_speakers),
+                    csv_safe_value(trackers_all),
+                    csv_safe_value(pricing_duration),
+                    csv_safe_value(next_steps_duration),
+                    csv_safe_value(call_brief),
+                    csv_safe_value(key_points_str)
                 ]
+                # Debug print to check the title value after adding to summary_row
+                print(f"Step 2 - CALL_ID: {call_id}, CALL_TITLE in summary_row: {summary_row[2]}")
                 summary_rows.append(summary_row)
 
             # Convert Summary CSV rows to string
@@ -484,10 +518,14 @@ if process_button:
             for row in summary_rows:
                 summary_csv_lines.append(','.join(row))
             summary_csv_data = '\n'.join(summary_csv_lines)
+            # Debug print to check the first few lines of the CSV
+            print(f"Step 3 - First few lines of summary_csv_data:\n{summary_csv_data.split('\n')[0]}\n{summary_csv_data.split('\n')[1]}")
             st.session_state.processed_data["summary_csv"] = summary_csv_data
 
             # Store the Summary table data in session state
             df = pd.DataFrame([row for row in summary_rows[1:]], columns=summary_headers)
+            # Debug print to check the DataFrame
+            print(f"Step 4 - DataFrame CALL_TITLE for first row: {df['CALL_TITLE'].iloc[0]}")
             st.session_state.processed_data["summary_df"] = df
 
             # Save fetch stats
