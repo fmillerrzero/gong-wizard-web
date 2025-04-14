@@ -1,3 +1,5 @@
 requests
 fuzzywuzzy
 python-levenshtein
+streamlit
+pandas
