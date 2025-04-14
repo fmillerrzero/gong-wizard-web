@@ -19,22 +19,17 @@ with st.sidebar:
     access_key = st.text_input("Gong Access Key", type="password")
     secret_key = st.text_input("Gong Secret Key", type="password")
 
-    # Quick date range selection dropdown (Edit 2)
+    # Quick date range selection dropdown
     date_range_options = ["Last 7 days", "Last 30 days", "Last 90 days"]
+    today = datetime.today().date()  # Calculate once at the start
+
     if "selected_range" not in st.session_state:
         st.session_state.selected_range = "Last 7 days"
+        st.session_state.start_date = today - timedelta(days=7)
+        st.session_state.end_date = today
 
     selected_range = st.selectbox("Quick Date Range", date_range_options, 
                                   index=date_range_options.index(st.session_state.selected_range))
-
-    # Initialize today's date
-    today = datetime.today().date()
-
-    # Set initial date values
-    if "start_date" not in st.session_state:
-        st.session_state.start_date = today - timedelta(days=7)
-    if "end_date" not in st.session_state:
-        st.session_state.end_date = today
 
     # Update dates when dropdown selection changes
     if selected_range != st.session_state.selected_range:
@@ -48,12 +43,20 @@ with st.sidebar:
         st.session_state.end_date = today
 
     # Date input fields below the dropdown
-    start_date = st.date_input("From Date", value=st.session_state.start_date)
-    end_date = st.date_input("To Date", value=st.session_state.end_date)
+    start_date = st.date_input("From Date", value=st.session_state.start_date, key="from_date")
+    end_date = st.date_input("To Date", value=st.session_state.end_date, key="to_date")
 
-    # Update session state when date fields are manually edited
-    st.session_state.start_date = start_date
-    st.session_state.end_date = end_date
+    # Update session state only if the user manually edits the date fields
+    if start_date != st.session_state.start_date:
+        st.session_state.start_date = start_date
+        st.session_state.selected_range = "Custom"  # Add a "Custom" option to indicate manual edit
+    if end_date != st.session_state.end_date:
+        st.session_state.end_date = end_date
+        st.session_state.selected_range = "Custom"
+
+    # Update date_range_options to include "Custom" if needed
+    if "Custom" not in date_range_options:
+        date_range_options.append("Custom")
 
     process_button = st.button("Process Data", type="primary")
 
