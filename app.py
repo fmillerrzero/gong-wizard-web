@@ -94,6 +94,11 @@ def normalize_org(account_name, website, industry_api):
     if best_match:
         return best_match.get("Org name", account_name), best_match.get("FINAL", industry_api), industry_api
     
+    # Add the "FINAL" check with industry_api as in OLD_gong_wizard_extensive_final.py
+    for org in normalized_orgs:
+        if industry_api == org.get("FINAL"):
+            return account_name, industry_api, industry_api
+    
     normalized_industry = industry_mapping.get(industry_api, None)
     if normalized_industry:
         return account_name, normalized_industry, industry_api
@@ -114,7 +119,7 @@ if process_button:
         "output_folder": ".",
         "excluded_topics": ["Call Setup", "Small Talk", "Wrap-up"],
         "excluded_affiliations": ["Internal"],
-        "min_word_count": 5
+        "min_word_count": 8  # Update 5: Changed from 5 to 8
     }
     
     status_container = st.container()
@@ -268,10 +273,10 @@ if process_button:
             with open(quality_csv_path, 'w', newline='', encoding='utf-8') as csvfile:
                 csv_writer = csv.writer(csvfile, quoting=csv.QUOTE_MINIMAL)
                 headers = [
-                    'SHORT_CALL_ID', 'CALL_ID', 'CALL_TITLE', 'CALL_DATE', 'DURATION_SECONDS', 'CALL_URL',
-                    'ACCOUNT_API', 'INDUSTRY_API', 'ACCOUNT_NORMALIZED', 'INDUSTRY_NORMALIZED',
-                    'SPEAKER_ID', 'SPEAKER_EMAIL', 'SPEAKER_NAME', 'SPEAKER_JOB_TITLE', 'SPEAKER_AFFILIATION',
-                    'TOPIC', 'UTTERANCE_START', 'UTTERANCE_END', 'UTTERANCE_TEXT'
+                    'CALL_ID', 'SHORT_CALL_ID', 'CALL_TITLE', 'CALL_DATE', 
+                    'ACCOUNT_NORMALIZED', 'INDUSTRY_NORMALIZED', 
+                    'SPEAKER_JOB_TITLE',  # Update 9: Removed SPEAKER_NAME
+                    'UTTERANCE_DURATION', 'UTTERANCE_TEXT'
                 ]
                 csv_writer.writerow(headers)
                 for call_data in full_data:
@@ -280,25 +285,16 @@ if process_button:
                     meta = call_data['call_metadata'].get('metaData', {})
                     call_title = meta.get('title', 'N/A')
                     call_date = meta.get('started', 'N/A')
-                    duration = meta.get('duration', 'N/A')
-                    call_url = meta.get('url', 'N/A')
-                    industry = call_data.get('industry_api', 'N/A')
-                    account_name = call_data.get('account_api', 'N/A')
                     normalized_account = call_data.get('account_normalized', 'N/A')
                     normalized_industry = call_data.get('industry_normalized', 'Unknown')
                     parties = call_data['call_metadata'].get('parties', [])
                     speaker_info = {party.get('speakerId'): {
-                        'email': party.get('emailAddress', 'N/A'),
                         'name': party.get('name', 'N/A'),
-                        'title': party.get('title', 'Unknown'),
-                        'affiliation': party.get('affiliation', 'N/A')
+                        'title': party.get('title', 'Unknown')
                     } for party in parties if party.get('speakerId')}
                     utterances = call_data.get('utterances', [])
                     for utterance in utterances:
                         speaker_id = utterance.get('speakerId', 'N/A')
-                        topic = utterance.get('topic', 'N/A')
-                        if topic in config["excluded_topics"]:
-                            continue
                         sentences = utterance.get('sentences', [])
                         if not sentences:
                             continue
@@ -306,16 +302,19 @@ if process_button:
                         word_count = len(utterance_text.split())
                         if word_count <= config["min_word_count"]:
                             continue
-                        speaker = speaker_info.get(speaker_id, {'email': 'N/A', 'name': 'N/A', 'title': 'Unknown', 'affiliation': 'N/A'})
-                        if speaker['affiliation'] in config["excluded_affiliations"]:
-                            continue
+                        speaker = speaker_info.get(speaker_id, {'name': 'N/A', 'title': 'Unknown'})
                         start_time = sentences[0].get('start', 'N/A') if sentences else 'N/A'
                         end_time = sentences[-1].get('end', 'N/A') if sentences else 'N/A'
+                        # Calculate utterance duration (end_time - start_time) in milliseconds
+                        try:
+                            utterance_duration = int(end_time) - int(start_time)
+                        except (ValueError, TypeError):
+                            utterance_duration = 'N/A'
                         row = [
-                            str(short_call_id), f'"{call_id}"', str(call_title), str(call_date), str(duration), str(call_url),
-                            str(account_name), str(industry), str(normalized_account), str(normalized_industry),
-                            str(speaker_id), str(speaker['email']), str(speaker['name']), str(speaker['title']), str(speaker['affiliation']),
-                            str(topic), str(start_time), str(end_time), str(utterance_text)
+                            f'"{call_id}"', str(short_call_id), str(call_title), str(call_date),
+                            str(normalized_account), str(normalized_industry),
+                            str(speaker['title']),
+                            str(utterance_duration), str(utterance_text)
                         ]
                         csv_writer.writerow(row)
 
