@@ -13,6 +13,18 @@ from urllib.parse import urlparse
 st.title("Gong Wizard")
 st.write("Process your Gong call data")
 
+# Initialize session state for storing processed data
+if "processed_data" not in st.session_state:
+    st.session_state.processed_data = {
+        "json_data": None,
+        "summary_csv": None,
+        "utterances_csv": None,
+        "start_date_str": None,
+        "end_date_str": None
+    }
+if "data_processed" not in st.session_state:
+    st.session_state.data_processed = False
+
 # Sidebar with configuration
 with st.sidebar:
     st.header("Configuration")
@@ -23,7 +35,7 @@ with st.sidebar:
     date_range_options = ["Last 7 days", "Last 30 days", "Last 90 days"]
     today = datetime.today().date()  # Calculate once at the start
 
-    # Initialize session state
+    # Initialize session state for dates
     if "start_date" not in st.session_state:
         st.session_state.start_date = today - timedelta(days=7)
     if "end_date" not in st.session_state:
@@ -259,170 +271,155 @@ if process_button:
                 call_data['industry_normalized'] = normalized_industry
                 call_data['account_normalized'] = normalized_account
 
-            # Save JSON
-            status.info("Saving JSON...")
+            # Save JSON to session state
+            status.info("Preparing JSON data...")
             start_date_str = start_date.strftime("%d%b%y").lower()  # e.g., 07apr25
             end_date_str = end_date.strftime("%d%b%y").lower()      # e.g., 14apr25
-            json_path = f"json_gong_{start_date_str}_to_{end_date_str}.json"
-            with open(json_path, 'w', encoding='utf-8') as f:
-                json.dump(full_data, f, indent=4)
+            json_data = json.dumps(full_data, indent=4)
+            st.session_state.processed_data["json_data"] = json_data
+            st.session_state.processed_data["start_date_str"] = start_date_str
+            st.session_state.processed_data["end_date_str"] = end_date_str
 
-            # Save quality CSV
-            status.info("Saving quality CSV...")
-            quality_csv_path = f"utterances_gong_{start_date_str}_to_{end_date_str}.csv"
-            with open(quality_csv_path, 'w', newline='', encoding='utf-8') as csvfile:
-                csv_writer = csv.writer(csvfile, quoting=csv.QUOTE_MINIMAL)
-                headers = [
-                    'CALL_ID', 'SHORT_CALL_ID', 'CALL_TITLE', 'CALL_DATE', 
-                    'ACCOUNT_NORMALIZED', 'INDUSTRY_NORMALIZED', 
-                    'SPEAKER_JOB_TITLE', 'UTTERANCE_DURATION', 'UTTERANCE_TEXT',
-                    'TOPIC'
-                ]
-                csv_writer.writerow(headers)
-                for call_data in full_data:
-                    call_id = call_data['call_id']
-                    short_call_id = call_data['short_call_id']
-                    meta = call_data['call_metadata'].get('metaData', {})
-                    call_title = meta.get('title', 'N/A')
-                    call_date = meta.get('started', 'N/A')
-                    normalized_account = call_data.get('account_normalized', 'N/A')
-                    normalized_industry = call_data.get('industry_normalized', 'Unknown')
-                    parties = call_data['call_metadata'].get('parties', [])
-                    speaker_info = {party.get('speakerId'): {
-                        'name': party.get('name', 'N/A'),
-                        'title': party.get('title', 'Unknown')
-                    } for party in parties if party.get('speakerId')}
-                    utterances = call_data.get('utterances', [])
-                    for utterance in utterances:
-                        speaker_id = utterance.get('speakerId', 'N/A')
-                        sentences = utterance.get('sentences', [])
-                        if not sentences:
-                            continue
-                        utterance_text = " ".join(sentence.get('text', 'N/A') for sentence in sentences)
-                        word_count = len(utterance_text.split())
-                        topic = utterance.get('topic', 'N/A')
-                        # Skip utterances with excluded topics
-                        if topic in config["excluded_topics"]:
-                            continue
-                        if word_count <= config["min_word_count"]:
-                            continue
-                        speaker = speaker_info.get(speaker_id, {'name': 'N/A', 'title': 'Unknown'})
-                        start_time = sentences[0].get('start', 'N/A') if sentences else 'N/A'
-                        end_time = sentences[-1].get('end', 'N/A') if sentences else 'N/A'
-                        try:
-                            utterance_duration = int(end_time) - int(start_time)
-                        except (ValueError, TypeError):
-                            utterance_duration = 'N/A'
-                        row = [
-                            f'"{call_id}"', str(short_call_id), str(call_title), str(call_date),
-                            str(normalized_account), str(normalized_industry),
-                            str(speaker['title']),
-                            str(utterance_duration), str(utterance_text),
-                            str(topic)
-                        ]
-                        csv_writer.writerow(row)
-
-            # Save summary CSV
-            status.info("Saving summary CSV...")
-            summary_csv_path = f"summary_gong_{start_date_str}_to_{end_date_str}.csv"
-            with open(summary_csv_path, 'w', newline='', encoding='utf-8') as summary_file:
-                summary_writer = csv.writer(summary_file, quoting=csv.QUOTE_MINIMAL)
-                summary_headers = [
-                    'CALL_ID', 'SHORT_CALL_ID', 'CALL_TITLE', 'CALL_START_TIME', 'CALL_DATE',
-                    'DURATION', 'MEETING_URL', 'WEBSITE',
-                    'ACCOUNT_NORMALIZED', 'INDUSTRY_NORMALIZED',
-                    'OPPORTUNITY_NAME', 'LEAD_SOURCE', 'OPPORTUNITY_TYPE',
-                    'DEAL_STAGE', 'FORECAST_CATEGORY',
-                    'EXTERNAL_PARTICIPANTS', 'INTERNAL_PARTICIPANTS',
-                    'TOTAL_SPEAKERS', 'INTERNAL_SPEAKERS', 'EXTERNAL_SPEAKERS',
-                    'TRACKERS_ALL', 'PRICING_DURATION', 'NEXT_STEPS_DURATION',
-                    'CALL_BRIEF', 'KEY_POINTS'
-                ]
-                summary_writer.writerow(summary_headers)
-                for call_data in full_data:
-                    call_id = call_data['call_id']
-                    short_call_id = call_data['short_call_id']
-                    meta = call_data['call_metadata'].get('metaData', {})
-                    title = meta.get('title', 'N/A')
-                    started = meta.get('started', 'N/A')
-                    call_date = 'N/A'
-                    if started != 'N/A':
-                        try:
-                            call_date_obj = datetime.fromisoformat(started.replace('Z', '+00:00'))
-                            call_date = call_date_obj.strftime("%Y-%m-%d")
-                        except ValueError:
-                            call_date = 'N/A'
-                    duration = meta.get('duration', 'N/A')
-                    meeting_url = meta.get('meetingUrl', 'N/A')
-                    normalized_account = call_data.get('account_normalized', 'N/A')
-                    normalized_industry = call_data.get('industry_normalized', 'Unknown')
-                    account_context = next((ctx for ctx in call_data['call_metadata'].get('context', []) if any(obj.get('objectType') == 'Account' for obj in ctx.get('objects', []))), {})
-                    website = next((field.get('value', 'N/A') for obj in account_context.get('objects', []) for field in obj.get('fields', []) if field.get('name') == 'Website'), 'N/A')
-                    opportunity = next((obj for obj in account_context.get('objects', []) if obj.get('objectType') == 'Opportunity'), {})
-                    opportunity_name = next((field.get('value', 'N/A') for field in opportunity.get('fields', []) if field.get('name') == 'Name'), 'N/A')
-                    lead_source = next((field.get('value', 'N/A') for field in opportunity.get('fields', []) if field.get('name') == 'LeadSource'), 'N/A')
-                    opportunity_type = next((field.get('value', 'N/A') for field in opportunity.get('fields', []) if field.get('name') == 'Type'), 'N/A')
-                    deal_stage = next((field.get('value', 'N/A') for field in opportunity.get('fields', []) if field.get('name') == 'StageName'), 'N/A')
-                    forecast_category = next((field.get('value', 'N/A') for field in opportunity.get('fields', []) if field.get('name') == 'ForecastCategoryName'), 'N/A')
-                    parties = call_data['call_metadata'].get('parties', [])
-                    external_participants = sum(1 for party in parties if party.get('affiliation') == 'External')
-                    internal_participants = sum(1 for party in parties if party.get('affiliation') == 'Internal')
-                    total_speakers = len(set(utterance.get('speakerId') for utterance in call_data.get('utterances', []) if utterance.get('speakerId')))
-                    internal_speakers = len(set(utterance.get('speakerId') for utterance in call_data.get('utterances', []) if utterance.get('speakerId') in [party.get('speakerId') for party in parties if party.get('affiliation') == 'Internal']))
-                    external_speakers = len(set(utterance.get('speakerId') for utterance in call_data.get('utterances', []) if utterance.get('speakerId') in [party.get('speakerId') for party in parties if party.get('affiliation') == 'External']))
-                    trackers = call_data['call_metadata'].get('content', {}).get('trackers', [])
-                    trackers_all = ";".join([f"{tracker.get('name', 'N/A')}:{tracker.get('count', 0)}" for tracker in trackers]) if trackers else 'N/A'
-                    topics = call_data['call_metadata'].get('content', {}).get('topics', [])
-                    pricing_duration = next((topic.get('duration', 0) for topic in topics if topic.get('name') == 'Pricing'), 0)
-                    next_steps_duration = next((topic.get('duration', 0) for topic in topics if topic.get('name') == 'Next Steps'), 0)
-                    call_brief = call_data['call_metadata'].get('content', {}).get('brief', 'N/A')
-                    key_points = call_data['call_metadata'].get('content', {}).get('keyPoints', [])
-                    key_points_str = ";".join([point.get('text', 'N/A') for point in key_points]) if key_points else 'N/A'
-                    summary_row = [
-                        f'"{call_id}"', str(short_call_id), str(title), str(started), str(call_date),
-                        str(duration), str(meeting_url), str(website),
+            # Prepare Utterances CSV data
+            status.info("Preparing Utterances CSV...")
+            utterances_rows = []
+            headers = [
+                'CALL_ID', 'SHORT_CALL_ID', 'CALL_TITLE', 'CALL_DATE', 
+                'ACCOUNT_NORMALIZED', 'INDUSTRY_NORMALIZED', 
+                'SPEAKER_JOB_TITLE', 'UTTERANCE_DURATION', 'UTTERANCE_TEXT',
+                'TOPIC'
+            ]
+            utterances_rows.append(headers)
+            
+            for call_data in full_data:
+                call_id = call_data['call_id']
+                short_call_id = call_data['short_call_id']
+                meta = call_data['call_metadata'].get('metaData', {})
+                call_title = meta.get('title', 'N/A')
+                call_date = meta.get('started', 'N/A')
+                normalized_account = call_data.get('account_normalized', 'N/A')
+                normalized_industry = call_data.get('industry_normalized', 'Unknown')
+                parties = call_data['call_metadata'].get('parties', [])
+                speaker_info = {party.get('speakerId'): {
+                    'name': party.get('name', 'N/A'),
+                    'title': party.get('title', 'Unknown')
+                } for party in parties if party.get('speakerId')}
+                utterances = call_data.get('utterances', [])
+                for utterance in utterances:
+                    speaker_id = utterance.get('speakerId', 'N/A')
+                    sentences = utterance.get('sentences', [])
+                    if not sentences:
+                        continue
+                    utterance_text = " ".join(sentence.get('text', 'N/A') for sentence in sentences)
+                    word_count = len(utterance_text.split())
+                    topic = utterance.get('topic', 'N/A')
+                    # Skip utterances with excluded topics
+                    if topic in config["excluded_topics"]:
+                        continue
+                    if word_count <= config["min_word_count"]:
+                        continue
+                    speaker = speaker_info.get(speaker_id, {'name': 'N/A', 'title': 'Unknown'})
+                    start_time = sentences[0].get('start', 'N/A') if sentences else 'N/A'
+                    end_time = sentences[-1].get('end', 'N/A') if sentences else 'N/A'
+                    try:
+                        utterance_duration = int(end_time) - int(start_time)
+                    except (ValueError, TypeError):
+                        utterance_duration = 'N/A'
+                    row = [
+                        f'"{call_id}"', str(short_call_id), str(call_title), str(call_date),
                         str(normalized_account), str(normalized_industry),
-                        str(opportunity_name), str(lead_source), str(opportunity_type),
-                        str(deal_stage), str(forecast_category),
-                        str(external_participants), str(internal_participants),
-                        str(total_speakers), str(internal_speakers), str(external_speakers),
-                        str(trackers_all), str(pricing_duration), str(next_steps_duration),
-                        str(call_brief), str(key_points_str)
+                        str(speaker['title']),
+                        str(utterance_duration), str(utterance_text),
+                        str(topic)
                     ]
-                    summary_writer.writerow(summary_row)
+                    utterances_rows.append(row)
+
+            # Convert Utterances CSV rows to string
+            utterances_csv_lines = []
+            for row in utterances_rows:
+                utterances_csv_lines.append(','.join(row))
+            utterances_csv_data = '\n'.join(utterances_csv_lines)
+            st.session_state.processed_data["utterances_csv"] = utterances_csv_data
+
+            # Prepare Summary CSV data
+            status.info("Preparing Summary CSV...")
+            summary_rows = []
+            summary_headers = [
+                'CALL_ID', 'SHORT_CALL_ID', 'CALL_TITLE', 'CALL_START_TIME', 'CALL_DATE',
+                'DURATION', 'MEETING_URL', 'WEBSITE',
+                'ACCOUNT_NORMALIZED', 'INDUSTRY_NORMALIZED',
+                'OPPORTUNITY_NAME', 'LEAD_SOURCE', 'OPPORTUNITY_TYPE',
+                'DEAL_STAGE', 'FORECAST_CATEGORY',
+                'EXTERNAL_PARTICIPANTS', 'INTERNAL_PARTICIPANTS',
+                'TOTAL_SPEAKERS', 'INTERNAL_SPEAKERS', 'EXTERNAL_SPEAKERS',
+                'TRACKERS_ALL', 'PRICING_DURATION', 'NEXT_STEPS_DURATION',
+                'CALL_BRIEF', 'KEY_POINTS'
+            ]
+            summary_rows.append(summary_headers)
+            
+            for call_data in full_data:
+                call_id = call_data['call_id']
+                short_call_id = call_data['short_call_id']
+                meta = call_data['call_metadata'].get('metaData', {})
+                title = meta.get('title', 'N/A')
+                started = meta.get('started', 'N/A')
+                call_date = 'N/A'
+                if started != 'N/A':
+                    try:
+                        call_date_obj = datetime.fromisoformat(started.replace('Z', '+00:00'))
+                        call_date = call_date_obj.strftime("%Y-%m-%d")
+                    except ValueError:
+                        call_date = 'N/A'
+                duration = meta.get('duration', 'N/A')
+                meeting_url = meta.get('meetingUrl', 'N/A')
+                normalized_account = call_data.get('account_normalized', 'N/A')
+                normalized_industry = call_data.get('industry_normalized', 'Unknown')
+                account_context = next((ctx for ctx in call_data['call_metadata'].get('context', []) if any(obj.get('objectType') == 'Account' for obj in ctx.get('objects', []))), {})
+                website = next((field.get('value', 'N/A') for obj in account_context.get('objects', []) for field in obj.get('fields', []) if field.get('name') == 'Website'), 'N/A')
+                opportunity = next((obj for obj in account_context.get('objects', []) if obj.get('objectType') == 'Opportunity'), {})
+                opportunity_name = next((field.get('value', 'N/A') for field in opportunity.get('fields', []) if field.get('name') == 'Name'), 'N/A')
+                lead_source = next((field.get('value', 'N/A') for field in opportunity.get('fields', []) if field.get('name') == 'LeadSource'), 'N/A')
+                opportunity_type = next((field.get('value', 'N/A') for field in opportunity.get('fields', []) if field.get('name') == 'Type'), 'N/A')
+                deal_stage = next((field.get('value', 'N/A') for field in opportunity.get('fields', []) if field.get('name') == 'StageName'), 'N/A')
+                forecast_category = next((field.get('value', 'N/A') for field in opportunity.get('fields', []) if field.get('name') == 'ForecastCategoryName'), 'N/A')
+                parties = call_data['call_metadata'].get('parties', [])
+                external_participants = sum(1 for party in parties if party.get('affiliation') == 'External')
+                internal_participants = sum(1 for party in parties if party.get('affiliation') == 'Internal')
+                total_speakers = len(set(utterance.get('speakerId') for utterance in call_data.get('utterances', []) if utterance.get('speakerId')))
+                internal_speakers = len(set(utterance.get('speakerId') for utterance in call_data.get('utterances', []) if utterance.get('speakerId') in [party.get('speakerId') for party in parties if party.get('affiliation') == 'Internal']))
+                external_speakers = len(set(utterance.get('speakerId') for utterance in call_data.get('utterances', []) if utterance.get('speakerId') in [party.get('speakerId') for party in parties if party.get('affiliation') == 'External']))
+                trackers = call_data['call_metadata'].get('content', {}).get('trackers', [])
+                trackers_all = ";".join([f"{tracker.get('name', 'N/A')}:{tracker.get('count', 0)}" for tracker in trackers]) if trackers else 'N/A'
+                topics = call_data['call_metadata'].get('content', {}).get('topics', [])
+                pricing_duration = next((topic.get('duration', 0) for topic in topics if topic.get('name') == 'Pricing'), 0)
+                next_steps_duration = next((topic.get('duration', 0) for topic in topics if topic.get('name') == 'Next Steps'), 0)
+                call_brief = call_data['call_metadata'].get('content', {}).get('brief', 'N/A')
+                key_points = call_data['call_metadata'].get('content', {}).get('keyPoints', [])
+                key_points_str = ";".join([point.get('text', 'N/A') for point in key_points]) if key_points else 'N/A'
+                summary_row = [
+                    f'"{call_id}"', str(short_call_id), str(title), str(started), str(call_date),
+                    str(duration), str(meeting_url), str(website),
+                    str(normalized_account), str(normalized_industry),
+                    str(opportunity_name), str(lead_source), str(opportunity_type),
+                    str(deal_stage), str(forecast_category),
+                    str(external_participants), str(internal_participants),
+                    str(total_speakers), str(internal_speakers), str(external_speakers),
+                    str(trackers_all), str(pricing_duration), str(next_steps_duration),
+                    str(call_brief), str(key_points_str)
+                ]
+                summary_rows.append(summary_row)
+
+            # Convert Summary CSV rows to string
+            summary_csv_lines = []
+            for row in summary_rows:
+                summary_csv_lines.append(','.join(row))
+            summary_csv_data = '\n'.join(summary_csv_lines)
+            st.session_state.processed_data["summary_csv"] = summary_csv_data
 
             # Display the summary CSV
-            df = pd.read_csv(summary_csv_path)
+            df = pd.DataFrame([row for row in summary_rows[1:]], columns=summary_headers)
             st.subheader("Call Summary")
             st.dataframe(df)
-            
-            # Download buttons
-            with open(summary_csv_path, 'r') as file:
-                csv_data = file.read()
-            st.download_button(
-                label="Download Summary CSV",
-                data=csv_data,
-                file_name=summary_csv_path,
-                mime="text/csv",
-            )
-
-            with open(quality_csv_path, 'r') as file:
-                csv_data = file.read()
-            st.download_button(
-                label="Download Utterances CSV",
-                data=csv_data,
-                file_name=quality_csv_path,
-                mime="text/csv",
-            )
-
-            with open(json_path, 'r') as file:
-                json_data = file.read()
-            st.download_button(
-                label="Download Full Transcript JSON",
-                data=json_data,
-                file_name=json_path,
-                mime="application/json",
-            )
 
             # Save fetch stats
             fetch_stats = {
@@ -433,10 +430,42 @@ if process_button:
             with open("fetch_stats.json", "w") as f:
                 json.dump(fetch_stats, f, indent=2)
             
+            # Mark processing as complete
+            st.session_state.data_processed = True
             status.success("✅ Processing complete!")
             
         except Exception as e:
             status.error(f"Error during processing: {str(e)}")
             st.error(f"An error occurred: {str(e)}")
-    # Close the with status_container block
-# Close the if process_button block
+
+# Display download buttons only if data is processed
+if st.session_state.data_processed:
+    start_date_str = st.session_state.processed_data["start_date_str"]
+    end_date_str = st.session_state.processed_data["end_date_str"]
+    
+    # Download Summary CSV
+    st.download_button(
+        label="Download Summary CSV",
+        data=st.session_state.processed_data["summary_csv"],
+        file_name=f"summary_gong_{start_date_str}_to_{end_date_str}.csv",
+        mime="text/csv",
+        key="download_summary_csv"
+    )
+
+    # Download Utterances CSV
+    st.download_button(
+        label="Download Utterances CSV",
+        data=st.session_state.processed_data["utterances_csv"],
+        file_name=f"utterances_gong_{start_date_str}_to_{end_date_str}.csv",
+        mime="text/csv",
+        key="download_utterances_csv"
+    )
+
+    # Download Full Transcript JSON
+    st.download_button(
+        label="Download Full Transcript JSON",
+        data=st.session_state.processed_data["json_data"],
+        file_name=f"json_gong_{start_date_str}_to_{end_date_str}.json",
+        mime="application/json",
+        key="download_json"
+    )
