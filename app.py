@@ -23,40 +23,43 @@ with st.sidebar:
     date_range_options = ["Last 7 days", "Last 30 days", "Last 90 days"]
     today = datetime.today().date()  # Calculate once at the start
 
+    # Initialize session state
     if "selected_range" not in st.session_state:
         st.session_state.selected_range = "Last 7 days"
         st.session_state.start_date = today - timedelta(days=7)
         st.session_state.end_date = today
+    if "date_key" not in st.session_state:
+        st.session_state.date_key = 0
 
+    # Dropdown for quick date ranges
     selected_range = st.selectbox("Quick Date Range", date_range_options, 
-                                  index=date_range_options.index(st.session_state.selected_range))
+                                  index=date_range_options.index(st.session_state.selected_range),
+                                  key="quick_range")
 
     # Update dates when dropdown selection changes
     if selected_range != st.session_state.selected_range:
         st.session_state.selected_range = selected_range
         if selected_range == "Last 7 days":
             st.session_state.start_date = today - timedelta(days=7)
+            st.session_state.end_date = today
         elif selected_range == "Last 30 days":
             st.session_state.start_date = today - timedelta(days=30)
+            st.session_state.end_date = today
         elif selected_range == "Last 90 days":
             st.session_state.start_date = today - timedelta(days=90)
-        st.session_state.end_date = today
+            st.session_state.end_date = today
+        # Increment date_key to force date_input widgets to refresh
+        st.session_state.date_key += 1
 
-    # Date input fields below the dropdown
-    start_date = st.date_input("From Date", value=st.session_state.start_date, key="from_date")
-    end_date = st.date_input("To Date", value=st.session_state.end_date, key="to_date")
+    # Date input fields with unique keys to force refresh
+    start_date = st.date_input("From Date", value=st.session_state.start_date, 
+                               key=f"from_date_{st.session_state.date_key}")
+    end_date = st.date_input("To Date", value=st.session_state.end_date, 
+                             key=f"to_date_{st.session_state.date_key}")
 
-    # Update session state only if the user manually edits the date fields
-    if start_date != st.session_state.start_date:
-        st.session_state.start_date = start_date
-        st.session_state.selected_range = "Custom"  # Add a "Custom" option to indicate manual edit
-    if end_date != st.session_state.end_date:
-        st.session_state.end_date = end_date
-        st.session_state.selected_range = "Custom"
-
-    # Update date_range_options to include "Custom" if needed
-    if "Custom" not in date_range_options:
-        date_range_options.append("Custom")
+    # Update session state if dates are manually edited
+    st.session_state.start_date = start_date
+    st.session_state.end_date = end_date
 
     process_button = st.button("Process Data", type="primary")
 
