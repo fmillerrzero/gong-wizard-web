@@ -363,7 +363,7 @@ if process_button:
             status.info("Preparing Summary CSV...")
             summary_rows = []
             summary_headers = [
-                'CALL_ID', 'SHORT_CALL_ID', 'CALL_TITLE', 'CALL_START_TIME', 'CALL_DATE',
+                'CALL_ID', 'SHORT_CALL_ID', 'CALL_TITLE', 'CALL_DATE',
                 'DURATION', 'MEETING_URL', 'WEBSITE',
                 'ACCOUNT_NORMALIZED', 'INDUSTRY_NORMALIZED',
                 'OPPORTUNITY_NAME', 'LEAD_SOURCE', 'OPPORTUNITY_TYPE',
@@ -398,11 +398,10 @@ if process_button:
                 meta = call_data['call_metadata'].get('metaData', {})
                 call_title = meta.get('title', 'N/A')
                 print(f"Step 1 - CALL_ID: {call_id}, CALL_TITLE after extraction: {call_title}")
-                started = meta.get('started', 'N/A')
                 call_date = 'N/A'
-                if started != 'N/A':
+                if meta.get('started') != 'N/A':
                     try:
-                        call_date_obj = datetime.fromisoformat(started.replace('Z', '+00:00'))
+                        call_date_obj = datetime.fromisoformat(meta['started'].replace('Z', '+00:00'))
                         call_date = call_date_obj.strftime("%Y-%m-%d")
                     except ValueError:
                         call_date = 'N/A'
@@ -503,7 +502,6 @@ if process_button:
                     csv_safe_value(call_id),
                     csv_safe_value(short_call_id),
                     csv_safe_value(call_title),
-                    csv_safe_value(started),
                     csv_safe_value(call_date),
                     csv_safe_value(duration),
                     csv_safe_value(meeting_url),
