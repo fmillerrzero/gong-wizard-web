@@ -383,15 +383,59 @@ if process_button:
                 opportunity_type = next((field.get('value', 'N/A') for field in opportunity.get('fields', []) if field.get('name') == 'Type'), 'N/A')
                 deal_stage = next((field.get('value', 'N/A') for field in opportunity.get('fields', []) if field.get('name') == 'StageName'), 'N/A')
                 forecast_category = next((field.get('value', 'N/A') for field in opportunity.get('fields', []) if field.get('name') == 'ForecastCategoryName'), 'N/A')
+                
+                # Update 12: Format INTERNAL_PARTICIPANTS and EXTERNAL_PARTICIPANTS
                 parties = call_data['call_metadata'].get('parties', [])
-                external_participants = sum(1 for party in parties if party.get('affiliation') == 'External')
-                internal_participants = sum(1 for party in parties if party.get('affiliation') == 'Internal')
+                speakers = call_data['call_metadata'].get('interaction', {}).get('speakers', [])
+                
+                # Create a dictionary of talk times
+                talk_times = {speaker.get('id'): speaker.get('talkTime', 0) for speaker in speakers}
+                
+                # Separate internal and external participants
+                internal_participants_list = []
+                external_participants_list = []
+                
+                for party in parties:
+                    if not party.get('speakerId'):
+                        continue  # Skip participants without a speakerId
+                    speaker_id = party.get('speakerId')
+                    name = party.get('name', 'N/A')
+                    title = party.get('title', 'Unknown')
+                    affiliation = party.get('affiliation', 'Unknown')
+                    talk_time = talk_times.get(speaker_id, 0)
+                    
+                    # Format the participant string
+                    if title == 'Unknown' or title == 'N/A':
+                        participant_str = name
+                    else:
+                        participant_str = f"{name} ({title})"
+                    
+                    participant_info = {
+                        'participant_str': participant_str,
+                        'talk_time': talk_time
+                    }
+                    
+                    if affiliation == 'Internal':
+                        internal_participants_list.append(participant_info)
+                    elif affiliation == 'External':
+                        external_participants_list.append(participant_info)
+                
+                # Sort by talk time (highest to lowest)
+                internal_participants_list.sort(key=lambda x: x['talk_time'], reverse=True)
+                external_participants_list.sort(key=lambda x: x['talk_time'], reverse=True)
+                
+                # Format the participant strings
+                internal_participants = ", ".join([p['participant_str'] for p in internal_participants_list]) if internal_participants_list else 'N/A'
+                external_participants = ", ".join([p['participant_str'] for p in external_participants_list]) if external_participants_list else 'N/A'
+                
+                # Existing counts for other columns
                 total_speakers = len(set(utterance.get('speakerId') for utterance in call_data.get('utterances', []) if utterance.get('speakerId')))
                 internal_speakers = len(set(utterance.get('speakerId') for utterance in call_data.get('utterances', []) if utterance.get('speakerId') in [party.get('speakerId') for party in parties if party.get('affiliation') == 'Internal']))
                 external_speakers = len(set(utterance.get('speakerId') for utterance in call_data.get('utterances', []) if utterance.get('speakerId') in [party.get('speakerId') for party in parties if party.get('affiliation') == 'External']))
+                
                 trackers = call_data['call_metadata'].get('content', {}).get('trackers', [])
                 
-                # Update 7: Merge TRACKER: COMPETITION and TRACKER: R-ZERO COMPETITORS
+                # Merge TRACKER: COMPETITION and TRACKER: R-ZERO COMPETITORS
                 competition_count = 0
                 rzero_competitors_count = 0
                 filtered_trackers = []
@@ -400,17 +444,17 @@ if process_button:
                     tracker_count = tracker.get('count', 0)
                     if tracker_name == "Competition":
                         competition_count = tracker_count
-                        continue  # Skip adding this tracker to the list
+                        continue
                     elif tracker_name == "R-Zero competitors":
                         rzero_competitors_count = tracker_count
-                        continue  # Skip adding this tracker to the list
+                        continue
                     filtered_trackers.append(tracker)
                 
                 # Add the merged tracker
                 merged_count = competition_count + rzero_competitors_count
                 filtered_trackers.append({"name": "TRACKER: COMPETITION_MERGED", "count": merged_count})
                 
-                # Update 8: Use pipe delimiter for TRACKERS_ALL
+                # Use pipe delimiter for TRACKERS_ALL
                 trackers_all = " | ".join([f"{tracker.get('name', 'N/A')}:{tracker.get('count', 0)}" for tracker in filtered_trackers]) if filtered_trackers else 'N/A'
                 
                 topics = call_data['call_metadata'].get('content', {}).get('topics', [])
