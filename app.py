@@ -375,12 +375,28 @@ if process_button:
             ]
             summary_rows.append(summary_headers)
             
+            # Define the trackers to include
+            tracker_mapping = {
+                'air quality': 'TRACKER: AIR QUALITY',
+                'Authority': 'TRACKER: AUTHORITY',
+                'Budget': 'TRACKER: BUDGET',
+                'Connect': 'TRACKER: CONNECT',
+                'Customer pain': 'TRACKER: CUSTOMER PAIN POINTS',
+                'Differentiation': 'TRACKER: PRODUCT DIFFERENTIATION',
+                'Energy Savings': 'TRACKER: ENERGY SAVINGS',
+                'Filter': 'TRACKER: FILTER MENTIONS',
+                'Install': 'TRACKER: INSTALL',
+                'Negative Impact (by Gong)': 'TRACKER: OBJECTIONS',
+                'ODCV': 'TRACKER: ODCV MENTIONS',
+                'TRACKER: COMPETITION_MERGED': 'TRACKER: COMPETITION_MERGED',
+                'Timing': 'TRACKER: TIMING'
+            }
+            
             for call_data in full_data:
                 call_id = call_data['call_id']
                 short_call_id = call_data['short_call_id']
                 meta = call_data['call_metadata'].get('metaData', {})
-                call_title = meta.get('title', 'N/A')  # Renamed to avoid shadowing
-                # Debug print to check the title value after extraction
+                call_title = meta.get('title', 'N/A')
                 print(f"Step 1 - CALL_ID: {call_id}, CALL_TITLE after extraction: {call_title}")
                 started = meta.get('started', 'N/A')
                 call_date = 'N/A'
@@ -419,7 +435,7 @@ if process_button:
                         continue  # Skip participants without a speakerId
                     speaker_id = party.get('speakerId')
                     name = party.get('name', 'N/A')
-                    participant_title = party.get('title', 'Unknown')  # Use a different variable name to avoid shadowing
+                    participant_title = party.get('title', 'Unknown')
                     affiliation = party.get('affiliation', 'Unknown')
                     talk_time = talk_times.get(speaker_id, 0)
                     
@@ -452,29 +468,30 @@ if process_button:
                 internal_speakers = len(set(utterance.get('speakerId') for utterance in call_data.get('utterances', []) if utterance.get('speakerId') in [party.get('speakerId') for party in parties if party.get('affiliation') == 'Internal']))
                 external_speakers = len(set(utterance.get('speakerId') for utterance in call_data.get('utterances', []) if utterance.get('speakerId') in [party.get('speakerId') for party in parties if party.get('affiliation') == 'External']))
                 
+                # Process trackers and merge duplicates
                 trackers = call_data['call_metadata'].get('content', {}).get('trackers', [])
                 
-                # Merge TRACKER: COMPETITION and TRACKER: R-ZERO COMPETITORS
-                competition_count = 0
-                rzero_competitors_count = 0
-                filtered_trackers = []
+                # Merge duplicate trackers (e.g., "Budget" KEYWORD and SMART)
+                tracker_dict = {}
                 for tracker in trackers:
                     tracker_name = tracker.get('name', 'N/A')
                     tracker_count = tracker.get('count', 0)
-                    if tracker_name == "Competition":
-                        competition_count = tracker_count
-                        continue
-                    elif tracker_name == "R-Zero competitors":
-                        rzero_competitors_count = tracker_count
-                        continue
-                    filtered_trackers.append(tracker)
+                    if tracker_name in tracker_dict:
+                        tracker_dict[tracker_name] += tracker_count  # Sum counts for duplicate trackers
+                    else:
+                        tracker_dict[tracker_name] = tracker_count
                 
-                # Add the merged tracker
-                merged_count = competition_count + rzero_competitors_count
-                filtered_trackers.append({"name": "TRACKER: COMPETITION_MERGED", "count": merged_count})
+                # Filter trackers to include only the specified ones, with non-zero counts
+                filtered_trackers = []
+                for tracker_name, tracker_count in tracker_dict.items():
+                    if tracker_count == 0:
+                        continue  # Skip zero counts
+                    if tracker_name in tracker_mapping:
+                        formatted_name = tracker_mapping[tracker_name]
+                        filtered_trackers.append(f"{formatted_name}:{tracker_count}")
                 
                 # Use pipe delimiter for TRACKERS_ALL
-                trackers_all = " | ".join([f"{tracker.get('name', 'N/A')}:{tracker.get('count', 0)}" for tracker in filtered_trackers]) if filtered_trackers else 'N/A'
+                trackers_all = " | ".join(filtered_trackers) if filtered_trackers else 'N/A'
                 
                 topics = call_data['call_metadata'].get('content', {}).get('topics', [])
                 pricing_duration = next((topic.get('duration', 0) for topic in topics if topic.get('name') == 'Pricing'), 0)
@@ -509,7 +526,6 @@ if process_button:
                     csv_safe_value(call_brief),
                     csv_safe_value(key_points_str)
                 ]
-                # Debug print to check the title value after adding to summary_row
                 print(f"Step 2 - CALL_ID: {call_id}, CALL_TITLE in summary_row: {summary_row[2]}")
                 summary_rows.append(summary_row)
 
@@ -518,13 +534,11 @@ if process_button:
             for row in summary_rows:
                 summary_csv_lines.append(','.join(row))
             summary_csv_data = '\n'.join(summary_csv_lines)
-            # Debug print to check the first few lines of the CSV
             print(f"Step 3 - First few lines of summary_csv_data:\n{summary_csv_data.split('\n')[0]}\n{summary_csv_data.split('\n')[1]}")
             st.session_state.processed_data["summary_csv"] = summary_csv_data
 
             # Store the Summary table data in session state
             df = pd.DataFrame([row for row in summary_rows[1:]], columns=summary_headers)
-            # Debug print to check the DataFrame
             print(f"Step 4 - DataFrame CALL_TITLE for first row: {df['CALL_TITLE'].iloc[0]}")
             st.session_state.processed_data["summary_df"] = df
 
