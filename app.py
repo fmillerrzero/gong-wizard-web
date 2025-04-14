@@ -201,7 +201,7 @@ if process_button:
                 }
                 r = session.post(f"{BASE_URL}/v2/calls/extensive", headers={"Content-Type": "application/json"}, json=request_body, auth=auth, timeout=60)
                 if r.status_code != 200:
-                    status.error(f"Error fetching metadata: {r.status_code} - {resp.text}")
+                    status.error(f"Error fetching metadata: {r.status_code} - {r.text}")
                     st.stop()
                 calls_data = r.json().get("calls", [])
                 call_metadata = {call_data["metaData"]["id"]: call_data for call_data in calls_data if "metaData" in call_data and "id" in call_data["metaData"]}
@@ -255,22 +255,12 @@ if process_button:
                 call_data['industry_normalized'] = normalized_industry
                 call_data['account_normalized'] = normalized_account
 
-            # Save JSON (Edit 1: Add download button)
+            # Save JSON
             status.info("Saving JSON...")
             date_range = f"{config['from_date'].replace('-', '')}-{config['to_date'].replace('-', '')}"
             json_path = f"JSON_gong_data_{date_range}.json"
             with open(json_path, 'w', encoding='utf-8') as f:
                 json.dump(full_data, f, indent=4)
-
-            # Add download button for JSON (Edit 1)
-            with open(json_path, 'r') as file:
-                json_data = file.read()
-            st.download_button(
-                label="Download Full Transcript JSON",
-                data=json_data,
-                file_name=json_path,
-                mime="application/json",
-            )
 
             # Save quality CSV
             status.info("Saving quality CSV...")
@@ -362,7 +352,7 @@ if process_button:
             st.subheader("Call Summary")
             st.dataframe(df)
             
-            # Download button for summary CSV
+            # Download buttons in the desired order
             with open(summary_csv_path, 'r') as file:
                 csv_data = file.read()
             st.download_button(
@@ -372,7 +362,6 @@ if process_button:
                 mime="text/csv",
             )
 
-            # Download button for quality CSV
             with open(quality_csv_path, 'r') as file:
                 csv_data = file.read()
             st.download_button(
@@ -380,6 +369,15 @@ if process_button:
                 data=csv_data,
                 file_name=quality_csv_path,
                 mime="text/csv",
+            )
+
+            with open(json_path, 'r') as file:
+                json_data = file.read()
+            st.download_button(
+                label="Download Full Transcript JSON",
+                data=json_data,
+                file_name=json_path,
+                mime="application/json",
             )
 
             # Save fetch stats
