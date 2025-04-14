@@ -379,9 +379,9 @@ if process_button:
                 call_id = call_data['call_id']
                 short_call_id = call_data['short_call_id']
                 meta = call_data['call_metadata'].get('metaData', {})
-                title = meta.get('title', 'N/A')
+                call_title = meta.get('title', 'N/A')  # Renamed to avoid shadowing
                 # Debug print to check the title value after extraction
-                print(f"Step 1 - CALL_ID: {call_id}, CALL_TITLE after extraction: {title}")
+                print(f"Step 1 - CALL_ID: {call_id}, CALL_TITLE after extraction: {call_title}")
                 started = meta.get('started', 'N/A')
                 call_date = 'N/A'
                 if started != 'N/A':
@@ -419,15 +419,15 @@ if process_button:
                         continue  # Skip participants without a speakerId
                     speaker_id = party.get('speakerId')
                     name = party.get('name', 'N/A')
-                    title = party.get('title', 'Unknown')
+                    participant_title = party.get('title', 'Unknown')  # Use a different variable name to avoid shadowing
                     affiliation = party.get('affiliation', 'Unknown')
                     talk_time = talk_times.get(speaker_id, 0)
                     
                     # Format the participant string
-                    if title == 'Unknown' or title == 'N/A':
+                    if participant_title == 'Unknown' or participant_title == 'N/A':
                         participant_str = name
                     else:
-                        participant_str = f"{name} ({title})"
+                        participant_str = f"{name} ({participant_title})"
                     
                     participant_info = {
                         'participant_str': participant_str,
@@ -485,7 +485,7 @@ if process_button:
                 summary_row = [
                     csv_safe_value(call_id),
                     csv_safe_value(short_call_id),
-                    csv_safe_value(title),
+                    csv_safe_value(call_title),
                     csv_safe_value(started),
                     csv_safe_value(call_date),
                     csv_safe_value(duration),
