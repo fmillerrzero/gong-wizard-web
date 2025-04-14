@@ -1,4 +1,110 @@
-# Main processing (webhook mode removed, Edit 3)
+import streamlit as st
+import requests
+import json
+import csv
+import os
+import time
+from datetime import datetime, timedelta
+import pandas as pd
+from fuzzywuzzy import fuzz
+from urllib.parse import urlparse
+
+# App header
+st.title("Gong Wizard")
+st.write("Process your Gong call data")
+
+# Sidebar with configuration
+with st.sidebar:
+    st.header("Configuration")
+    access_key = st.text_input("Gong Access Key", type="password")
+    secret_key = st.text_input("Gong Secret Key", type="password")
+
+    # Quick date range selection dropdown
+    date_range_options = ["Last 7 days", "Last 30 days", "Last 90 days"]
+    today = datetime.today().date()  # Calculate once at the start
+
+    # Initialize session state
+    if "start_date" not in st.session_state:
+        st.session_state.start_date = today - timedelta(days=7)
+    if "end_date" not in st.session_state:
+        st.session_state.end_date = today
+
+    # Callback to update dates when dropdown changes
+    def update_dates():
+        selected = st.session_state.quick_range
+        if selected == "Last 7 days":
+            st.session_state.start_date = today - timedelta(days=7)
+            st.session_state.end_date = today
+        elif selected == "Last 30 days":
+            st.session_state.start_date = today - timedelta(days=30)
+            st.session_state.end_date = today
+        elif selected == "Last 90 days":
+            st.session_state.start_date = today - timedelta(days=90)
+            st.session_state.end_date = today
+
+    # Dropdown with callback
+    st.selectbox("Quick Date Range", date_range_options, 
+                 index=0,  # Default to "Last 7 days"
+                 key="quick_range", 
+                 on_change=update_dates)
+
+    # Date input fields
+    start_date = st.date_input("From Date", value=st.session_state.start_date, key="from_date")
+    end_date = st.date_input("To Date", value=st.session_state.end_date, key="to_date")
+
+    # Update session state if dates are manually edited
+    st.session_state.start_date = start_date
+    st.session_state.end_date = end_date
+
+    process_button = st.button("Process Data", type="primary")
+
+# Load mapping files
+def load_normalized_orgs():
+    try:
+        with open("normalized_orgs.csv", newline='', encoding='utf-8') as csvfile:
+            return list(csv.DictReader(csvfile))
+    except:
+        return []
+
+def load_industry_mapping():
+    try:
+        with open("industry_mapping.csv", newline='', encoding='utf-8') as csvfile:
+            return {row["Industry (API)"]: row["Industry (Normalized)"] for row in csv.DictReader(csvfile)}
+    except:
+        return {}
+
+normalized_orgs = load_normalized_orgs()
+industry_mapping = load_industry_mapping()
+
+# Normalize orgs and industries
+def normalize_org(account_name, website, industry_api):
+    domain = urlparse(website).netloc.lower() if website and website != 'N/A' else ''
+    for org in normalized_orgs:
+        if domain and org.get("Primary external org domain", "").lower() == domain:
+            return org.get("Org name", account_name), org.get("FINAL", industry_api), industry_api
+    
+    best_match = None
+    highest_score = 0
+    for org in normalized_orgs:
+        score = fuzz.token_sort_ratio(account_name.lower(), org.get("Org name", "").lower())
+        if score > highest_score and score > 80:
+            highest_score = score
+            best_match = org
+    
+    if best_match:
+        return best_match.get("Org name", account_name), best_match.get("FINAL", industry_api), industry_api
+    
+    for org in normalized_orgs:
+        if industry_api == org.get("FINAL"):
+            return account_name, industry_api, industry_api
+    
+    normalized_industry = industry_mapping.get(industry_api, None)
+    if normalized_industry:
+        return account_name, normalized_industry, industry_api
+    
+    return account_name, industry_api, industry_api
+
+# Main processing logic
 if process_button:
     if not access_key or not secret_key:
         st.error("Please enter your Gong API credentials.")
@@ -12,7 +118,7 @@ if process_button:
         "output_folder": ".",
         "excluded_topics": ["Call Setup", "Small Talk", "Wrap-up"],
         "excluded_affiliations": ["Internal"],
-        "min_word_count": 8  # Update 5: Changed from 5 to 8
+        "min_word_count": 8
     }
     
     status_container = st.container()
@@ -290,7 +396,7 @@ if process_button:
             st.subheader("Call Summary")
             st.dataframe(df)
             
-            # Download buttons in the desired order
+            # Download buttons
             with open(summary_csv_path, 'r') as file:
                 csv_data = file.read()
             st.download_button(
@@ -332,3 +438,5 @@ if process_button:
         except Exception as e:
             status.error(f"Error during processing: {str(e)}")
             st.error(f"An error occurred: {str(e)}")
+    # Close the with status_container block
+# Close the if process_button block
