@@ -21,7 +21,7 @@ if "processed_data" not in st.session_state:
         "utterances_csv": None,
         "start_date_str": None,
         "end_date_str": None,
-        "summary_df": None  # New: Store the DataFrame for the Summary table
+        "summary_df": None
     }
 if "data_processed" not in st.session_state:
     st.session_state.data_processed = False
@@ -390,7 +390,29 @@ if process_button:
                 internal_speakers = len(set(utterance.get('speakerId') for utterance in call_data.get('utterances', []) if utterance.get('speakerId') in [party.get('speakerId') for party in parties if party.get('affiliation') == 'Internal']))
                 external_speakers = len(set(utterance.get('speakerId') for utterance in call_data.get('utterances', []) if utterance.get('speakerId') in [party.get('speakerId') for party in parties if party.get('affiliation') == 'External']))
                 trackers = call_data['call_metadata'].get('content', {}).get('trackers', [])
-                trackers_all = ";".join([f"{tracker.get('name', 'N/A')}:{tracker.get('count', 0)}" for tracker in trackers]) if trackers else 'N/A'
+                
+                # Update 7: Merge TRACKER: COMPETITION and TRACKER: R-ZERO COMPETITORS
+                competition_count = 0
+                rzero_competitors_count = 0
+                filtered_trackers = []
+                for tracker in trackers:
+                    tracker_name = tracker.get('name', 'N/A')
+                    tracker_count = tracker.get('count', 0)
+                    if tracker_name == "Competition":
+                        competition_count = tracker_count
+                        continue  # Skip adding this tracker to the list
+                    elif tracker_name == "R-Zero competitors":
+                        rzero_competitors_count = tracker_count
+                        continue  # Skip adding this tracker to the list
+                    filtered_trackers.append(tracker)
+                
+                # Add the merged tracker
+                merged_count = competition_count + rzero_competitors_count
+                filtered_trackers.append({"name": "TRACKER: COMPETITION_MERGED", "count": merged_count})
+                
+                # Update 8: Use pipe delimiter for TRACKERS_ALL
+                trackers_all = " | ".join([f"{tracker.get('name', 'N/A')}:{tracker.get('count', 0)}" for tracker in filtered_trackers]) if filtered_trackers else 'N/A'
+                
                 topics = call_data['call_metadata'].get('content', {}).get('topics', [])
                 pricing_duration = next((topic.get('duration', 0) for topic in topics if topic.get('name') == 'Pricing'), 0)
                 next_steps_duration = next((topic.get('duration', 0) for topic in topics if topic.get('name') == 'Next Steps'), 0)
