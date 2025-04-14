@@ -362,7 +362,9 @@ if process_button:
                 call_id = call_data['call_id']
                 short_call_id = call_data['short_call_id']
                 meta = call_data['call_metadata'].get('metaData', {})
-                title = meta.get('title', 'N/A')  # Ensure we get the correct title
+                title = meta.get('title', 'N/A')
+                # Debug print to check the title value
+                print(f"CALL_ID: {call_id}, CALL_TITLE: {title}")
                 started = meta.get('started', 'N/A')
                 call_date = 'N/A'
                 if started != 'N/A':
