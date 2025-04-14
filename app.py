@@ -362,10 +362,11 @@ if process_button:
                 call_id = call_data['call_id']
                 short_call_id = call_data['short_call_id']
                 meta = call_data['call_metadata'].get('metaData', {})
-                title = meta.get('title', 'N/A')
+                # Ensure title is correctly extracted and converted to string
+                title = str(meta.get('title', 'N/A'))
                 # Debug print to check the title value
                 print(f"CALL_ID: {call_id}, CALL_TITLE: {title}")
-                started = meta.get('started', 'N/A')
+                started = str(meta.get('started', 'N/A'))
                 call_date = 'N/A'
                 if started != 'N/A':
                     try:
@@ -373,18 +374,18 @@ if process_button:
                         call_date = call_date_obj.strftime("%Y-%m-%d")
                     except ValueError:
                         call_date = 'N/A'
-                duration = meta.get('duration', 'N/A')
-                meeting_url = meta.get('meetingUrl', 'N/A')
-                normalized_account = call_data.get('account_normalized', 'N/A')
-                normalized_industry = call_data.get('industry_normalized', 'Unknown')
+                duration = str(meta.get('duration', 'N/A'))
+                meeting_url = str(meta.get('meetingUrl', 'N/A'))
+                normalized_account = str(call_data.get('account_normalized', 'N/A'))
+                normalized_industry = str(call_data.get('industry_normalized', 'Unknown'))
                 account_context = next((ctx for ctx in call_data['call_metadata'].get('context', []) if any(obj.get('objectType') == 'Account' for obj in ctx.get('objects', []))), {})
-                website = next((field.get('value', 'N/A') for obj in account_context.get('objects', []) for field in obj.get('fields', []) if field.get('name') == 'Website'), 'N/A')
+                website = str(next((field.get('value', 'N/A') for obj in account_context.get('objects', []) for field in obj.get('fields', []) if field.get('name') == 'Website'), 'N/A'))
                 opportunity = next((obj for obj in account_context.get('objects', []) if obj.get('objectType') == 'Opportunity'), {})
-                opportunity_name = next((field.get('value', 'N/A') for field in opportunity.get('fields', []) if field.get('name') == 'Name'), 'N/A')
-                lead_source = next((field.get('value', 'N/A') for field in opportunity.get('fields', []) if field.get('name') == 'LeadSource'), 'N/A')
-                opportunity_type = next((field.get('value', 'N/A') for field in opportunity.get('fields', []) if field.get('name') == 'Type'), 'N/A')
-                deal_stage = next((field.get('value', 'N/A') for field in opportunity.get('fields', []) if field.get('name') == 'StageName'), 'N/A')
-                forecast_category = next((field.get('value', 'N/A') for field in opportunity.get('fields', []) if field.get('name') == 'ForecastCategoryName'), 'N/A')
+                opportunity_name = str(next((field.get('value', 'N/A') for field in opportunity.get('fields', []) if field.get('name') == 'Name'), 'N/A'))
+                lead_source = str(next((field.get('value', 'N/A') for field in opportunity.get('fields', []) if field.get('name') == 'LeadSource'), 'N/A'))
+                opportunity_type = str(next((field.get('value', 'N/A') for field in opportunity.get('fields', []) if field.get('name') == 'Type'), 'N/A'))
+                deal_stage = str(next((field.get('value', 'N/A') for field in opportunity.get('fields', []) if field.get('name') == 'StageName'), 'N/A'))
+                forecast_category = str(next((field.get('value', 'N/A') for field in opportunity.get('fields', []) if field.get('name') == 'ForecastCategoryName'), 'N/A'))
                 
                 # Format INTERNAL_PARTICIPANTS and EXTERNAL_PARTICIPANTS
                 parties = call_data['call_metadata'].get('parties', [])
@@ -460,21 +461,21 @@ if process_button:
                 trackers_all = " | ".join([f"{tracker.get('name', 'N/A')}:{tracker.get('count', 0)}" for tracker in filtered_trackers]) if filtered_trackers else 'N/A'
                 
                 topics = call_data['call_metadata'].get('content', {}).get('topics', [])
-                pricing_duration = next((topic.get('duration', 0) for topic in topics if topic.get('name') == 'Pricing'), 0)
-                next_steps_duration = next((topic.get('duration', 0) for topic in topics if topic.get('name') == 'Next Steps'), 0)
-                call_brief = call_data['call_metadata'].get('content', {}).get('brief', 'N/A')
+                pricing_duration = str(next((topic.get('duration', 0) for topic in topics if topic.get('name') == 'Pricing'), 0))
+                next_steps_duration = str(next((topic.get('duration', 0) for topic in topics if topic.get('name') == 'Next Steps'), 0))
+                call_brief = str(call_data['call_metadata'].get('content', {}).get('brief', 'N/A'))
                 key_points = call_data['call_metadata'].get('content', {}).get('keyPoints', [])
-                key_points_str = ";".join([point.get('text', 'N/A') for point in key_points]) if key_points else 'N/A'
+                key_points_str = ";".join([str(point.get('text', 'N/A')) for point in key_points]) if key_points else 'N/A'
                 summary_row = [
-                    f'"{call_id}"', str(short_call_id), str(title), str(started), str(call_date),
-                    str(duration), str(meeting_url), str(website),
-                    str(normalized_account), str(normalized_industry),
-                    str(opportunity_name), str(lead_source), str(opportunity_type),
-                    str(deal_stage), str(forecast_category),
-                    str(external_participants), str(internal_participants),
+                    f'"{call_id}"', str(short_call_id), title, started, str(call_date),
+                    duration, meeting_url, website,
+                    normalized_account, normalized_industry,
+                    opportunity_name, lead_source, opportunity_type,
+                    deal_stage, forecast_category,
+                    external_participants, internal_participants,
                     str(total_speakers), str(internal_speakers), str(external_speakers),
-                    str(trackers_all), str(pricing_duration), str(next_steps_duration),
-                    str(call_brief), str(key_points_str)
+                    trackers_all, pricing_duration, next_steps_duration,
+                    call_brief, key_points_str
                 ]
                 summary_rows.append(summary_row)
 
