@@ -94,7 +94,6 @@ def normalize_org(account_name, website, industry_api):
     if best_match:
         return best_match.get("Org name", account_name), best_match.get("FINAL", industry_api), industry_api
     
-    # Add the "FINAL" check with industry_api as in OLD_gong_wizard_extensive_final.py
     for org in normalized_orgs:
         if industry_api == org.get("FINAL"):
             return account_name, industry_api, industry_api
@@ -273,11 +272,12 @@ if process_button:
             quality_csv_path = f"utterances_gong_{start_date_str}_to_{end_date_str}.csv"
             with open(quality_csv_path, 'w', newline='', encoding='utf-8') as csvfile:
                 csv_writer = csv.writer(csvfile, quoting=csv.QUOTE_MINIMAL)
+                # --- Update 13: Add TOPIC, exclude SPEAKER_AFFILIATION ---
                 headers = [
                     'CALL_ID', 'SHORT_CALL_ID', 'CALL_TITLE', 'CALL_DATE', 
                     'ACCOUNT_NORMALIZED', 'INDUSTRY_NORMALIZED', 
-                    'SPEAKER_JOB_TITLE',  # Update 9: Removed SPEAKER_NAME
-                    'UTTERANCE_DURATION', 'UTTERANCE_TEXT'
+                    'SPEAKER_JOB_TITLE', 'UTTERANCE_DURATION', 'UTTERANCE_TEXT',
+                    'TOPIC'
                 ]
                 csv_writer.writerow(headers)
                 for call_data in full_data:
@@ -311,11 +311,14 @@ if process_button:
                             utterance_duration = int(end_time) - int(start_time)
                         except (ValueError, TypeError):
                             utterance_duration = 'N/A'
+                        # --- Update 13: Add TOPIC ---
+                        topic = utterance.get('topic', 'N/A')  # Use 'N/A' if topic is null
                         row = [
                             f'"{call_id}"', str(short_call_id), str(call_title), str(call_date),
                             str(normalized_account), str(normalized_industry),
                             str(speaker['title']),
-                            str(utterance_duration), str(utterance_text)
+                            str(utterance_duration), str(utterance_text),
+                            str(topic)
                         ]
                         csv_writer.writerow(row)
 
@@ -324,10 +327,17 @@ if process_button:
             summary_csv_path = f"summary_gong_{start_date_str}_to_{end_date_str}.csv"
             with open(summary_csv_path, 'w', newline='', encoding='utf-8') as summary_file:
                 summary_writer = csv.writer(summary_file, quoting=csv.QUOTE_MINIMAL)
-                # --- Modified: Remove ACCOUNT_NAME and INDUSTRY_API ---
+                # --- Update 13 & 6: Add new fields to Summary CSV ---
                 summary_headers = [
-                    'CALL_ID', 'SHORT_CALL_ID', 'CALL_TITLE', 'CALL_START_TIME', 'DURATION', 'MEETING_URL',
-                    'ACCOUNT_NORMALIZED', 'INDUSTRY_NORMALIZED'
+                    'CALL_ID', 'SHORT_CALL_ID', 'CALL_TITLE', 'CALL_START_TIME', 'CALL_DATE',  # Update 6: Added CALL_DATE
+                    'DURATION', 'MEETING_URL', 'WEBSITE',  # Update 6: Added WEBSITE
+                    'ACCOUNT_NORMALIZED', 'INDUSTRY_NORMALIZED',
+                    'OPPORTUNITY_NAME', 'LEAD_SOURCE', 'OPPORTUNITY_TYPE',  # Update 13: Added
+                    'DEAL_STAGE', 'FORECAST_CATEGORY',  # Update 6: Added
+                    'EXTERNAL_PARTICIPANTS', 'INTERNAL_PARTICIPANTS',  # Update 6: Added
+                    'TOTAL_SPEAKERS', 'INTERNAL_SPEAKERS', 'EXTERNAL_SPEAKERS',  # Update 6: Added
+                    'TRACKERS_ALL', 'PRICING_DURATION', 'NEXT_STEPS_DURATION',  # Update 6: Added
+                    'CALL_BRIEF', 'KEY_POINTS'  # Update 6: Added
                 ]
                 summary_writer.writerow(summary_headers)
                 for call_data in full_data:
@@ -336,13 +346,57 @@ if process_button:
                     meta = call_data['call_metadata'].get('metaData', {})
                     title = meta.get('title', 'N/A')
                     started = meta.get('started', 'N/A')
+                    # --- Update 6: Add CALL_DATE (formatted as YYYY-MM-DD) ---
+                    call_date = 'N/A'
+                    if started != 'N/A':
+                        try:
+                            call_date_obj = datetime.fromisoformat(started.replace('Z', '+00:00'))
+                            call_date = call_date_obj.strftime("%Y-%m-%d")
+                        except ValueError:
+                            call_date = 'N/A'
                     duration = meta.get('duration', 'N/A')
                     meeting_url = meta.get('meetingUrl', 'N/A')
                     normalized_account = call_data.get('account_normalized', 'N/A')
                     normalized_industry = call_data.get('industry_normalized', 'Unknown')
+                    # --- Update 6: Add WEBSITE ---
+                    account_context = next((ctx for ctx in call_data['call_metadata'].get('context', []) if any(obj.get('objectType') == 'Account' for obj in ctx.get('objects', []))), {})
+                    website = next((field.get('value', 'N/A') for obj in account_context.get('objects', []) for field in obj.get('fields', []) if field.get('name') == 'Website'), 'N/A')
+                    # --- Update 13: Add OPPORTUNITY_NAME, LEAD_SOURCE, OPPORTUNITY_TYPE ---
+                    opportunity = next((obj for obj in account_context.get('objects', []) if obj.get('objectType') == 'Opportunity'), {})
+                    opportunity_name = next((field.get('value', 'N/A') for field in opportunity.get('fields', []) if field.get('name') == 'Name'), 'N/A')
+                    lead_source = next((field.get('value', 'N/A') for field in opportunity.get('fields', []) if field.get('name') == 'LeadSource'), 'N/A')
+                    opportunity_type = next((field.get('value', 'N/A') for field in opportunity.get('fields', []) if field.get('name') == 'Type'), 'N/A')
+                    # --- Update 6: Add DEAL_STAGE, FORECAST_CATEGORY ---
+                    deal_stage = next((field.get('value', 'N/A') for field in opportunity.get('fields', []) if field.get('name') == 'StageName'), 'N/A')
+                    forecast_category = next((field.get('value', 'N/A') for field in opportunity.get('fields', []) if field.get('name') == 'ForecastCategoryName'), 'N/A')
+                    # --- Update 6: Add participant and speaker counts ---
+                    parties = call_data['call_metadata'].get('parties', [])
+                    external_participants = sum(1 for party in parties if party.get('affiliation') == 'External')
+                    internal_participants = sum(1 for party in parties if party.get('affiliation') == 'Internal')
+                    total_speakers = len(set(utterance.get('speakerId') for utterance in call_data.get('utterances', []) if utterance.get('speakerId')))
+                    internal_speakers = len(set(utterance.get('speakerId') for utterance in call_data.get('utterances', []) if utterance.get('speakerId') in [party.get('speakerId') for party in parties if party.get('affiliation') == 'Internal']))
+                    external_speakers = len(set(utterance.get('speakerId') for utterance in call_data.get('utterances', []) if utterance.get('speakerId') in [party.get('speakerId') for party in parties if party.get('affiliation') == 'External']))
+                    # --- Update 6: Add TRACKERS_ALL ---
+                    trackers = call_data['call_metadata'].get('content', {}).get('trackers', [])
+                    trackers_all = ";".join([f"{tracker.get('name', 'N/A')}:{tracker.get('count', 0)}" for tracker in trackers]) if trackers else 'N/A'
+                    # --- Update 6: Add PRICING_DURATION, NEXT_STEPS_DURATION ---
+                    topics = call_data['call_metadata'].get('content', {}).get('topics', [])
+                    pricing_duration = next((topic.get('duration', 0) for topic in topics if topic.get('name') == 'Pricing'), 0)
+                    next_steps_duration = next((topic.get('duration', 0) for topic in topics if topic.get('name') == 'Next Steps'), 0)
+                    # --- Update 6: Add CALL_BRIEF, KEY_POINTS ---
+                    call_brief = call_data['call_metadata'].get('content', {}).get('brief', 'N/A')
+                    key_points = call_data['call_metadata'].get('content', {}).get('keyPoints', [])
+                    key_points_str = ";".join([point.get('text', 'N/A') for point in key_points]) if key_points else 'N/A'
                     summary_row = [
-                        f'"{call_id}"', str(short_call_id), str(title), str(started), str(duration), str(meeting_url),
-                        str(normalized_account), str(normalized_industry)
+                        f'"{call_id}"', str(short_call_id), str(title), str(started), str(call_date),
+                        str(duration), str(meeting_url), str(website),
+                        str(normalized_account), str(normalized_industry),
+                        str(opportunity_name), str(lead_source), str(opportunity_type),
+                        str(deal_stage), str(forecast_category),
+                        str(external_participants), str(internal_participants),
+                        str(total_speakers), str(internal_speakers), str(external_speakers),
+                        str(trackers_all), str(pricing_duration), str(next_steps_duration),
+                        str(call_brief), str(key_points_str)
                     ]
                     summary_writer.writerow(summary_row)
 
