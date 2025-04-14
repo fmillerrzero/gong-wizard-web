@@ -24,38 +24,33 @@ with st.sidebar:
     today = datetime.today().date()  # Calculate once at the start
 
     # Initialize session state
-    if "selected_range" not in st.session_state:
-        st.session_state.selected_range = "Last 7 days"
+    if "start_date" not in st.session_state:
         st.session_state.start_date = today - timedelta(days=7)
+    if "end_date" not in st.session_state:
         st.session_state.end_date = today
-    if "date_key" not in st.session_state:
-        st.session_state.date_key = 0
 
-    # Dropdown for quick date ranges
-    selected_range = st.selectbox("Quick Date Range", date_range_options, 
-                                  index=date_range_options.index(st.session_state.selected_range),
-                                  key="quick_range")
-
-    # Update dates when dropdown selection changes
-    if selected_range != st.session_state.selected_range:
-        st.session_state.selected_range = selected_range
-        if selected_range == "Last 7 days":
+    # Callback to update dates when dropdown changes
+    def update_dates():
+        selected = st.session_state.quick_range
+        if selected == "Last 7 days":
             st.session_state.start_date = today - timedelta(days=7)
             st.session_state.end_date = today
-        elif selected_range == "Last 30 days":
+        elif selected == "Last 30 days":
             st.session_state.start_date = today - timedelta(days=30)
             st.session_state.end_date = today
-        elif selected_range == "Last 90 days":
+        elif selected == "Last 90 days":
             st.session_state.start_date = today - timedelta(days=90)
             st.session_state.end_date = today
-        # Increment date_key to force date_input widgets to refresh
-        st.session_state.date_key += 1
 
-    # Date input fields with unique keys to force refresh
-    start_date = st.date_input("From Date", value=st.session_state.start_date, 
-                               key=f"from_date_{st.session_state.date_key}")
-    end_date = st.date_input("To Date", value=st.session_state.end_date, 
-                             key=f"to_date_{st.session_state.date_key}")
+    # Dropdown with callback
+    st.selectbox("Quick Date Range", date_range_options, 
+                 index=0,  # Default to "Last 7 days"
+                 key="quick_range", 
+                 on_change=update_dates)
+
+    # Date input fields
+    start_date = st.date_input("From Date", value=st.session_state.start_date, key="from_date")
+    end_date = st.date_input("To Date", value=st.session_state.end_date, key="to_date")
 
     # Update session state if dates are manually edited
     st.session_state.start_date = start_date
