@@ -20,7 +20,8 @@ if "processed_data" not in st.session_state:
         "summary_csv": None,
         "utterances_csv": None,
         "start_date_str": None,
-        "end_date_str": None
+        "end_date_str": None,
+        "summary_df": None  # New: Store the DataFrame for the Summary table
     }
 if "data_processed" not in st.session_state:
     st.session_state.data_processed = False
@@ -416,10 +417,9 @@ if process_button:
             summary_csv_data = '\n'.join(summary_csv_lines)
             st.session_state.processed_data["summary_csv"] = summary_csv_data
 
-            # Display the summary CSV
+            # Store the Summary table data in session state
             df = pd.DataFrame([row for row in summary_rows[1:]], columns=summary_headers)
-            st.subheader("Call Summary")
-            st.dataframe(df)
+            st.session_state.processed_data["summary_df"] = df
 
             # Save fetch stats
             fetch_stats = {
@@ -437,6 +437,11 @@ if process_button:
         except Exception as e:
             status.error(f"Error during processing: {str(e)}")
             st.error(f"An error occurred: {str(e)}")
+
+# Display the Summary table if data is processed
+if st.session_state.data_processed and st.session_state.processed_data["summary_df"] is not None:
+    st.subheader("Call Summary")
+    st.dataframe(st.session_state.processed_data["summary_df"])
 
 # Display download buttons only if data is processed
 if st.session_state.data_processed:
