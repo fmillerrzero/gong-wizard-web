@@ -249,7 +249,7 @@ def apply_filters(df, selected_industries, selected_products, unique_industries,
     include_mask = pd.Series(True, index=df.index)
 
     # Apply Industry filter if specific industries are selected
-   reza    if selected_industries:
+    if selected_industries:
         industry_mask = df['INDUSTRY_NORMALIZED'].fillna('Unknown').str.lower().isin([ind.lower() for ind in selected_industries])
         # Always include unknown values
         unknown_mask = (
