@@ -8,11 +8,9 @@ from datetime import datetime, timedelta
 import pandas as pd
 from fuzzywuzzy import fuzz
 from urllib.parse import urlparse
-import logging
 
 # App header
 st.title("Gong Wizard")
-st.write("Process your Gong call data")
 
 # Initialize session state for storing processed data
 if "processed_data" not in st.session_state:
@@ -27,19 +25,16 @@ if "processed_data" not in st.session_state:
     }
 if "data_processed" not in st.session_state:
     st.session_state.data_processed = False
-# Initialize session state for filter selections
-if "selected_industries" not in st.session_state:
-    st.session_state.selected_industries = []
-if "selected_products" not in st.session_state:
-    st.session_state.selected_products = []
+if "industry_selections" not in st.session_state:
+    st.session_state.industry_selections = []
+if "product_selections" not in st.session_state:
+    st.session_state.product_selections = []
 
 # Sidebar with configuration
 with st.sidebar:
-    st.header("Configuration")
     access_key = st.text_input("Gong Access Key", type="password")
     secret_key = st.text_input("Gong Secret Key", type="password")
 
-    # Quick date range selection dropdown
     date_range_options = ["Last 7 days", "Last 30 days", "Last 90 days"]
     today = datetime.today().date()
 
@@ -102,82 +97,91 @@ with st.sidebar:
 
     unique_products, account_products = load_products()
 
-    # Load categorized dropdown mappings from Industry UI - Sheet17.csv
-    def load_industry_ui_mapping():
-        try:
-            with open("Industry UI - Sheet17.csv", newline='', encoding='utf-8') as csvfile:
-                reader = list(csv.DictReader(csvfile))
-                # Group by category
-                categories = {}
-                ui_to_backend = {}
-                for row in reader:
-                    category = row["Category"]
-                    ui_industry = row["Industry (UI)"]
-                    backend_industry = row["Industry (CSVs)"]
-                    if category not in categories:
-                        categories[category] = []
-                    categories[category].append(ui_industry)
-                    ui_to_backend[ui_industry] = backend_industry
-                # Sort categories and industries for consistent display
-                sorted_categories = sorted(categories.keys())
-                category_options = {cat: sorted(categories[cat]) for cat in sorted_categories}
-                return category_options, ui_to_backend
-        except:
-            return {}, {}
+    # Hardcode category groupings with priority order and renamed categories
+    category_options = {
+        "CRE": ["Energy", "Industrial", "Real Estate", "Real Estate (Architecture)", "Real Estate (Development)", "Real Estate (Facilities)", "Real Estate (Investment)", "Real Estate (Services)"],
+        "Commercial": ["Entertainment", "Financial Services", "Legal Services", "Professional Services", "Retail"],
+        "Tech": ["Technology", "Information Services"],
+        "Healthcare": ["Healthcare", "Senior Care"],
+        "Public": ["Education", "Government", "Not For Profit"]
+    }
 
-    category_options, ui_to_backend = load_industry_ui_mapping()
+    ui_to_backend = {
+        "Energy": "Energy",
+        "Industrial": "Industrial",
+        "Real Estate": "Real Estate",
+        "Real Estate (Architecture)": "Real Estate (Architecture)",
+        "Real Estate (Development)": "Real Estate (Development)",
+        "Real Estate (Facilities)": "Real Estate (Facilities)",
+        "Real Estate (Investment)": "Real Estate (Investment)",
+        "Real Estate (Services)": "Real Estate (Services)",
+        "Entertainment": "Entertainment",
+        "Financial Services": "Financial Services",
+        "Legal Services": "Legal Services",
+        "Professional Services": "Professional Services",
+        "Retail": "Retail",
+        "Technology": "Technology",
+        "Information Services": "Information Services",
+        "Healthcare": "Healthcare",
+        "Senior Care": "Senior Care",
+        "Education": "Education",
+        "Government": "Government",
+        "Not For Profit": "Not For Profit"
+    }
 
-    # Function to render the categorized multi-select dropdown
-    def render_categorized_industry_dropdown(category_options, ui_to_backend):
-        selected_ui_industries = []
-        st.subheader("Industry")
-        for category, industries in category_options.items():
-            with st.expander(category, expanded=False):
-                # Use a unique key for each multiselect to avoid conflicts
-                selected = st.multiselect(
-                    f"Select from {category}",
-                    options=industries,
-                    key=f"select_{category.replace(' & ', '_').replace(' ', '_').lower()}"
-                )
-                if selected:
-                    selected_ui_industries.extend(selected)
+    # Format industry options with category prefixes
+    formatted_industry_options = ["Select All"]
+    all_ui_industries = []
+    for category, industries in category_options.items():
+        formatted_industry_options.append(f"--- {category} ---")
+        for industry in industries:
+            if industry in unique_industries:  # Only include industries that exist in the data
+                formatted_industry_options.append(f"{category}: {industry}")
+                all_ui_industries.append(industry)
 
-        # Map selected UI industries to backend values
-        selected_industries = [ui_to_backend[ui_industry] for ui_industry in selected_ui_industries]
+    # Industry dropdown with grouped options (no "Unknown" visible)
+    selected_industries = st.multiselect(
+        "Industry",
+        options=formatted_industry_options,
+        default=st.session_state.industry_selections,
+        key="industry_multiselect"
+    )
 
-        # Display selected industries with their categories
-        if selected_ui_industries:
-            st.write("### Selected Industries")
-            selected_data = []
-            for cat, inds in category_options.items():
-                for ind in inds:
-                    if ind in selected_ui_industries:
-                        selected_data.append({"Category": cat, "Industry": ind})
-            if selected_data:
-                df = pd.DataFrame(selected_data)
-                st.dataframe(df, use_container_width=True)
-            st.write(f"Selected: {', '.join(selected_ui_industries)}")
+    # Process selections to handle "Select All" option
+    if "Select All" in selected_industries:
+        selected_industries = [opt for opt in formatted_industry_options if not opt.startswith("---")]
+    elif "Select All" in st.session_state.industry_selections and "Select All" not in selected_industries:
+        selected_industries = []
 
-        return selected_industries
+    # Store selection in session state and map to backend values
+    st.session_state.industry_selections = selected_industries
+    selected_ui_industries = [ind for ind in selected_industries if ind != "Select All"]
+    selected_backend_industries = [ui_to_backend.get(ind.split(": ")[1], ind.split(": ")[1]) for ind in selected_ui_industries]
 
-    # Render the categorized dropdown and get selected industries
-    selected_industries = render_categorized_industry_dropdown(category_options, ui_to_backend)
+    # Product dropdown (no "Unknown" visible)
+    product_options = ["Select All"] + unique_products
 
-    # Add Product dropdown with "All" and "Unknown" options
-    product_options = unique_products.copy()
-    product_options.insert(0, "All")  # Add "All" at the top
-    product_options.append("Unknown")  # Add "Unknown" at the bottom
-    selected_products = st.multiselect("Product", product_options, key="product_filter")
+    selected_products = st.multiselect(
+        "Product",
+        options=product_options,
+        default=st.session_state.product_selections,
+        key="product_multiselect"
+    )
 
-    # Add "Include Unknown Values" checkbox, checked by default
-    include_unknown = st.checkbox("Include Unknown Values", value=True)
+    # Process selections to handle "Select All" option
+    if "Select All" in selected_products:
+        selected_products = unique_products
+    elif "Select All" in st.session_state.product_selections and "Select All" not in selected_products:
+        selected_products = []
 
-    # Add reset button to clear filters
-    if st.button("Reset All Filters"):
-        # Clear all session state keys starting with "select_" (for industries) and "product_filter"
-        for key in list(st.session_state.keys()):
-            if key.startswith("select_") or key == "product_filter":
-                st.session_state[key] = []
+    # Store selection in session state
+    st.session_state.product_selections = selected_products
+    selected_products = [prod for prod in selected_products if prod != "Select All"]
+
+    # Add clear button
+    if st.button("Clear All"):
+        st.session_state.industry_selections = []
+        st.session_state.product_selections = []
         st.experimental_rerun()
 
     process_button = st.button("Process Data", type="primary")
@@ -241,182 +245,57 @@ def format_duration(seconds):
         return "N/A"
 
 # Consolidated filtering function
-def apply_filters(df, selected_industries, selected_products, unique_industries, account_products, include_unknown=True, category_options=None, ui_to_backend=None):
-    """
-    Apply filters to the dataframe with consistent, inclusive behavior.
-    
-    Parameters:
-    - df: DataFrame to filter
-    - selected_industries: List of selected industries (backend values, empty = show all)
-    - selected_products: List of selected products (empty = show all)
-    - unique_industries: List of known industries for logging unmapped values
-    - account_products: Dict of account IDs to products for logging unmapped values
-    - include_unknown: Whether to include unknown values alongside selections
-    - category_options: Dict of categories to UI industries for filter message
-    - ui_to_backend: Dict mapping UI industries to backend values for filter message
-    
-    Returns:
-    - Filtered DataFrame, list of filter message parts
-    """
+def apply_filters(df, selected_industries, selected_products, unique_industries, account_products):
     # Create initial mask with all rows selected
     include_mask = pd.Series(True, index=df.index)
-    filter_message_parts = []
 
-    # Apply Industry filter if specific industries are selected (excluding "All")
-    specific_industries = [ind for ind in selected_industries if ind != "All"]
-    if specific_industries:  # Only apply filter if specific industries are selected
-        if "Unknown" in specific_industries:
-            # Include rows with null, 'N/A', 'Unknown', empty string industries
-            unknown_mask = (
-                df['INDUSTRY_NORMALIZED'].isna() | 
-                df['INDUSTRY_NORMALIZED'].str.lower().isin(['n/a', 'unknown', 'none', ''])
-            )
-            # If other industries are selected alongside "Unknown", include them too
-            if len(specific_industries) > 1:
-                other_industries = [ind for ind in specific_industries if ind != "Unknown"]
-                industry_mask = df['INDUSTRY_NORMALIZED'].fillna('Unknown').str.lower().isin([ind.lower() for ind in other_industries])
-                if include_unknown:
-                    industry_mask = industry_mask | unknown_mask
-                # Create filter message with category information
-                category_messages = {}
-                for ui_industry in selected_ui_industries:
-                    if ui_industry == "Unknown":
-                        continue
-                    backend_industry = ui_to_backend[ui_industry]
-                    if backend_industry in other_industries:
-                        for cat, inds in category_options.items():
-                            if ui_industry in inds:
-                                if cat not in category_messages:
-                                    category_messages[cat] = []
-                                category_messages[cat].append(ui_industry)
-                for cat, inds in category_messages.items():
-                    filter_message_parts.append(f"{cat}: {', '.join(inds)}")
-                if include_unknown:
-                    filter_message_parts.append("Unknown Industries")
-            else:
-                # Only "Unknown" is selected
-                if include_unknown:
-                    industry_mask = unknown_mask
-                    filter_message_parts.append("Unknown Industries")
-                else:
-                    # If "Unknown" is selected but include_unknown is False, show nothing
-                    industry_mask = pd.Series(False, index=df.index)
-                    filter_message_parts.append("None (Unknown Industries excluded)")
-        else:
-            # Specific industries selected, no "Unknown"
-            industry_mask = df['INDUSTRY_NORMALIZED'].fillna('Unknown').str.lower().isin([ind.lower() for ind in specific_industries])
-            if include_unknown:
-                unknown_mask = (
-                    df['INDUSTRY_NORMALIZED'].isna() | 
-                    df['INDUSTRY_NORMALIZED'].str.lower().isin(['n/a', 'unknown', 'none', ''])
-                )
-                industry_mask = industry_mask | unknown_mask
-            # Create filter message with category information
-            category_messages = {}
-            for ui_industry in selected_ui_industries:
-                backend_industry = ui_to_backend[ui_industry]
-                if backend_industry in specific_industries:
-                    for cat, inds in category_options.items():
-                        if ui_industry in inds:
-                            if cat not in category_messages:
-                                category_messages[cat] = []
-                            category_messages[cat].append(ui_industry)
-            for cat, inds in category_messages.items():
-                filter_message_parts.append(f"{cat}: {', '.join(inds)}")
-            if include_unknown:
-                filter_message_parts.append("Unknown Industries")
+    # Apply Industry filter if specific industries are selected
+    if selected_industries:
+        industry_mask = df['INDUSTRY_NORMALIZED'].fillna('Unknown').str.lower().isin([ind.lower() for ind in selected_industries])
+        # Always include unknown values
+        unknown_mask = (
+            df['INDUSTRY_NORMALIZED'].isna() | 
+            df['INDUSTRY_NORMALIZED'].str.lower().isin(['n/a', 'unknown', 'none', ''])
+        )
+        industry_mask = industry_mask | unknown_mask
         include_mask = include_mask & industry_mask
-    else:
-        # Log unmapped industries for future updates
-        unmapped_industries = df['INDUSTRY_NORMALIZED'].fillna('Unknown').str.lower()
-        unmapped_industries = unmapped_industries[~unmapped_industries.isin([ind.lower() for ind in unique_industries])]
-        if not unmapped_industries.empty:
-            st.session_state.unmapped_industries = unmapped_industries.unique().tolist()
-            logging.info(f"Found unmapped industries: {st.session_state.unmapped_industries}")
 
-    # Apply Product filter if specific products are selected (excluding "All")
-    specific_products = [prod for prod in selected_products if prod != "All"]
-    if specific_products:  # Only apply filter if specific products are selected
-        if "Unknown" in specific_products:
-            # Include rows with null, 'N/A', 'Unknown', or empty account IDs
-            unknown_mask = (
-                df['ACCOUNT_ID'].isna() | 
-                df['ACCOUNT_ID'].str.lower().isin(['n/a', 'unknown', 'none', ''])
-            )
-            # If other products are selected alongside "Unknown", include them too
-            if len(specific_products) > 1:
-                other_products = [prod for prod in specific_products if prod != "Unknown"]
-                matching_account_ids = set()
-                for account_id, products in account_products.items():
-                    if any(product in other_products for product in products):
-                        matching_account_ids.add(account_id)
-                product_mask = df['ACCOUNT_ID'].isin(matching_account_ids)
-                if include_unknown:
-                    product_mask = product_mask | unknown_mask
-                filter_message_parts.append(f"Product: {', '.join(other_products)}{' or Unknown' if include_unknown else ''}")
-            else:
-                # Only "Unknown" is selected
-                if include_unknown:
-                    product_mask = unknown_mask
-                    filter_message_parts.append("Product: Unknown")
-                else:
-                    # If "Unknown" is selected but include_unknown is False, show nothing
-                    product_mask = pd.Series(False, index=df.index)
-                    filter_message_parts.append("Product: None (Unknown excluded)")
-        else:
-            # Specific products selected, no "Unknown"
-            matching_account_ids = set()
-            for account_id, products in account_products.items():
-                if any(product in specific_products for product in products):
-                    matching_account_ids.add(account_id)
-            product_mask = df['ACCOUNT_ID'].isin(matching_account_ids)
-            if include_unknown:
-                unknown_mask = (
-                    df['ACCOUNT_ID'].isna() | 
-                    df['ACCOUNT_ID'].str.lower().isin(['n/a', 'unknown', 'none', ''])
-                )
-                product_mask = product_mask | unknown_mask
-            filter_message_parts.append(f"Product: {', '.join(specific_products)}{' or Unknown' if include_unknown else ''}")
+    # Apply Product filter if specific products are selected
+    if selected_products:
+        matching_account_ids = set()
+        for account_id, products in account_products.items():
+            if any(product in selected_products for product in products):
+                matching_account_ids.add(account_id)
+        product_mask = df['ACCOUNT_ID'].isin(matching_account_ids)
+        # Always include unknown values
+        unknown_mask = (
+            df['ACCOUNT_ID'].isna() | 
+            df['ACCOUNT_ID'].str.lower().isin(['n/a', 'unknown', 'none', ''])
+        )
+        product_mask = product_mask | unknown_mask
         include_mask = include_mask & product_mask
-    else:
-        # Log unmapped accounts for future updates
-        unmapped_accounts = df['ACCOUNT_ID'][~df['ACCOUNT_ID'].isin(account_products.keys())]
-        if not unmapped_accounts.empty:
-            st.session_state.unmapped_accounts = unmapped_accounts.unique().tolist()
-            logging.info(f"Found unmapped accounts: {st.session_state.unmapped_accounts}")
 
-    return df[include_mask], filter_message_parts
+    return df[include_mask]
 
 # Main processing logic
 if process_button:
-    if not access_key or not secret_key:
-        st.error("Please enter your Gong API credentials.")
-        st.stop()
-    
-    config = {
-        "access_key": access_key,
-        "secret_key": secret_key,
-        "from_date": start_date.strftime("%Y-%m-%d"),
-        "to_date": end_date.strftime("%Y-%m-%d"),
-        "output_folder": ".",
-        "excluded_topics": ["Call Setup", "Small Talk", "Wrap-up"],
-        "excluded_affiliations": ["Internal"],
-        "min_word_count": 8
-    }
-    
-    status_container = st.container()
-    with status_container:
-        st.subheader("Processing Status")
-        status = st.empty()
+    if access_key and secret_key:
+        config = {
+            "access_key": access_key,
+            "secret_key": secret_key,
+            "from_date": start_date.strftime("%Y-%m-%d"),
+            "to_date": end_date.strftime("%Y-%m-%d"),
+            "output_folder": ".",
+            "excluded_topics": ["Call Setup", "Small Talk", "Wrap-up"],
+            "excluded_affiliations": ["Internal"],
+            "min_word_count": 8
+        }
         
         try:
-            status.info("Starting Gong data fetching process...")
             BASE_URL = "https://us-11211.api.gong.io"
             session = requests.Session()
             auth = (config['access_key'], config['secret_key'])
             
-            # Fetch call list
-            status.info("Fetching call list...")
             all_calls = []
             cursor = None
             params = {
@@ -434,22 +313,16 @@ if process_button:
                     auth=auth, 
                     timeout=30
                 )
-                if resp.status_code != 200:
-                    status.error(f"Error fetching call list: {resp.status_code} - {resp.text}")
-                    st.stop()
+                resp.raise_for_status()
                 data = resp.json()
                 all_calls.extend(data.get("calls", []))
-                status.info(f"Fetched {len(all_calls)} calls so far...")
                 cursor = data.get("records", {}).get("cursor")
                 if not cursor:
                     break
                 time.sleep(1)
             
-            status.success(f"✅ Successfully fetched {len(all_calls)} calls")
             call_ids = [call["id"] for call in all_calls]
 
-            # Fetch detailed metadata and transcripts
-            status.info("Fetching metadata and transcripts...")
             full_data = []
             batch_size = 20
             
@@ -487,9 +360,7 @@ if process_button:
                     }
                 }
                 r = session.post(f"{BASE_URL}/v2/calls/extensive", headers={"Content-Type": "application/json"}, json=request_body, auth=auth, timeout=60)
-                if r.status_code != 200:
-                    status.error(f"Error fetching metadata: {r.status_code} - {r.text}")
-                    st.stop()
+                r.raise_for_status()
                 calls_data = r.json().get("calls", [])
                 call_metadata = {call_data["metaData"]["id"]: call_data for call_data in calls_data if "metaData" in call_data and "id" in call_data["metaData"]}
 
@@ -501,9 +372,7 @@ if process_button:
                     }
                 }
                 transcript_response = session.post(f"{BASE_URL}/v2/calls/transcript", headers={"Content-Type": "application/json"}, json=transcript_request, auth=auth, timeout=60)
-                if transcript_response.status_code != 200:
-                    status.error(f"Error fetching transcripts: {transcript_response.status_code} - {transcript_response.text}")
-                    st.stop()
+                transcript_response.raise_for_status()
                 transcripts_batch = {t["callId"]: t["transcript"] for t in transcript_response.json().get("callTranscripts", [])}
 
                 for call_id in batch:
@@ -535,7 +404,6 @@ if process_button:
                         full_data.append(call_data)
 
             # Normalize orgs
-            status.info("Normalizing organizations...")
             for call_data in full_data:
                 account_context = next((ctx for ctx in call_data['call_metadata'].get('context', []) if any(obj.get('objectType') == 'Account' for obj in ctx.get('objects', []))), {})
                 industry = next((field.get('value', 'N/A') for obj in account_context.get('objects', []) for field in obj.get('fields', []) if field.get('name') == 'Industry'), 'N/A')
@@ -550,7 +418,6 @@ if process_button:
                 call_data['account_normalized'] = meaningful_account
 
             # Save JSON to session state
-            status.info("Preparing JSON data...")
             start_date_str = start_date.strftime("%d%b%y").lower()
             end_date_str = end_date.strftime("%d%b%y").lower()
             json_data = json.dumps(full_data, indent=4)
@@ -559,7 +426,6 @@ if process_button:
             st.session_state.processed_data["end_date_str"] = end_date_str
 
             # Prepare Utterances CSV data
-            status.info("Preparing Utterances CSV...")
             utterances_rows = []
             headers = [
                 'CALL_ID', 'SHORT_CALL_ID', 'CALL_TITLE', 'CALL_DATE', 
@@ -631,7 +497,6 @@ if process_button:
             st.session_state.processed_data["utterances_csv"] = utterances_csv_data
 
             # Prepare Summary CSV data
-            status.info("Preparing Summary CSV...")
             summary_rows = []
             summary_headers = [
                 'CALL_ID', 'SHORT_CALL_ID', 'CALL_TITLE', 'CALL_DATE',
@@ -648,7 +513,6 @@ if process_button:
             ]
             summary_rows.append(summary_headers)
             
-            # Define tracker mapping
             tracker_mapping = {
                 'Competition': {'category': 'Competition', 'topic': 'Competition'},
                 'Differentiation': {'category': 'Competition', 'topic': 'Differentiation'},
@@ -849,54 +713,26 @@ if process_button:
 
             # Mark processing as complete
             st.session_state.data_processed = True
-            status.success("✅ Processing complete!")
             
-        except Exception as e:
-            status.error(f"Error during processing: {str(e)}")
-            st.error(f"An error occurred: {str(e)}")
-            st.stop()
+        except:
+            pass
 
 # Apply filters and display the filtered Summary table
 if st.session_state.data_processed and st.session_state.processed_data["full_summary_df"] is not None:
     df = st.session_state.processed_data["full_summary_df"].copy()
     
-    # Apply filters using the consolidated function with corrected variables
-    filtered_df, filter_message_parts = apply_filters(
-        df, selected_industries, st.session_state.product_filter, unique_industries, account_products, include_unknown,
-        category_options=category_options, ui_to_backend=ui_to_backend
-    )
-    
+    # Apply filters
+    filtered_df = apply_filters(df, selected_backend_industries, selected_products, unique_industries, account_products)
     st.session_state.processed_data["summary_df"] = filtered_df
     
-    # Display filtering statistics and feedback above the table
-    total_calls = len(df)
-    shown_calls = len(filtered_df)
-    percentage = (shown_calls / total_calls * 100) if total_calls > 0 else 0
-    if filter_message_parts:
-        st.info(f"Showing calls from: {', '.join(filter_message_parts)}")
-        st.info(f"Showing {shown_calls} of {total_calls} calls ({percentage:.1f}%)")
-    else:
-        st.info(f"Showing all calls, including those with unknown industries/products")
-        st.info(f"Showing {shown_calls} of {total_calls} calls ({percentage:.1f}%)")
-
-    # Highlight unknown values in the dataframe
-    def highlight_unknown(val):
-        if pd.isna(val) or str(val).lower() in ['n/a', 'unknown', 'none', '']:
-            return 'background-color: #ffffcc'
-        return ''
-
     # Display the filtered data
     st.subheader("Call Summary")
-    if filtered_df.empty:
-        st.warning("No calls match your current filters. Try including Unknown values or selecting different industries/products.")
-    else:
-        st.dataframe(filtered_df.style.applymap(highlight_unknown))
+    st.dataframe(filtered_df)
 
     # Always provide download buttons for both filtered and unfiltered data
     start_date_str = st.session_state.processed_data["start_date_str"]
     end_date_str = st.session_state.processed_data["end_date_str"]
     
-    # Download Full Summary CSV (unfiltered)
     st.download_button(
         label="Download Full Summary CSV",
         data=st.session_state.processed_data["summary_csv"],
@@ -905,7 +741,6 @@ if st.session_state.data_processed and st.session_state.processed_data["full_sum
         key="download_full_summary_csv"
     )
 
-    # Download Filtered Summary CSV
     filtered_csv = st.session_state.processed_data["summary_df"].to_csv(index=False)
     st.download_button(
         label="Download Filtered Summary CSV",
@@ -915,7 +750,6 @@ if st.session_state.data_processed and st.session_state.processed_data["full_sum
         key="download_filtered_summary_csv"
     )
 
-    # Download Utterances CSV
     st.download_button(
         label="Download Utterances CSV",
         data=st.session_state.processed_data["utterances_csv"],
@@ -924,7 +758,6 @@ if st.session_state.data_processed and st.session_state.processed_data["full_sum
         key="download_utterances_csv"
     )
 
-    # Download Full Transcript JSON
     st.download_button(
         label="Download Full Transcript JSON",
         data=st.session_state.processed_data["json_data"],
