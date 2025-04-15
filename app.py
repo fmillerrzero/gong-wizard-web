@@ -75,10 +75,10 @@ with st.sidebar:
 
     industry_mapping, unique_industries = load_industry_mapping()
 
-    # Load products for dropdown (updated to use CSV file)
+    # Load products for dropdown
     def load_products():
         try:
-            products_df = pd.read_csv("products by account.csv")  # Updated to load CSV instead of Excel
+            products_df = pd.read_csv("products by account.csv")
             unique_products = sorted(products_df["product"].unique())
             account_products = products_df.groupby("id")["product"].apply(set).to_dict()
             return unique_products, account_products
@@ -87,16 +87,12 @@ with st.sidebar:
 
     unique_products, account_products = load_products()
 
-    # Add Industry and Product dropdowns with Unknown option
-    industry_options = unique_industries.copy()
-    if len(industry_options) > 0:
-        industry_options.append("Unknown")
-    selected_industries = st.multiselect("Industry", industry_options, default=[])
+    # Add Industry and Product dropdowns, pre-select Unknown but hide from options
+    industry_options = unique_industries.copy()  # List without "Unknown"
+    selected_industries = st.multiselect("Industry", industry_options, default=["Unknown"])
 
-    product_options = unique_products.copy()
-    if len(product_options) > 0:
-        product_options.append("Unknown")
-    selected_products = st.multiselect("Product", product_options, default=[])
+    product_options = unique_products.copy()  # List without "Unknown"
+    selected_products = st.multiselect("Product", product_options, default=["Unknown"])
 
     process_button = st.button("Process Data", type="primary")
 
