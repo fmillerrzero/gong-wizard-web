@@ -129,6 +129,16 @@ def csv_safe_value(value):
         return f'"{str_value}"'
     return str_value
 
+# Function to convert seconds to "X min Y sec" format
+def format_duration(seconds):
+    try:
+        seconds = int(seconds)
+        minutes = seconds // 60
+        remaining_seconds = seconds % 60
+        return f"{minutes} min {remaining_seconds} sec"
+    except (ValueError, TypeError):
+        return "N/A"
+
 # Main processing logic
 if process_button:
     if not access_key or not secret_key:
@@ -263,11 +273,17 @@ if process_button:
                             for party in call_meta['parties']:
                                 if party.get('affiliation') == "Unknown":
                                     party['affiliation'] = "External"
+                        # Extract account_id
+                        account_id = "N/A"
+                        account_context = next((ctx for ctx in call_meta.get('context', []) if any(obj.get('objectType') == 'Account' for obj in ctx.get('objects', []))), {})
+                        if account_context:
+                            account_id = next((obj.get('objectId', 'N/A') for obj in account_context.get('objects', []) if obj.get('objectType') == 'Account'), 'N/A')
                         call_data = {
-                            "call_id": call_id,
+                            "call_id": str(call_id),  # Ensure string for JSON
                             "short_call_id": short_call_id,
                             "call_metadata": call_meta,
-                            "utterances": utterances_with_short_id
+                            "utterances": utterances_with_short_id,
+                            "account_id": account_id
                         }
                         full_data.append(call_data)
 
@@ -279,10 +295,13 @@ if process_button:
                 website = next((field.get('value', 'N/A') for obj in account_context.get('objects', []) for field in obj.get('fields', []) if field.get('name') == 'Website'), 'N/A')
                 account_name = next((field.get('value', 'N/A') for obj in account_context.get('objects', []) for field in obj.get('fields', []) if field.get('name') == 'Name'), 'N/A')
                 normalized_account, normalized_industry, industry_api = normalize_org(account_name, website, industry)
+                # Use API values if meaningful
+                meaningful_account = account_name if account_name.lower() not in ['n/a', 'none', 'unknown', ''] else normalized_account
+                meaningful_industry = industry_api if industry_api.lower() not in ['n/a', 'none', 'unknown', ''] else normalized_industry
                 call_data['industry_api'] = industry_api
                 call_data['account_api'] = account_name
-                call_data['industry_normalized'] = normalized_industry
-                call_data['account_normalized'] = normalized_account
+                call_data['industry_normalized'] = meaningful_industry
+                call_data['account_normalized'] = meaningful_account
 
             # Save JSON to session state
             status.info("Preparing JSON data...")
@@ -298,7 +317,7 @@ if process_button:
             utterances_rows = []
             headers = [
                 'CALL_ID', 'SHORT_CALL_ID', 'CALL_TITLE', 'CALL_DATE', 
-                'ACCOUNT_NORMALIZED', 'INDUSTRY_NORMALIZED', 
+                'ACCOUNT_ID', 'ACCOUNT_NORMALIZED', 'INDUSTRY_NORMALIZED', 
                 'SPEAKER_JOB_TITLE', 'UTTERANCE_DURATION', 'UTTERANCE_TEXT',
                 'TOPIC'
             ]
@@ -309,7 +328,14 @@ if process_button:
                 short_call_id = call_data['short_call_id']
                 meta = call_data['call_metadata'].get('metaData', {})
                 call_title = meta.get('title', 'N/A')
-                call_date = meta.get('started', 'N/A')
+                call_date = 'N/A'
+                if meta.get('started'):
+                    try:
+                        call_date_obj = datetime.fromisoformat(meta['started'].replace('Z', '+00:00'))
+                        call_date = call_date_obj.strftime("%Y-%m-%d")
+                    except ValueError:
+                        call_date = 'N/A'
+                account_id = call_data.get('account_id', 'N/A')
                 normalized_account = call_data.get('account_normalized', 'N/A')
                 normalized_industry = call_data.get('industry_normalized', 'Unknown')
                 parties = call_data['call_metadata'].get('parties', [])
@@ -336,17 +362,19 @@ if process_button:
                     end_time = sentences[-1].get('end', 'N/A') if sentences else 'N/A'
                     try:
                         utterance_duration = int(end_time) - int(start_time)
+                        utterance_duration_formatted = format_duration(utterance_duration)
                     except (ValueError, TypeError):
-                        utterance_duration = 'N/A'
+                        utterance_duration_formatted = 'N/A'
                     row = [
-                        csv_safe_value(call_id),
+                        f'"{call_id}"',  # Add quotation marks around CALL_ID
                         csv_safe_value(short_call_id),
                         csv_safe_value(call_title),
                         csv_safe_value(call_date),
+                        csv_safe_value(account_id),
                         csv_safe_value(normalized_account),
                         csv_safe_value(normalized_industry),
                         csv_safe_value(speaker['title']),
-                        csv_safe_value(utterance_duration),
+                        csv_safe_value(utterance_duration_formatted),
                         csv_safe_value(utterance_text),
                         csv_safe_value(topic)
                     ]
@@ -365,31 +393,35 @@ if process_button:
             summary_headers = [
                 'CALL_ID', 'SHORT_CALL_ID', 'CALL_TITLE', 'CALL_DATE',
                 'DURATION', 'MEETING_URL', 'WEBSITE',
-                'ACCOUNT_NORMALIZED', 'INDUSTRY_NORMALIZED',
-                'OPPORTUNITY_NAME', 'LEAD_SOURCE', 'OPPORTUNITY_TYPE',
+                'ACCOUNT_ID', 'ACCOUNT_NORMALIZED', 'INDUSTRY_NORMALIZED',
+                'OPPORTUNITY_NAME', 'LEAD_SOURCE',  # Removed OPPORTUNITY_TYPE
                 'DEAL_STAGE', 'FORECAST_CATEGORY',
                 'EXTERNAL_PARTICIPANTS', 'INTERNAL_PARTICIPANTS',
-                'TOTAL_SPEAKERS', 'INTERNAL_SPEAKERS', 'EXTERNAL_SPEAKERS',
-                'TRACKERS_ALL', 'PRICING_DURATION', 'NEXT_STEPS_DURATION',
+                'INTERNAL_SPEAKERS', 'EXTERNAL_SPEAKERS',  # Removed TOTAL_SPEAKERS
+                'COMPETITION_TRACKERS', 'NEED_TRACKERS', 'TECHNOLOGY_TRACKERS',
+                'PRODUCT_TRACKERS', 'SALES_TRACKERS',  # Replaced TRACKERS_ALL
+                'PRICING_DURATION', 'NEXT_STEPS_DURATION',
                 'CALL_BRIEF', 'KEY_POINTS'
             ]
             summary_rows.append(summary_headers)
             
-            # Define the trackers to include
+            # Define the trackers to include (only those in Column D (JSON) of TRACKERS GONG (1).xlsx)
             tracker_mapping = {
-                'air quality': 'TRACKER: AIR QUALITY',
-                'Authority': 'TRACKER: AUTHORITY',
-                'Budget': 'TRACKER: BUDGET',
-                'Connect': 'TRACKER: CONNECT',
-                'Customer pain': 'TRACKER: CUSTOMER PAIN POINTS',
-                'Differentiation': 'TRACKER: PRODUCT DIFFERENTIATION',
-                'Energy Savings': 'TRACKER: ENERGY SAVINGS',
-                'Filter': 'TRACKER: FILTER MENTIONS',
-                'Install': 'TRACKER: INSTALL',
-                'Negative Impact (by Gong)': 'TRACKER: OBJECTIONS',
-                'ODCV': 'TRACKER: ODCV MENTIONS',
-                'TRACKER: COMPETITION_MERGED': 'TRACKER: COMPETITION_MERGED',
-                'Timing': 'TRACKER: TIMING'
+                'Competition': {'category': 'Competition', 'topic': 'Competition'},
+                'Differentiation': {'category': 'Competition', 'topic': 'Differentiation'},
+                'R-Zero competitors': {'category': 'Competition', 'topic': 'Competition'},
+                'Customer pain': {'category': 'Need', 'topic': 'Customer Pain Points'},
+                'Remote Work (by Gong)': {'category': 'Need', 'topic': None},  # No topic mapping, will be excluded
+                'Energy Savings': {'category': 'Need', 'topic': 'Energy Savings'},
+                'Install': {'category': 'Technology', 'topic': 'Installation'},
+                'Product Trackers': {'category': 'Technology', 'topic': None},  # No topic mapping, will be excluded
+                'air quality': {'category': 'Product', 'topic': 'IAQ Monitoring'},
+                'Filter': {'category': 'Product', 'topic': 'SecureAire'},
+                'ODCV': {'category': 'Product', 'topic': 'ODCV'},
+                'Timing': {'category': 'Sales', 'topic': 'Timing'},
+                'Authority': {'category': 'Sales', 'topic': 'Decision Authority'},
+                'Budget': {'category': 'Sales', 'topic': 'Budget'},
+                'Negative Impact (by Gong)': {'category': 'Sales', 'topic': 'Blocker'}
             }
             
             for call_data in full_data:
@@ -397,16 +429,17 @@ if process_button:
                 short_call_id = call_data['short_call_id']
                 meta = call_data['call_metadata'].get('metaData', {})
                 call_title = meta.get('title', 'N/A')
-                print(f"Step 1 - CALL_ID: {call_id}, CALL_TITLE after extraction: {call_title}")
                 call_date = 'N/A'
-                if meta.get('started') != 'N/A':
+                if meta.get('started'):
                     try:
                         call_date_obj = datetime.fromisoformat(meta['started'].replace('Z', '+00:00'))
                         call_date = call_date_obj.strftime("%Y-%m-%d")
                     except ValueError:
                         call_date = 'N/A'
                 duration = meta.get('duration', 'N/A')
+                duration_formatted = format_duration(duration)
                 meeting_url = meta.get('meetingUrl', 'N/A')
+                account_id = call_data.get('account_id', 'N/A')
                 normalized_account = call_data.get('account_normalized', 'N/A')
                 normalized_industry = call_data.get('industry_normalized', 'Unknown')
                 account_context = next((ctx for ctx in call_data['call_metadata'].get('context', []) if any(obj.get('objectType') == 'Account' for obj in ctx.get('objects', []))), {})
@@ -414,7 +447,6 @@ if process_button:
                 opportunity = next((obj for obj in account_context.get('objects', []) if obj.get('objectType') == 'Opportunity'), {})
                 opportunity_name = next((field.get('value', 'N/A') for field in opportunity.get('fields', []) if field.get('name') == 'Name'), 'N/A')
                 lead_source = next((field.get('value', 'N/A') for field in opportunity.get('fields', []) if field.get('name') == 'LeadSource'), 'N/A')
-                opportunity_type = next((field.get('value', 'N/A') for field in opportunity.get('fields', []) if field.get('name') == 'Type'), 'N/A')
                 deal_stage = next((field.get('value', 'N/A') for field in opportunity.get('fields', []) if field.get('name') == 'StageName'), 'N/A')
                 forecast_category = next((field.get('value', 'N/A') for field in opportunity.get('fields', []) if field.get('name') == 'ForecastCategoryName'), 'N/A')
                 
@@ -424,107 +456,164 @@ if process_button:
                 
                 # Create a dictionary of talk times
                 talk_times = {speaker.get('id'): speaker.get('talkTime', 0) for speaker in speakers}
+                total_talk_time = sum(talk_times.values())
                 
                 # Separate internal and external participants
                 internal_participants_list = []
                 external_participants_list = []
+                all_speakers = []
                 
                 for party in parties:
                     if not party.get('speakerId'):
                         continue  # Skip participants without a speakerId
                     speaker_id = party.get('speakerId')
                     name = party.get('name', 'N/A')
-                    participant_title = party.get('title', 'Unknown')
+                    title = party.get('title', 'Unknown')
                     affiliation = party.get('affiliation', 'Unknown')
                     talk_time = talk_times.get(speaker_id, 0)
                     
-                    # Format the participant string
-                    if participant_title == 'Unknown' or participant_title == 'N/A':
-                        participant_str = name
-                    else:
-                        participant_str = f"{name} ({participant_title})"
+                    # Calculate talk time percentage
+                    talk_time_pct = (talk_time / total_talk_time * 100) if total_talk_time > 0 else 0
+                    talk_time_pct = round(talk_time_pct)
                     
                     participant_info = {
-                        'participant_str': participant_str,
-                        'talk_time': talk_time
+                        'name': name,
+                        'title': title,
+                        'talk_time': talk_time,
+                        'talk_time_pct': talk_time_pct,
+                        'speaker_id': speaker_id
                     }
                     
                     if affiliation == 'Internal':
                         internal_participants_list.append(participant_info)
                     elif affiliation == 'External':
                         external_participants_list.append(participant_info)
+                    all_speakers.append(participant_info)
                 
-                # Sort by talk time (highest to lowest)
+                # Sort by talk time (highest to lowest) and assign ranks
+                all_speakers.sort(key=lambda x: x['talk_time'], reverse=True)
+                total_speakers = len(all_speakers)
+                speaker_ranks = {speaker['speaker_id']: idx + 1 for idx, speaker in enumerate(all_speakers)}
+                
+                # Format internal participants
                 internal_participants_list.sort(key=lambda x: x['talk_time'], reverse=True)
-                external_participants_list.sort(key=lambda x: x['talk_time'], reverse=True)
+                internal_formatted = []
+                for participant in internal_participants_list:
+                    name = participant['name']
+                    title = participant['title']
+                    talk_time_pct = participant['talk_time_pct']
+                    rank = speaker_ranks[participant['speaker_id']]
+                    if title.lower() in ['unknown', 'n/a', '']:
+                        participant_str = f"{name} [talk time & rank: {talk_time_pct}% & {rank} of {total_speakers}]"
+                    else:
+                        participant_str = f"{name} ({title}) [talk time & rank: {talk_time_pct}% & {rank} of {total_speakers}]"
+                    internal_formatted.append(participant_str)
+                internal_participants = ", ".join(internal_formatted) if internal_formatted else 'N/A'
                 
-                # Format the participant strings
-                internal_participants = ", ".join([p['participant_str'] for p in internal_participants_list]) if internal_participants_list else 'N/A'
-                external_participants = ", ".join([p['participant_str'] for p in external_participants_list]) if external_participants_list else 'N/A'
+                # Format external participants
+                external_participants_list.sort(key=lambda x: x['talk_time'], reverse=True)
+                external_formatted = []
+                for participant in external_participants_list:
+                    name = participant['name']
+                    title = participant['title']
+                    talk_time_pct = participant['talk_time_pct']
+                    rank = speaker_ranks[participant['speaker_id']]
+                    if title.lower() in ['unknown', 'n/a', '']:
+                        participant_str = f"{name} [talk time & rank: {talk_time_pct}% & {rank} of {total_speakers}]"
+                    else:
+                        participant_str = f"{name} ({title}) [talk time & rank: {talk_time_pct}% & {rank} of {total_speakers}]"
+                    external_formatted.append(participant_str)
+                external_participants = ", ".join(external_formatted) if external_formatted else 'N/A'
                 
                 # Existing counts for other columns
-                total_speakers = len(set(utterance.get('speakerId') for utterance in call_data.get('utterances', []) if utterance.get('speakerId')))
                 internal_speakers = len(set(utterance.get('speakerId') for utterance in call_data.get('utterances', []) if utterance.get('speakerId') in [party.get('speakerId') for party in parties if party.get('affiliation') == 'Internal']))
                 external_speakers = len(set(utterance.get('speakerId') for utterance in call_data.get('utterances', []) if utterance.get('speakerId') in [party.get('speakerId') for party in parties if party.get('affiliation') == 'External']))
                 
-                # Process trackers and merge duplicates
+                # Process trackers by category
                 trackers = call_data['call_metadata'].get('content', {}).get('trackers', [])
-                
-                # Merge duplicate trackers (e.g., "Budget" KEYWORD and SMART)
                 tracker_dict = {}
                 for tracker in trackers:
                     tracker_name = tracker.get('name', 'N/A')
+                    # Skip trackers not in Column D (JSON)
+                    if tracker_name not in tracker_mapping:
+                        continue
                     tracker_count = tracker.get('count', 0)
                     if tracker_name in tracker_dict:
-                        tracker_dict[tracker_name] += tracker_count  # Sum counts for duplicate trackers
+                        tracker_dict[tracker_name] += tracker_count
                     else:
                         tracker_dict[tracker_name] = tracker_count
                 
-                # Filter trackers to include only the specified ones, with non-zero counts
-                filtered_trackers = []
+                # Initialize category trackers
+                competition_trackers = []
+                need_trackers = []
+                technology_trackers = []
+                product_trackers = []
+                sales_trackers = []
+                
                 for tracker_name, tracker_count in tracker_dict.items():
                     if tracker_count == 0:
-                        continue  # Skip zero counts
-                    if tracker_name in tracker_mapping:
-                        formatted_name = tracker_mapping[tracker_name]
-                        filtered_trackers.append(f"{formatted_name}:{tracker_count}")
+                        continue
+                    mapping = tracker_mapping.get(tracker_name, {'category': None, 'topic': None})
+                    category = mapping['category']
+                    topic = mapping['topic']
+                    if not category or not topic:  # Skip if no topic mapping (e.g., Remote Work (by Gong))
+                        continue
+                    tracker_entry = f"{topic}:{tracker_count}"
+                    if category == 'Competition':
+                        competition_trackers.append(tracker_entry)
+                    elif category == 'Need':
+                        need_trackers.append(tracker_entry)
+                    elif category == 'Technology':
+                        technology_trackers.append(tracker_entry)
+                    elif category == 'Product':
+                        product_trackers.append(tracker_entry)
+                    elif category == 'Sales':
+                        sales_trackers.append(tracker_entry)
                 
-                # Use pipe delimiter for TRACKERS_ALL
-                trackers_all = " | ".join(filtered_trackers) if filtered_trackers else 'N/A'
+                # Join tracker lists
+                competition_trackers_str = " | ".join(competition_trackers) if competition_trackers else 'N/A'
+                need_trackers_str = " | ".join(need_trackers) if need_trackers else 'N/A'
+                technology_trackers_str = " | ".join(technology_trackers) if technology_trackers else 'N/A'
+                product_trackers_str = " | ".join(product_trackers) if product_trackers else 'N/A'
+                sales_trackers_str = " | ".join(sales_trackers) if sales_trackers else 'N/A'
                 
                 topics = call_data['call_metadata'].get('content', {}).get('topics', [])
                 pricing_duration = next((topic.get('duration', 0) for topic in topics if topic.get('name') == 'Pricing'), 0)
+                pricing_duration_formatted = format_duration(pricing_duration)
                 next_steps_duration = next((topic.get('duration', 0) for topic in topics if topic.get('name') == 'Next Steps'), 0)
+                next_steps_duration_formatted = format_duration(next_steps_duration)
                 call_brief = call_data['call_metadata'].get('content', {}).get('brief', 'N/A')
                 key_points = call_data['call_metadata'].get('content', {}).get('keyPoints', [])
                 key_points_str = ";".join([point.get('text', 'N/A') for point in key_points]) if key_points else 'N/A'
                 summary_row = [
-                    csv_safe_value(call_id),
+                    f'"{call_id}"',  # Add quotation marks around CALL_ID
                     csv_safe_value(short_call_id),
                     csv_safe_value(call_title),
                     csv_safe_value(call_date),
-                    csv_safe_value(duration),
+                    csv_safe_value(duration_formatted),
                     csv_safe_value(meeting_url),
                     csv_safe_value(website),
+                    csv_safe_value(account_id),
                     csv_safe_value(normalized_account),
                     csv_safe_value(normalized_industry),
                     csv_safe_value(opportunity_name),
                     csv_safe_value(lead_source),
-                    csv_safe_value(opportunity_type),
                     csv_safe_value(deal_stage),
                     csv_safe_value(forecast_category),
                     csv_safe_value(external_participants),
                     csv_safe_value(internal_participants),
-                    csv_safe_value(total_speakers),
                     csv_safe_value(internal_speakers),
                     csv_safe_value(external_speakers),
-                    csv_safe_value(trackers_all),
-                    csv_safe_value(pricing_duration),
-                    csv_safe_value(next_steps_duration),
+                    csv_safe_value(competition_trackers_str),
+                    csv_safe_value(need_trackers_str),
+                    csv_safe_value(technology_trackers_str),
+                    csv_safe_value(product_trackers_str),
+                    csv_safe_value(sales_trackers_str),
+                    csv_safe_value(pricing_duration_formatted),
+                    csv_safe_value(next_steps_duration_formatted),
                     csv_safe_value(call_brief),
                     csv_safe_value(key_points_str)
                 ]
-                print(f"Step 2 - CALL_ID: {call_id}, CALL_TITLE in summary_row: {summary_row[2]}")
                 summary_rows.append(summary_row)
 
             # Convert Summary CSV rows to string
@@ -532,12 +621,10 @@ if process_button:
             for row in summary_rows:
                 summary_csv_lines.append(','.join(row))
             summary_csv_data = '\n'.join(summary_csv_lines)
-            print(f"Step 3 - First few lines of summary_csv_data:\n{summary_csv_data.split('\n')[0]}\n{summary_csv_data.split('\n')[1]}")
             st.session_state.processed_data["summary_csv"] = summary_csv_data
 
             # Store the Summary table data in session state
             df = pd.DataFrame([row for row in summary_rows[1:]], columns=summary_headers)
-            print(f"Step 4 - DataFrame CALL_TITLE for first row: {df['CALL_TITLE'].iloc[0]}")
             st.session_state.processed_data["summary_df"] = df
 
             # Save fetch stats
@@ -556,6 +643,7 @@ if process_button:
         except Exception as e:
             status.error(f"Error during processing: {str(e)}")
             st.error(f"An error occurred: {str(e)}")
+            st.stop()
 
 # Display the Summary table if data is processed
 if st.session_state.data_processed and st.session_state.processed_data["summary_df"] is not None:
