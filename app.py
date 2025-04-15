@@ -101,7 +101,7 @@ with st.sidebar:
     category_options = {
         "CRE": ["Energy", "Industrial", "Real Estate", "Real Estate (Architecture)", "Real Estate (Development)", "Real Estate (Facilities)", "Real Estate (Investment)", "Real Estate (Services)"],
         "Commercial": ["Entertainment", "Financial Services", "Legal Services", "Professional Services", "Retail"],
-        "Tech": ["Technology", "Information Services"],
+        "Tech": ["HW/SW Providers", "Information Services"],
         "Healthcare": ["Healthcare", "Senior Care"],
         "Public": ["Education", "Government", "Not For Profit"]
     }
@@ -120,7 +120,7 @@ with st.sidebar:
         "Legal Services": "Legal Services",
         "Professional Services": "Professional Services",
         "Retail": "Retail",
-        "Technology": "Technology",
+        "HW/SW Providers": "Technology",
         "Information Services": "Information Services",
         "Healthcare": "Healthcare",
         "Senior Care": "Senior Care",
@@ -129,11 +129,10 @@ with st.sidebar:
         "Not For Profit": "Not For Profit"
     }
 
-    # Format industry options with category prefixes
+    # Format industry options with category prefixes, without dividers
     formatted_industry_options = ["Select All"]
     all_ui_industries = []
     for category, industries in category_options.items():
-        formatted_industry_options.append(f"--- {category} ---")
         for industry in industries:
             if industry in unique_industries:  # Only include industries that exist in the data
                 formatted_industry_options.append(f"{category}: {industry}")
@@ -149,7 +148,7 @@ with st.sidebar:
 
     # Process selections to handle "Select All" option
     if "Select All" in selected_industries:
-        selected_industries = [opt for opt in formatted_industry_options if not opt.startswith("---")]
+        selected_industries = [opt for opt in formatted_industry_options if opt != "Select All"]
     elif "Select All" in st.session_state.industry_selections and "Select All" not in selected_industries:
         selected_industries = []
 
@@ -250,7 +249,7 @@ def apply_filters(df, selected_industries, selected_products, unique_industries,
     include_mask = pd.Series(True, index=df.index)
 
     # Apply Industry filter if specific industries are selected
-    if selected_industries:
+   reza    if selected_industries:
         industry_mask = df['INDUSTRY_NORMALIZED'].fillna('Unknown').str.lower().isin([ind.lower() for ind in selected_industries])
         # Always include unknown values
         unknown_mask = (
