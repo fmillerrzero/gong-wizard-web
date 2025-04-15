@@ -97,12 +97,12 @@ with st.sidebar:
 
     unique_products, account_products = load_products()
 
-    # Hardcode category groupings with priority order and renamed categories
+    # Hardcode category groupings based on the table
     category_options = {
         "CRE": ["Energy", "Industrial", "Real Estate", "Real Estate (Architecture)", "Real Estate (Development)", "Real Estate (Facilities)", "Real Estate (Investment)", "Real Estate (Services)"],
         "Commercial": ["Entertainment", "Financial Services", "Legal Services", "Professional Services", "Retail"],
-        "Tech": ["HW/SW Providers", "Information Services"],
-        "Healthcare": ["Healthcare", "Senior Care"],
+        "Tech": ["Technology", "Information Services"],
+        "Health": ["Healthcare", "Senior Care"],
         "Public": ["Education", "Government", "Not For Profit"]
     }
 
@@ -120,7 +120,7 @@ with st.sidebar:
         "Legal Services": "Legal Services",
         "Professional Services": "Professional Services",
         "Retail": "Retail",
-        "HW/SW Providers": "Technology",
+        "Technology": "Technology",
         "Information Services": "Information Services",
         "Healthcare": "Healthcare",
         "Senior Care": "Senior Care",
@@ -134,7 +134,8 @@ with st.sidebar:
     all_ui_industries = []
     for category, industries in category_options.items():
         for industry in industries:
-            if industry in unique_industries:  # Only include industries that exist in the data
+            # Normalize comparison to handle case sensitivity
+            if industry.lower().strip() in [ind.lower().strip() for ind in unique_industries]:
                 formatted_industry_options.append(f"{category}: {industry}")
                 all_ui_industries.append(industry)
 
@@ -199,7 +200,6 @@ with st.sidebar:
         on_change=handle_product_selection
     )
 
-    # Map to backend values
     selected_products = [prod for prod in selected_products if prod != "Select All"]
 
     # Add clear button
