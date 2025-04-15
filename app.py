@@ -138,7 +138,19 @@ with st.sidebar:
                 formatted_industry_options.append(f"{category}: {industry}")
                 all_ui_industries.append(industry)
 
-    # Industry dropdown with grouped options (no "Unknown" visible)
+    # Create a separate function for handling the "Select All" logic
+    def handle_select_all(current_selections, options, state_key):
+        if "Select All" in current_selections:
+            # If "Select All" is selected, include all options except "Select All"
+            return [opt for opt in options if opt != "Select All"]
+        elif len(current_selections) == 0 and "Select All" in getattr(st.session_state, state_key, []):
+            # If all were selected before and now none are, clear selections
+            return []
+        else:
+            # Otherwise, keep the current selections
+            return current_selections
+
+    # Industry dropdown with direct value setting
     selected_industries = st.multiselect(
         "Industry",
         options=formatted_industry_options,
@@ -146,14 +158,13 @@ with st.sidebar:
         key="industry_multiselect"
     )
 
-    # Process selections to handle "Select All" option
-    if "Select All" in selected_industries:
-        selected_industries = [opt for opt in formatted_industry_options if opt != "Select All"]
-    elif "Select All" in st.session_state.industry_selections and "Select All" not in selected_industries:
-        selected_industries = []
+    # Process the selection with the helper function
+    selected_industries = handle_select_all(selected_industries, formatted_industry_options, "industry_selections")
 
-    # Store selection in session state and map to backend values
+    # Update session state after processing
     st.session_state.industry_selections = selected_industries
+
+    # Map to backend values
     selected_ui_industries = [ind for ind in selected_industries if ind != "Select All"]
     selected_backend_industries = [ui_to_backend.get(ind.split(": ")[1], ind.split(": ")[1]) for ind in selected_ui_industries]
 
@@ -167,13 +178,10 @@ with st.sidebar:
         key="product_multiselect"
     )
 
-    # Process selections to handle "Select All" option
-    if "Select All" in selected_products:
-        selected_products = unique_products
-    elif "Select All" in st.session_state.product_selections and "Select All" not in selected_products:
-        selected_products = []
+    # Process the selection with the helper function
+    selected_products = handle_select_all(selected_products, product_options, "product_selections")
 
-    # Store selection in session state
+    # Update session state after processing
     st.session_state.product_selections = selected_products
     selected_products = [prod for prod in selected_products if prod != "Select All"]
 
