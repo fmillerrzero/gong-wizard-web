@@ -87,12 +87,12 @@ with st.sidebar:
 
     unique_products, account_products = load_products()
 
-    # Add Industry and Product dropdowns, pre-select Unknown but hide from options
+    # Add Industry and Product dropdowns, without "Unknown" in options or default
     industry_options = unique_industries.copy()  # List without "Unknown"
-    selected_industries = st.multiselect("Industry", industry_options, default=["Unknown"])
+    selected_industries = st.multiselect("Industry", industry_options, default=[])
 
     product_options = unique_products.copy()  # List without "Unknown"
-    selected_products = st.multiselect("Product", product_options, default=["Unknown"])
+    selected_products = st.multiselect("Product", product_options, default=[])
 
     process_button = st.button("Process Data", type="primary")
 
@@ -632,47 +632,34 @@ if st.session_state.data_processed and st.session_state.processed_data["full_sum
     filter_applied = False
     
     # Apply Industry filter if selected
-    if selected_industries:
+    if selected_industries:  # If user selected industries, filter accordingly
         filter_applied = True
-        # Convert to lowercase for case-insensitive matching
-        # And handle NaN/None values safely with fillna
         industry_mask = df['INDUSTRY_NORMALIZED'].fillna('Unknown').str.lower().isin([ind.lower() for ind in selected_industries])
-        
-        # Add option to include Unknown/N/A industries if requested
-        if 'Unknown' in selected_industries or 'N/A' in selected_industries:
-            # Include rows with null, 'N/A', 'Unknown', empty string industries
-            unknown_mask = (
-                df['INDUSTRY_NORMALIZED'].isna() | 
-                df['INDUSTRY_NORMALIZED'].str.lower().isin(['n/a', 'unknown', 'none', ''])
-            )
-            industry_mask = industry_mask | unknown_mask
-        
-        include_mask = include_mask & industry_mask
+    else:  # If no industries selected, treat as if "Unknown" is selected
+        filter_applied = True
+        industry_mask = (
+            df['INDUSTRY_NORMALIZED'].isna() | 
+            df['INDUSTRY_NORMALIZED'].str.lower().isin(['n/a', 'unknown', 'none', ''])
+        )
+    
+    include_mask = include_mask & industry_mask
 
     # Apply Product filter if selected
-    if selected_products:
+    if selected_products:  # If user selected products, filter accordingly
         filter_applied = True
-        
-        # Create set of account IDs that have any of the selected products
         matching_account_ids = set()
         for account_id, products in account_products.items():
             if any(product in selected_products for product in products):
                 matching_account_ids.add(account_id)
-        
-        # Create mask for matching account IDs
         product_mask = df['ACCOUNT_ID'].isin(matching_account_ids)
-        
-        # If 'Unknown' or 'N/A' is selected, include accounts with missing product info
-        if 'Unknown' in selected_products or 'N/A' in selected_products:
-            # Include rows with null, 'N/A', 'Unknown', or empty account IDs
-            unknown_mask = (
-                df['ACCOUNT_ID'].isna() | 
-                df['ACCOUNT_ID'].str.lower().isin(['n/a', 'unknown', 'none', ''])
-            )
-            product_mask = product_mask | unknown_mask
-        
-        # AND logic - both filters must match (more restrictive)
-        include_mask = include_mask & product_mask
+    else:  # If no products selected, treat as if "Unknown" is selected
+        filter_applied = True
+        product_mask = (
+            df['ACCOUNT_ID'].isna() | 
+            df['ACCOUNT_ID'].str.lower().isin(['n/a', 'unknown', 'none', ''])
+        )
+    
+    include_mask = include_mask & product_mask
     
     # Apply the combined filter mask
     if filter_applied:
