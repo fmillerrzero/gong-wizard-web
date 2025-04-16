@@ -294,9 +294,9 @@ def apply_filters(df, selected_industries, selected_products, unique_industries,
 
     if selected_industries:  # Check if there are selected industries
         industry_mask = (
-            ~df['INDUSTRY_NORMALIZED'].str.lower().isin([ind.lower() for ind in selected_industries]) &
-            ~df['INDUSTRY_NORMALIZED'].isna() &
-            ~df['INDUSTRY_NORMALIZED'].str.lower().isin(['n/a', 'unknown', 'none', ''])
+            df['INDUSTRY_NORMALIZED'].str.lower().isin([ind.lower() for ind in selected_industries]) |
+            df['INDUSTRY_NORMALIZED'].isna() |
+            df['INDUSTRY_NORMALIZED'].str.lower().isin(['n/a', 'unknown', 'none', ''])
         )
         include_mask = include_mask & industry_mask
 
