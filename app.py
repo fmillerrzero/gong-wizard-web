@@ -67,20 +67,18 @@ with st.sidebar:
     # Load industry mapping for dropdown and combine with normalized_orgs industries
     def load_industry_mapping():
         try:
-            # Load industries from industry_mapping.csv
             with open("industry_mapping.csv", newline='', encoding='utf-8') as csvfile:
                 mapping = {row["Industry (API)"]: row["Industry (Normalized)"] for row in csv.DictReader(csvfile)}
                 industries_from_mapping = sorted(set(mapping.values()))
             
-            # Load industries from normalized_orgs.csv
             with open("normalized_orgs.csv", newline='', encoding='utf-8') as csvfile:
                 normalized_data = list(csv.DictReader(csvfile))
                 industries_from_normalized = sorted(set(row["FINAL"] for row in normalized_data))
             
-            # Combine unique industries from both sources
             all_industries = sorted(set(industries_from_mapping + industries_from_normalized))
             return mapping, all_industries
-        except:
+        except Exception as e:
+            st.error(f"Failed to load industry mappings: {str(e)}")
             return {}, []
 
     industry_mapping, unique_industries = load_industry_mapping()
@@ -92,69 +90,64 @@ with st.sidebar:
             unique_products = sorted(products_df["product"].unique())
             account_products = products_df.groupby("id")["product"].apply(set).to_dict()
             return unique_products, account_products
-        except:
+        except Exception as e:
+            st.error(f"Failed to load products: {str(e)}")
             return [], {}
 
     unique_products, account_products = load_products()
 
-    # Hardcode category groupings based on the table
-    category_options = {
-        "CRE": ["Energy", "Industrial", "Real Estate", "Real Estate (Architecture)", "Real Estate (Development)", "Real Estate (Facilities)", "Real Estate (Investment)", "Real Estate (Services)"],
-        "Commercial": ["Entertainment", "Financial Services", "Legal Services", "Professional Services", "Retail"],
-        "Tech": ["Technology", "Information Services"],
-        "Health": ["Healthcare", "Senior Care"],
-        "Public": ["Education", "Government", "Not For Profit"]
-    }
+    # Load category groupings from Industry UI - Sheet17.csv
+    def load_category_mappings():
+        category_options = {}
+        ui_to_backend = {}
+        try:
+            with open("Industry UI - Sheet17.csv", newline='', encoding='utf-8') as csvfile:
+                reader = csv.DictReader(csvfile)
+                for row in reader:
+                    category = row["Category"]
+                    ui_industry = row["Industry (UI)"]
+                    prefix, industry = ui_industry.split(": ", 1)
+                    csv_industry = row["Industry (CSVs)"]
+                    
+                    if prefix not in category_options:
+                        category_options[prefix] = []
+                    if industry not in category_options[prefix]:
+                        category_options[prefix].append(industry)
+                    
+                    ui_to_backend[industry] = csv_industry
+            return category_options, ui_to_backend
+        except Exception as e:
+            st.error(f"Failed to load category mappings from Industry UI - Sheet17.csv: {str(e)}")
+            return {}, {}
 
-    ui_to_backend = {
-        "Energy": "Energy",
-        "Industrial": "Industrial",
-        "Real Estate": "Real Estate",
-        "Real Estate (Architecture)": "Real Estate (Architecture)",
-        "Real Estate (Development)": "Real Estate (Development)",
-        "Real Estate (Facilities)": "Real Estate (Facilities)",
-        "Real Estate (Investment)": "Real Estate (Investment)",
-        "Real Estate (Services)": "Real Estate (Services)",
-        "Entertainment": "Entertainment",
-        "Financial Services": "Financial Services",
-        "Legal Services": "Legal Services",
-        "Professional Services": "Professional Services",
-        "Retail": "Retail",
-        "Technology": "Technology",
-        "Information Services": "Information Services",
-        "Healthcare": "Healthcare",
-        "Senior Care": "Senior Care",
-        "Education": "Education",
-        "Government": "Government",
-        "Not For Profit": "Not For Profit"
-    }
+    category_options, ui_to_backend = load_category_mappings()
+
+    # Check if category mappings loaded successfully
+    if not category_options or not ui_to_backend:
+        st.error("Unable to load industry categories. Please ensure 'Industry UI - Sheet17.csv' exists and is correctly formatted.")
+        st.stop()
 
     # Format industry options with category prefixes, without dividers
     formatted_industry_options = ["Select All"]
     all_ui_industries = []
-    for category, industries in category_options.items():
+    for prefix, industries in category_options.items():
         for industry in industries:
-            # Normalize comparison to handle case sensitivity
             if industry.lower().strip() in [ind.lower().strip() for ind in unique_industries]:
-                formatted_industry_options.append(f"{category}: {industry}")
+                formatted_industry_options.append(f"{prefix}: {industry}")
                 all_ui_industries.append(industry)
 
     # Create a callback function for handling industry selections
     def handle_industry_selection():
         current_selections = st.session_state.industry_multiselect
         if "Select All" in current_selections and len(current_selections) > 1:
-            # If "Select All" is selected along with other options, select all options except "Select All"
             st.session_state.industry_selections = [opt for opt in formatted_industry_options if opt != "Select All"]
             st.session_state.industry_multiselect = st.session_state.industry_selections
         elif "Select All" in current_selections and len(current_selections) == 1:
-            # If only "Select All" is selected, select all options except "Select All"
             st.session_state.industry_selections = [opt for opt in formatted_industry_options if opt != "Select All"]
             st.session_state.industry_multiselect = st.session_state.industry_selections
         elif len(current_selections) == 0 and len(st.session_state.industry_selections) > 0:
-            # If all were deselected, clear selections
             st.session_state.industry_selections = []
         else:
-            # Otherwise, keep the current selections
             st.session_state.industry_selections = current_selections
 
     # Industry dropdown with callback
@@ -177,18 +170,14 @@ with st.sidebar:
     def handle_product_selection():
         current_selections = st.session_state.product_multiselect
         if "Select All" in current_selections and len(current_selections) > 1:
-            # If "Select All" is selected along with other options, select all options except "Select All"
             st.session_state.product_selections = [opt for opt in product_options if opt != "Select All"]
             st.session_state.product_multiselect = st.session_state.product_selections
         elif "Select All" in current_selections and len(current_selections) == 1:
-            # If only "Select All" is selected, select all options except "Select All"
             st.session_state.product_selections = [opt for opt in product_options if opt != "Select All"]
             st.session_state.product_multiselect = st.session_state.product_selections
         elif len(current_selections) == 0 and len(st.session_state.product_selections) > 0:
-            # If all were deselected, clear selections
             st.session_state.product_selections = []
         else:
-            # Otherwise, keep the current selections
             st.session_state.product_selections = current_selections
 
     # Product dropdown with callback
@@ -215,7 +204,8 @@ def load_normalized_orgs():
     try:
         with open("normalized_orgs.csv", newline='', encoding='utf-8') as csvfile:
             return list(csv.DictReader(csvfile))
-    except:
+    except Exception as e:
+        st.error(f"Failed to load normalized organizations: {str(e)}")
         return []
 
 normalized_orgs = load_normalized_orgs()
@@ -270,13 +260,10 @@ def format_duration(seconds):
 
 # Consolidated filtering function
 def apply_filters(df, selected_industries, selected_products, unique_industries, account_products):
-    # Create initial mask with all rows selected
     include_mask = pd.Series(True, index=df.index)
 
-    # Apply Industry filter if specific industries are selected
     if selected_industries:
         industry_mask = df['INDUSTRY_NORMALIZED'].fillna('Unknown').str.lower().isin([ind.lower() for ind in selected_industries])
-        # Always include unknown values
         unknown_mask = (
             df['INDUSTRY_NORMALIZED'].isna() | 
             df['INDUSTRY_NORMALIZED'].str.lower().isin(['n/a', 'unknown', 'none', ''])
@@ -284,14 +271,12 @@ def apply_filters(df, selected_industries, selected_products, unique_industries,
         industry_mask = industry_mask | unknown_mask
         include_mask = include_mask & industry_mask
 
-    # Apply Product filter if specific products are selected
     if selected_products:
         matching_account_ids = set()
         for account_id, products in account_products.items():
             if any(product in selected_products for product in products):
                 matching_account_ids.add(account_id)
         product_mask = df['ACCOUNT_ID'].isin(matching_account_ids)
-        # Always include unknown values
         unknown_mask = (
             df['ACCOUNT_ID'].isna() | 
             df['ACCOUNT_ID'].str.lower().isin(['n/a', 'unknown', 'none', ''])
@@ -317,6 +302,8 @@ if process_button:
         
         try:
             BASE_URL = "https://us-11211.api.gong.io"
+            batch_size = 20
+            
             session = requests.Session()
             auth = (config['access_key'], config['secret_key'])
             
@@ -348,7 +335,6 @@ if process_button:
             call_ids = [call["id"] for call in all_calls]
 
             full_data = []
-            batch_size = 20
             
             for i in range(0, len(call_ids), batch_size):
                 batch = call_ids[i:i + batch_size]
@@ -530,28 +516,10 @@ if process_button:
                 'DEAL_STAGE', 'FORECAST_CATEGORY',
                 'EXTERNAL_PARTICIPANTS', 'INTERNAL_PARTICIPANTS',
                 'INTERNAL_SPEAKERS', 'EXTERNAL_SPEAKERS',
-                'COMPETITION_TRACKERS', 'NEED_TRACKERS', 'TECHNOLOGY_TRACKERS',
-                'PRODUCT_TRACKERS', 'SALES_TRACKERS',
-                'PRICING_DURATION', 'NEXT_STEPS_DURATION',
+                'SALES_TRACKERS', 'PRICING_DURATION', 'NEXT_STEPS_DURATION',
                 'CALL_BRIEF', 'KEY_POINTS'
             ]
             summary_rows.append(summary_headers)
-            
-            tracker_mapping = {
-                'Competition': {'category': 'Competition', 'topic': 'Competition'},
-                'Differentiation': {'category': 'Competition', 'topic': 'Differentiation'},
-                'R-Zero competitors': {'category': 'Competition', 'topic': 'Competition'},
-                'Customer pain': {'category': 'Need', 'topic': 'Customer Pain Points'},
-                'Energy Savings': {'category': 'Need', 'topic': 'Energy Savings'},
-                'Install': {'category': 'Technology', 'topic': 'Installation'},
-                'air quality': {'category': 'Product', 'topic': 'IAQ Monitoring'},
-                'Filter': {'category': 'Product', 'topic': 'SecureAire'},
-                'ODCV': {'category': 'Product', 'topic': 'ODCV'},
-                'Timing': {'category': 'Sales', 'topic': 'Timing'},
-                'Authority': {'category': 'Sales', 'topic': 'Decision Authority'},
-                'Budget': {'category': 'Sales', 'topic': 'Budget'},
-                'Negative Impact (by Gong)': {'category': 'Sales', 'topic': 'Blocker'}
-            }
             
             for call_data in full_data:
                 call_id = call_data['call_id']
@@ -603,7 +571,7 @@ if process_button:
                         'talk_time_pct': talk_time_pct,
                         'speaker_id': speaker_id
                     }
-                    if affiliation == 'Internal':
+                    if affiliation in config['excluded_affiliations']:
                         internal_participants_list.append(participant_info)
                     elif affiliation == 'External':
                         external_participants_list.append(participant_info)
@@ -637,52 +605,27 @@ if process_button:
                         participant_str = f"{name} ({title}) [talk time & rank: {talk_time_pct}% & {rank} of {total_speakers}]"
                     external_formatted.append(participant_str)
                 external_participants = ", ".join(external_formatted) if external_formatted else 'N/A'
-                internal_speakers = len(set(utterance.get('speakerId') for utterance in call_data.get('utterances', []) if utterance.get('speakerId') in [party.get('speakerId') for party in parties if party.get('affiliation') == 'Internal']))
+                internal_speakers = len(set(utterance.get('speakerId') for utterance in call_data.get('utterances', []) if utterance.get('speakerId') in [party.get('speakerId') for party in parties if party.get('affiliation') in config['excluded_affiliations']]))
                 external_speakers = len(set(utterance.get('speakerId') for utterance in call_data.get('utterances', []) if utterance.get('speakerId') in [party.get('speakerId') for party in parties if party.get('affiliation') == 'External']))
                 
-                # Process trackers by category
+                # Process trackers dynamically
                 trackers = call_data['call_metadata'].get('content', {}).get('trackers', [])
                 tracker_dict = {}
                 for tracker in trackers:
                     tracker_name = tracker.get('name', 'N/A')
-                    if tracker_name not in tracker_mapping:
-                        continue
                     tracker_count = tracker.get('count', 0)
                     if tracker_name in tracker_dict:
                         tracker_dict[tracker_name] += tracker_count
                     else:
                         tracker_dict[tracker_name] = tracker_count
                 
-                competition_trackers = []
-                need_trackers = []
-                technology_trackers = []
-                product_trackers = []
                 sales_trackers = []
                 
                 for tracker_name, tracker_count in tracker_dict.items():
-                    if tracker_count == 0:
-                        continue
-                    mapping = tracker_mapping.get(tracker_name, {'category': None, 'topic': None})
-                    category = mapping['category']
-                    topic = mapping['topic']
-                    if not category or not topic:
-                        continue
-                    tracker_entry = f"{topic}:{tracker_count}"
-                    if category == 'Competition':
-                        competition_trackers.append(tracker_entry)
-                    elif category == 'Need':
-                        need_trackers.append(tracker_entry)
-                    elif category == 'Technology':
-                        technology_trackers.append(tracker_entry)
-                    elif category == 'Product':
-                        product_trackers.append(tracker_entry)
-                    elif category == 'Sales':
+                    if tracker_count > 0:
+                        tracker_entry = f"{tracker_name}:{tracker_count}"
                         sales_trackers.append(tracker_entry)
                 
-                competition_trackers_str = " | ".join(competition_trackers) if competition_trackers else 'N/A'
-                need_trackers_str = " | ".join(need_trackers) if need_trackers else 'N/A'
-                technology_trackers_str = " | ".join(technology_trackers) if technology_trackers else 'N/A'
-                product_trackers_str = " | ".join(product_trackers) if product_trackers else 'N/A'
                 sales_trackers_str = " | ".join(sales_trackers) if sales_trackers else 'N/A'
                 
                 topics = call_data['call_metadata'].get('content', {}).get('topics', [])
@@ -712,10 +655,6 @@ if process_button:
                     csv_safe_value(internal_participants),
                     csv_safe_value(internal_speakers),
                     csv_safe_value(external_speakers),
-                    csv_safe_value(competition_trackers_str),
-                    csv_safe_value(need_trackers_str),
-                    csv_safe_value(technology_trackers_str),
-                    csv_safe_value(product_trackers_str),
                     csv_safe_value(sales_trackers_str),
                     csv_safe_value(pricing_duration_formatted),
                     csv_safe_value(next_steps_duration_formatted),
@@ -738,22 +677,52 @@ if process_button:
             # Mark processing as complete
             st.session_state.data_processed = True
             
-        except:
-            pass
+        except Exception as e:
+            st.error(f"Error processing data: {str(e)}")
 
 # Apply filters and display the filtered Summary table
 if st.session_state.data_processed and st.session_state.processed_data["full_summary_df"] is not None:
-    df = st.session_state.processed_data["full_summary_df"].copy()
+    full_df = st.session_state.processed_data["full_summary_df"].copy()
     
-    # Apply filters
-    filtered_df = apply_filters(df, selected_backend_industries, selected_products, unique_industries, account_products)
+    # Apply filters to get included calls
+    filtered_df = apply_filters(full_df, selected_backend_industries, selected_products, unique_industries, account_products)
     st.session_state.processed_data["summary_df"] = filtered_df
     
-    # Display the filtered data
-    st.subheader("Call Summary")
-    st.dataframe(filtered_df)
+    # Create included and excluded DataFrames
+    included_df = filtered_df.copy()
+    included_call_ids = set(included_df['CALL_ID'])
+    excluded_df = full_df[~full_df['CALL_ID'].isin(included_call_ids)].copy()
 
-    # Always provide download buttons for both filtered and unfiltered data
+    # Add EXCLUSION_REASON to excluded_df using vectorized operations
+    excluded_df['EXCLUSION_REASON'] = 'Other'  # Default reason
+    # Check for malformed data (missing critical fields after unknown checks)
+    malformed_mask = (
+        (excluded_df['INDUSTRY_NORMALIZED'].isna() | (excluded_df['INDUSTRY_NORMALIZED'] == '')) &
+        (excluded_df['ACCOUNT_ID'].isna() | (excluded_df['ACCOUNT_ID'] == ''))
+    )
+    excluded_df.loc[malformed_mask, 'EXCLUSION_REASON'] = 'Malformed Data'
+    # Check for industry filter failure
+    industry_mask = (
+        selected_industries &
+        ~excluded_df['INDUSTRY_NORMALIZED'].str.lower().isin([ind.lower() for ind in selected_backend_industries]) &
+        ~excluded_df['INDUSTRY_NORMALIZED'].isna() &
+        ~excluded_df['INDUSTRY_NORMALIZED'].str.lower().isin(['n/a', 'unknown', 'none', ''])
+    )
+    excluded_df.loc[industry_mask, 'EXCLUSION_REASON'] = 'Industry'
+    # Check for product filter failure
+    if selected_products:
+        product_mask = ~excluded_df['ACCOUNT_ID'].isin([account_id for account_id, products in account_products.items() if any(product in selected_products for product in products)]) & ~excluded_df['ACCOUNT_ID'].isna() & ~excluded_df['ACCOUNT_ID'].str.lower().isin(['n/a', 'unknown', 'none', ''])
+        excluded_df.loc[product_mask & (excluded_df['EXCLUSION_REASON'] == 'Industry'), 'EXCLUSION_REASON'] = 'Industry and Product'
+        excluded_df.loc[product_mask & (excluded_df['EXCLUSION_REASON'] == 'Other'), 'EXCLUSION_REASON'] = 'Product'
+
+    # Display two tables
+    st.subheader("Included Calls")
+    st.dataframe(included_df)
+
+    st.subheader("Excluded Calls")
+    st.dataframe(excluded_df)
+
+    # Download buttons for both filtered and unfiltered data
     start_date_str = st.session_state.processed_data["start_date_str"]
     end_date_str = st.session_state.processed_data["end_date_str"]
     
