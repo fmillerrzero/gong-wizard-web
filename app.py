@@ -302,13 +302,10 @@ def apply_filters(df: pd.DataFrame, industries: List[str], products: List[str], 
     if not industries and not products:
         return df
     filtered_df = df.copy()
-    
-    # Ensure required columns exist, add with default "Unknown" if missing
     if "INDUSTRY_NORMALIZED" not in filtered_df.columns:
         filtered_df["INDUSTRY_NORMALIZED"] = "Unknown"
     if "ACCOUNT_ID" not in filtered_df.columns:
         filtered_df["ACCOUNT_ID"] = "Unknown"
-    
     try:
         if industries:
             industries_lower = [i.lower() for i in industries]
@@ -368,9 +365,28 @@ def main():
         secret_key = st.text_input("Gong Secret Key", type="password")
         headers = create_auth_header(access_key, secret_key) if access_key and secret_key else {}
         
+        # Date range selection with quick-select buttons
         today = datetime.today().date()
-        start_date = st.date_input("From Date", value=today - timedelta(days=7))
-        end_date = st.date_input("To Date", value=today)
+        if "start_date" not in st.session_state:
+            st.session_state.start_date = today - timedelta(days=7)
+        if "end_date" not in st.session_state:
+            st.session_state.end_date = today
+
+        st.session_state.start_date = st.date_input("From Date", value=st.session_state.start_date)
+        st.session_state.end_date = st.date_input("To Date", value=st.session_state.end_date)
+
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("Last 7 Days"):
+                st.session_state.start_date = today - timedelta(days=7)
+                st.session_state.end_date = today
+                st.rerun()
+        with col2:
+            if st.button("Last 30 Days"):
+                st.session_state.start_date = today - timedelta(days=30)
+                st.session_state.end_date = today
+                st.rerun()
+
         industry_categories = list(category_to_normalized.keys())
         selected_categories = st.multiselect("Industry", ["Select All"] + industry_categories, default=["Select All"])
         selected_products = st.multiselect("Product", ["Select All"] + unique_products, default=["Select All"])
@@ -393,70 +409,75 @@ def main():
     # Step 1: Fetch call list
     if st.session_state.step == 1:
         st.markdown("### Step 1: Fetch Call List")
-        if st.button("Fetch Call List", type="primary"):
+        if st.button("Fetch Call List", type="primary", key="fetch_call_list"):
             with st.spinner("Fetching call list..."):
                 session = requests.Session()
                 session.headers.update(headers)
-                call_ids = fetch_call_list(session, start_date.isoformat() + "T00:00:00Z", end_date.isoformat() + "T23:59:59Z")
+                call_ids = fetch_call_list(session, st.session_state.start_date.isoformat() + "T00:00:00Z", st.session_state.end_date.isoformat() + "T23:59:59Z")
                 if call_ids:
                     st.session_state.processed_data["call_ids"] = call_ids
-                    st.session_state.processed_data["start_date_str"] = start_date.strftime("%d%b%y").lower()
-                    st.session_state.processed_data["end_date_str"] = end_date.strftime("%Y-%m-%d")
+                    st.session_state.processed_data["start_date_str"] = st.session_state.start_date.strftime("%d%b%y").lower()
+                    st.session_state.processed_data["end_date_str"] = st.session_state.end_date.strftime("%Y-%m-%d")
+                    st.session_state.step = 2  # Move to Step 2
                     st.success(f"Found {len(call_ids)} calls.")
-                    if st.button("Proceed to Step 2", type="primary"):
-                        st.session_state.step = 2
-                        st.rerun()
+                st.rerun()
 
     # Step 2: Fetch call details
     elif st.session_state.step == 2:
         st.markdown("### Step 2: Fetch Call Details")
         if "call_ids" not in st.session_state.processed_data:
             st.warning("Please fetch the call list first.")
-        elif st.button("Fetch Call Details", type="primary"):
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-            session = requests.Session()
-            session.headers.update(headers)
-            call_ids = st.session_state.processed_data["call_ids"]
-            full_data = []
-            total = len(call_ids)
-            processed = 0
-            batch_size = 50  # Batch size to reduce API calls
-            for i in range(0, len(call_ids), batch_size):
-                batch = call_ids[i:i + batch_size]
-                # Fetch details
-                details = fetch_call_details(session, batch)
-                # Fetch transcripts for the same batch
-                transcripts = fetch_transcript(session, batch)
-                for call in details:
-                    call_id = call.get("metaData", {}).get("id", "")
-                    call_transcript = transcripts.get(call_id, [])
-                    normalized_data = normalize_call_data(call, call_transcript, normalized_orgs, api_to_normalized)
-                    if normalized_data:
-                        full_data.append(normalized_data)
-                processed += len(batch)
-                progress = processed / total
-                progress_bar.progress(progress)
-                status_text.text(f"Processed {processed}/{total} calls")
-            progress_bar.empty()
-            status_text.empty()
-            if full_data:
-                st.session_state.processed_data["full_data"] = full_data
-                st.session_state.processed_data["summary_df"] = prepare_summary_df(full_data)
-                st.session_state.processed_data["utterances_df"] = prepare_utterances_df(full_data)
-                st.session_state.processed_data["json_data"] = json.dumps(full_data, indent=4, ensure_ascii=False, default=str)
-                st.success(f"Processed {len(full_data)} calls.")
-                if st.button("Proceed to Step 3", type="primary"):
-                    st.session_state.step = 3
+            st.session_state.step = 1
+            st.rerun()
+        else:
+            if st.button("Fetch Call Details", type="primary", key="fetch_call_details"):
+                with st.spinner("Fetching call details..."):
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
+                    session = requests.Session()
+                    session.headers.update(headers)
+                    call_ids = st.session_state.processed_data["call_ids"]
+                    full_data = []
+                    total = len(call_ids)
+                    processed = 0
+                    batch_size = 50
+                    for i in range(0, len(call_ids), batch_size):
+                        batch = call_ids[i:i + batch_size]
+                        details = fetch_call_details(session, batch)
+                        transcripts = fetch_transcript(session, batch)
+                        for call in details:
+                            call_id = call.get("metaData", {}).get("id", "")
+                            call_transcript = transcripts.get(call_id, [])
+                            normalized_data = normalize_call_data(call, call_transcript, normalized_orgs, api_to_normalized)
+                            if normalized_data:
+                                full_data.append(normalized_data)
+                        processed += len(batch)
+                        progress = processed / total
+                        progress_bar.progress(progress)
+                        status_text.text(f"Processed {processed}/{total} calls")
+                    progress_bar.empty()
+                    status_text.empty()
+                    if full_data:
+                        st.session_state.processed_data["full_data"] = full_data
+                        st.session_state.processed_data["summary_df"] = prepare_summary_df(full_data)
+                        st.session_state.processed_data["utterances_df"] = prepare_utterances_df(full_data)
+                        st.session_state.processed_data["json_data"] = json.dumps(full_data, indent=4, ensure_ascii=False, default=str)
+                        st.session_state.step = 3  # Move to Step 3
+                        st.success(f"Processed {len(full_data)} calls.")
+                    else:
+                        st.error("No call details fetched.")
                     st.rerun()
-            else:
-                st.error("No call details fetched.")
+            if st.button("Back to Step 1"):
+                st.session_state.step = 1
+                st.rerun()
 
     # Step 3: Filter and analyze
     elif st.session_state.step == 3:
         st.markdown("### Step 3: Filter and Analyze")
         if "summary_df" not in st.session_state.processed_data:
             st.warning("Please fetch call details first.")
+            st.session_state.step = 2
+            st.rerun()
         else:
             summary_df = st.session_state.processed_data["summary_df"]
             utterances_df = st.session_state.processed_data["utterances_df"]
@@ -498,6 +519,9 @@ def main():
                 download_csv(filtered_utterances, f"filtered_utterances_gong_{start_date_str}_to_{end_date_str}.csv")
                 filtered_json = [call for call in full_data if call.get("metaData", {}).get("id", "N/A") in filtered_df["CALL_ID"].values]
                 download_json(filtered_json, f"filtered_json_gong_{start_date_str}_to_{end_date_str}.json")
+            if st.button("Back to Step 2"):
+                st.session_state.step = 2
+                st.rerun()
 
 if __name__ == "__main__":
-    main()# Latest update April 16, 2025
+    main()
