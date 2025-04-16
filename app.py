@@ -24,7 +24,7 @@ def load_csv_data():
         products = pd.read_csv("products by account.csv")
         return normalized_orgs, products
     except Exception as e:
-        st.error(f"Cannot find CSV files: {str(e)}. Please check your folder.")
+        st.error(f"Cannot find CSV files: {str(e)}.")
         logger.error(f"CSV load error: {str(e)}")
         return None, None
 
@@ -208,8 +208,7 @@ def prepare_utterances_df(calls: List[Dict[str, Any]]) -> pd.DataFrame:
                 duration = format_duration(end_time - start_time) if end_time and start_time else "N/A"
                 utterances_data.append({
                     "CALL_ID": call_id,
-                    "CALL_TITLE": call_title,
-                    "CALL_DATE": call_date,
+                    "CALL_TITLE": call_title    "CALL_DATE": call_date,
                     "ACCOUNT_ID": account_id,
                     "ACCOUNT_NORMALIZED": normalized_account,
                     "SPEAKER_JOB_TITLE": speaker["title"],
@@ -222,17 +221,15 @@ def prepare_utterances_df(calls: List[Dict[str, Any]]) -> pd.DataFrame:
     return pd.DataFrame(utterances_data)
 
 def apply_filters(df: pd.DataFrame, selected_products: List[str], account_products: Dict[str, set]) -> pd.DataFrame:
-    if not selected_products:
-        return df
     filtered_df = df.copy()
     if "ACCOUNT_ID" not in filtered_df.columns:
         filtered_df["ACCOUNT_ID"] = "Unknown"
+    if not selected_products:
+        return filtered_df
     try:
-        matching_account_ids = {aid for aid, prods in account_products.items() if any(p in selected_products for p in prods)}
-        filtered_df = filtered_df[
-            filtered_df["ACCOUNT_ID"].isin(matching_account_ids) |
-            filtered_df["ACCOUNT_ID"].str.lower().isin(["unknown", "n/a", ""])
-        ]
+        # Only exclude calls if they have an account ID that matches products NOT in the selected products
+        exclude_account_ids = {aid for aid, prods in account_products.items() if not any(p in selected_products for p in prods)}
+        filtered_df = filtered_df[~filtered_df["ACCOUNT_ID"].isin(exclude_account_ids)]
         return filtered_df
     except Exception as e:
         st.error(f"Filtering error: {str(e)}")
@@ -267,7 +264,6 @@ def main():
         secret_key = st.text_input("Gong Secret Key", type="password")
         headers = create_auth_header(access_key, secret_key) if access_key and secret_key else {}
         
-        # Date range selection with quick-select buttons
         today = datetime.today().date()
         if "start_date" not in st.session_state:
             st.session_state.start_date = today - timedelta(days=7)
