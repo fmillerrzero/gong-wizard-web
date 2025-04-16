@@ -298,8 +298,8 @@ def prepare_utterances_df(calls: List[Dict[str, Any]]) -> pd.DataFrame:
 def get_normalized_industries(categories: List[str], category_to_normalized: Dict[str, List[str]]) -> List[str]:
     return list(set(sum([category_to_normalized.get(cat, []) for cat in categories], [])))
 
-def apply_filters(df: pd.DataFrame, industries: List[str], products: List[str], account_products: Dict[str, set]) -> pd.DataFrame:
-    if not industries and not products:
+def apply_filters(df: pd.DataFrame, industries: List[str], selected_products: List[str], account_products: Dict[str, set]) -> pd.DataFrame:
+    if not industries and not selected_products:
         return df
     filtered_df = df.copy()
     if "INDUSTRY_NORMALIZED" not in filtered_df.columns:
@@ -313,8 +313,8 @@ def apply_filters(df: pd.DataFrame, industries: List[str], products: List[str], 
                 filtered_df["INDUSTRY_NORMALIZED"].str.lower().isin(industries_lower) |
                 filtered_df["INDUSTRY_NORMALIZED"].str.lower().isin(["unknown", "n/a", ""])
             ]
-        if products:
-            matching_account_ids = {aid for aid, prods in account_products.items() if any(p in products for p in prods)}
+        if selected_products:  # Changed 'products' to 'selected_products' to match parameter
+            matching_account_ids = {aid for aid, prods in account_products.items() if any(p in selected_products for p in prods)}
             filtered_df = filtered_df[
                 filtered_df["ACCOUNT_ID"].isin(matching_account_ids) |
                 filtered_df["ACCOUNT_ID"].str.lower().isin(["unknown", "n/a", ""])
@@ -492,9 +492,7 @@ def main():
                                 ~excluded_df["INDUSTRY_NORMALIZED"].str.lower().isin(["unknown", "n/a", ""]))
                 excluded_df.loc[industry_mask, "EXCLUSION_REASON"] = "Industry"
             if selected_products and "Select All" not in selected_products:
-                matching_account_ids = {aid for aid, prods in account_products.items() if any(p in products for p in prods)}
-                product_mask = (~excluded_df["ACCOUNT_ID"].isin(matching_account_ids) & 
-                               ~excluded_df["ACCOUNT_ID"].str.lower().isin(["unknown", "n/a", ""]))
+                matching_account_ids = {aid for aid, prods in account_products.items() if any(p in selected_products for p in prods)}
                 excluded_df.loc[product_mask & (excluded_df["EXCLUSION_REASON"] == "Industry"), "EXCLUSION_REASON"] = "Industry and Product"
                 excluded_df.loc[product_mask & (excluded_df["EXCLUSION_REASON"] == "Other"), "EXCLUSION_REASON"] = "Product"
             st.subheader("Included Calls")
