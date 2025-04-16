@@ -9,8 +9,8 @@ import pandas as pd
 from fuzzywuzzy import fuzz
 from urllib.parse import urlparse
 
-# App header
-st.title("Gong Wizard")
+# Debug message to confirm app startup
+st.write("App is starting... Step 1: Initializing session state")
 
 # Initialize session state for storing processed data
 if "processed_data" not in st.session_state:
@@ -29,6 +29,9 @@ if "industry_selections" not in st.session_state:
     st.session_state.industry_selections = []
 if "product_selections" not in st.session_state:
     st.session_state.product_selections = []
+
+# Debug message after session state initialization
+st.write("App is starting... Step 2: Rendering sidebar")
 
 # Sidebar with configuration
 with st.sidebar:
@@ -49,6 +52,9 @@ with st.sidebar:
         """,
         unsafe_allow_html=True
     )
+
+    # App header inside sidebar
+    st.title("Gong Wizard")
 
     access_key = st.text_input("Gong Access Key", type="password")
     secret_key = st.text_input("Gong Secret Key", type="password")
@@ -82,43 +88,14 @@ with st.sidebar:
     st.session_state.start_date = start_date
     st.session_state.end_date = end_date
 
-    # Load industry mapping for dropdown and combine with normalized_orgs industries
-    def load_industry_mapping():
-        try:
-            with open("industry_mapping.csv", newline='', encoding='utf-8') as csvfile:
-                mapping = {row["Industry (API)"]: row["Industry (Normalized)"] for row in csv.DictReader(csvfile)}
-                industries_from_mapping = sorted(set(mapping.values()))
-            
-            with open("normalized_orgs.csv", newline='', encoding='utf-8') as csvfile:
-                normalized_data = list(csv.DictReader(csvfile))
-                industries_from_normalized = sorted(set(row["FINAL"] for row in normalized_data))
-            
-            all_industries = sorted(set(industries_from_mapping + industries_from_normalized))
-            return mapping, all_industries
-        except Exception as e:
-            st.error(f"Failed to load industry mappings: {str(e)}")
-            return {}, []
+    # Debug message before loading dropdowns
+    st.write("App is starting... Step 3: Preparing industry dropdown")
 
-    industry_mapping, unique_industries = load_industry_mapping()
-
-    # Load products for dropdown
-    def load_products():
-        try:
-            products_df = pd.read_csv("products by account.csv")
-            unique_products = sorted(products_df["product"].unique())
-            account_products = products_df.groupby("id")["product"].apply(set).to_dict()
-            return unique_products, account_products
-        except Exception as e:
-            st.error(f"Failed to load products: {str(e)}")
-            return [], {}
-
-    unique_products, account_products = load_products()
-
-    # Load category groupings from Industry UI - Sheet17.csv
+    # Load category groupings from Industry UI - Sheet17.csv (deferred until needed)
     def load_category_mappings():
         category_options = {}
         ui_to_backend = {}
-        prefix_to_industries = {}  # Map prefixes to their industries
+        prefix_to_industries = {}
         skipped_rows = 0
         try:
             with open("Industry UI - Sheet17.csv", newline='', encoding='utf-8') as csvfile:
@@ -137,32 +114,28 @@ with st.sidebar:
                     if industry not in category_options[prefix]:
                         category_options[prefix].append(industry)
                     
-                    # Map prefix to its industries for filtering
                     if prefix not in prefix_to_industries:
                         prefix_to_industries[prefix] = []
                     prefix_to_industries[prefix].append(industry)
                     
                     ui_to_backend[industry] = csv_industry
             if skipped_rows > 0:
-                st.warning(f"Skipped {skipped_rows} rows in 'Industry UI - Sheet17.csv' due to malformed 'Industry (UI)' entries. Expected format: 'Prefix: Industry' (e.g., 'Commercial: Entertainment').")
+                st.warning(f"Skipped {skipped_rows} rows in 'Industry UI - Sheet17.csv' due to malformed 'Industry (UI)' entries.")
             return category_options, ui_to_backend, prefix_to_industries
         except Exception as e:
-            st.error(f"Failed to load category mappings from Industry UI - Sheet17.csv: {str(e)}")
+            st.error(f"Failed to load category mappings: {str(e)}")
             return {}, {}, {}
 
+    # Load only the dropdown options at startup
     category_options, ui_to_backend, prefix_to_industries = load_category_mappings()
-
-    # Check if category mappings loaded successfully
     if not category_options or not ui_to_backend:
         st.error("Unable to load industry categories. Please ensure 'Industry UI - Sheet17.csv' exists and is correctly formatted.")
         st.stop()
 
-    # Format industry options with only unique prefixes
     formatted_industry_options = ["Select All"]
-    unique_prefixes = sorted(category_options.keys())  # Get unique prefixes
+    unique_prefixes = sorted(category_options.keys())
     formatted_industry_options.extend(unique_prefixes)
 
-    # Create a callback function for handling industry selections
     def handle_industry_selection():
         current_selections = st.session_state.industry_multiselect
         if "Select All" in current_selections and len(current_selections) > 1:
@@ -176,7 +149,6 @@ with st.sidebar:
         else:
             st.session_state.industry_selections = current_selections
 
-    # Industry dropdown with callback (now showing only prefixes)
     selected_industry_prefixes = st.multiselect(
         "Industry",
         options=formatted_industry_options,
@@ -185,7 +157,6 @@ with st.sidebar:
         on_change=handle_industry_selection
     )
 
-    # Map selected prefixes to all industries under them
     selected_industries = [prefix for prefix in selected_industry_prefixes if prefix != "Select All"]
     selected_ui_industries = []
     for prefix in selected_industries:
@@ -193,10 +164,23 @@ with st.sidebar:
             selected_ui_industries.extend(prefix_to_industries[prefix])
     selected_backend_industries = [ui_to_backend.get(ind, ind) for ind in selected_ui_industries]
 
-    # Product dropdown (no "Unknown" visible)
-    product_options = ["Select All"] + unique_products
+    # Debug message before loading product dropdown
+    st.write("App is starting... Step 4: Preparing product dropdown")
 
-    # Create a callback function for handling product selections
+    def load_products():
+        try:
+            products_df = pd.read_csv("products by account.csv")
+            unique_products = sorted(products_df["product"].unique())
+            account_products = products_df.groupby("id")["product"].apply(set).to_dict()
+            return unique_products, account_products
+        except Exception as e:
+            st.error(f"Failed to load products: {str(e)}")
+            return [], {}
+
+    product_options = ["Select All"]
+    unique_products, account_products = load_products()
+    product_options.extend(unique_products)
+
     def handle_product_selection():
         current_selections = st.session_state.product_multiselect
         if "Select All" in current_selections and len(current_selections) > 1:
@@ -210,7 +194,6 @@ with st.sidebar:
         else:
             st.session_state.product_selections = current_selections
 
-    # Product dropdown with callback
     selected_products = st.multiselect(
         "Product",
         options=product_options,
@@ -221,7 +204,6 @@ with st.sidebar:
 
     selected_products = [prod for prod in selected_products if prod != "Select All"]
 
-    # Add clear button
     if st.button("Clear All"):
         st.session_state.industry_selections = []
         st.session_state.product_selections = []
@@ -229,95 +211,34 @@ with st.sidebar:
 
     process_button = st.button("Process Data", type="primary")
 
-# Load normalized orgs
-def load_normalized_orgs():
-    try:
-        with open("normalized_orgs.csv", newline='', encoding='utf-8') as csvfile:
-            return list(csv.DictReader(csvfile))
-    except Exception as e:
-        st.error(f"Failed to load normalized organizations: {str(e)}")
-        return []
-
-normalized_orgs = load_normalized_orgs()
-
-# Normalize orgs and industries
-def normalize_org(account_name, website, industry_api):
-    domain = urlparse(website).netloc.lower() if website and website != 'N/A' else ''
-    for org in normalized_orgs:
-        if domain and org.get("Primary external org domain", "").lower() == domain:
-            return org.get("Org name", account_name), org.get("FINAL", industry_api), industry_api
-    
-    best_match = None
-    highest_score = 0
-    for org in normalized_orgs:
-        score = fuzz.token_sort_ratio(account_name.lower(), org.get("Org name", "").lower())
-        if score > highest_score and score > 80:
-            highest_score = score
-            best_match = org
-    
-    if best_match:
-        return best_match.get("Org name", account_name), best_match.get("FINAL", industry_api), industry_api
-    
-    for org in normalized_orgs:
-        if industry_api == org.get("FINAL"):
-            return account_name, industry_api, industry_api
-    
-    normalized_industry = industry_mapping.get(industry_api, None)
-    if normalized_industry:
-        return account_name, normalized_industry, industry_api
-    
-    return account_name, industry_api, industry_api
-
-# CSV safe value
-def csv_safe_value(value):
-    if value is None:
-        return '""'
-    str_value = str(value)
-    if ',' in str_value or '\n' in str_value or '"' in str_value:
-        str_value = str_value.replace('"', '""')
-        return f'"{str_value}"'
-    return str_value
-
-# Format duration
-def format_duration(seconds):
-    try:
-        seconds = int(seconds)
-        minutes = seconds // 60
-        remaining_seconds = seconds % 60
-        return f"{minutes} min {remaining_seconds} sec"
-    except (ValueError, TypeError):
-        return "N/A"
-
-# Consolidated filtering function
-def apply_filters(df, selected_industries, selected_products, unique_industries, account_products):
-    include_mask = pd.Series(True, index=df.index)
-
-    if selected_industries:  # Check if there are selected industries
-        industry_mask = (
-            df['INDUSTRY_NORMALIZED'].str.lower().isin([ind.lower() for ind in selected_industries]) |
-            df['INDUSTRY_NORMALIZED'].isna() |
-            df['INDUSTRY_NORMALIZED'].str.lower().isin(['n/a', 'unknown', 'none', ''])
-        )
-        include_mask = include_mask & industry_mask
-
-    if selected_products:
-        matching_account_ids = set()
-        for account_id, products in account_products.items():
-            if any(product in selected_products for product in products):
-                matching_account_ids.add(account_id)
-        product_mask = df['ACCOUNT_ID'].isin(matching_account_ids)
-        unknown_mask = (
-            df['ACCOUNT_ID'].isna() | 
-            df['ACCOUNT_ID'].str.lower().isin(['n/a', 'unknown', 'none', ''])
-        )
-        product_mask = product_mask | unknown_mask
-        include_mask = include_mask & product_mask
-
-    return df[include_mask]
+# Debug message after sidebar rendering
+st.write("App is starting... Step 5: Sidebar rendered, waiting for user input")
 
 # Main processing logic
 if process_button:
     if access_key and secret_key:
+        st.write("Processing data... Step 1: Loading industry mappings")
+        
+        def load_industry_mapping():
+            try:
+                with open("industry_mapping.csv", newline='', encoding='utf-8') as csvfile:
+                    mapping = {row["Industry (API)"]: row["Industry (Normalized)"] for row in csv.DictReader(csvfile)}
+                    industries_from_mapping = sorted(set(mapping.values()))
+                
+                with open("normalized_orgs.csv", newline='', encoding='utf-8') as csvfile:
+                    normalized_data = list(csv.DictReader(csvfile))
+                    industries_from_normalized = sorted(set(row["FINAL"] for row in normalized_data))
+                
+                all_industries = sorted(set(industries_from_mapping + industries_from_normalized))
+                return mapping, all_industries
+            except Exception as e:
+                st.error(f"Failed to load industry mappings: {str(e)}")
+                return {}, []
+
+        industry_mapping, unique_industries = load_industry_mapping()
+
+        st.write("Processing data... Step 2: Fetching Gong API data")
+
         config = {
             "access_key": access_key,
             "secret_key": secret_key,
@@ -442,7 +363,46 @@ if process_button:
                         }
                         full_data.append(call_data)
 
+            st.write("Processing data... Step 3: Normalizing organizations")
+
             # Normalize orgs
+            def load_normalized_orgs():
+                try:
+                    with open("normalized_orgs.csv", newline='', encoding='utf-8') as csvfile:
+                        return list(csv.DictReader(csvfile))
+                except Exception as e:
+                    st.error(f"Failed to load normalized organizations: {str(e)}")
+                    return []
+
+            normalized_orgs = load_normalized_orgs()
+
+            def normalize_org(account_name, website, industry_api):
+                domain = urlparse(website).netloc.lower() if website and website != 'N/A' else ''
+                for org in normalized_orgs:
+                    if domain and org.get("Primary external org domain", "").lower() == domain:
+                        return org.get("Org name", account_name), org.get("FINAL", industry_api), industry_api
+                
+                best_match = None
+                highest_score = 0
+                for org in normalized_orgs:
+                    score = fuzz.token_sort_ratio(account_name.lower(), org.get("Org name", "").lower())
+                    if score > highest_score and score > 80:
+                        highest_score = score
+                        best_match = org
+                
+                if best_match:
+                    return best_match.get("Org name", account_name), best_match.get("FINAL", industry_api), industry_api
+                
+                for org in normalized_orgs:
+                    if industry_api == org.get("FINAL"):
+                        return account_name, industry_api, industry_api
+                
+                normalized_industry = industry_mapping.get(industry_api, None)
+                if normalized_industry:
+                    return account_name, normalized_industry, industry_api
+                
+                return account_name, industry_api, industry_api
+
             for call_data in full_data:
                 account_context = next((ctx for ctx in call_data['call_metadata'].get('context', []) if any(obj.get('objectType') == 'Account' for obj in ctx.get('objects', []))), {})
                 industry = next((field.get('value', 'N/A') for obj in account_context.get('objects', []) for field in obj.get('fields', []) if field.get('name') == 'Industry'), 'N/A')
@@ -456,7 +416,8 @@ if process_button:
                 call_data['industry_normalized'] = meaningful_industry
                 call_data['account_normalized'] = meaningful_account
 
-            # Save JSON to session state
+            st.write("Processing data... Step 4: Preparing JSON and CSV data")
+
             start_date_str = start_date.strftime("%d%b%y").lower()
             end_date_str = end_date.strftime("%Y-%m-%d")
             json_data = json.dumps(full_data, indent=4)
@@ -464,7 +425,6 @@ if process_button:
             st.session_state.processed_data["start_date_str"] = start_date_str
             st.session_state.processed_data["end_date_str"] = end_date_str
 
-            # Prepare Utterances CSV data
             utterances_rows = []
             headers = [
                 'CALL_ID', 'SHORT_CALL_ID', 'CALL_TITLE', 'CALL_DATE', 
@@ -528,14 +488,12 @@ if process_button:
                     ]
                     utterances_rows.append(row)
 
-            # Convert Utterances CSV rows to string
             utterances_csv_lines = []
             for row in utterances_rows:
                 utterances_csv_lines.append(','.join(row))
             utterances_csv_data = '\n'.join(utterances_csv_lines)
             st.session_state.processed_data["utterances_csv"] = utterances_csv_data
 
-            # Prepare Summary CSV data
             summary_rows = []
             summary_headers = [
                 'CALL_ID', 'SHORT_CALL_ID', 'CALL_TITLE', 'CALL_DATE',
@@ -692,18 +650,15 @@ if process_button:
                 ]
                 summary_rows.append(summary_row)
 
-            # Convert Summary CSV rows to string
             summary_csv_lines = []
             for row in summary_rows:
                 summary_csv_lines.append(','.join(row))
             summary_csv_data = '\n'.join(summary_csv_lines)
             st.session_state.processed_data["summary_csv"] = summary_csv_data
 
-            # Store the full Summary table data in session state
             df = pd.DataFrame([row for row in summary_rows[1:]], columns=summary_headers)
             st.session_state.processed_data["full_summary_df"] = df
 
-            # Mark processing as complete
             st.session_state.data_processed = True
             
         except Exception as e:
@@ -711,47 +666,67 @@ if process_button:
 
 # Apply filters and display the filtered Summary table
 if st.session_state.data_processed and st.session_state.processed_data["full_summary_df"] is not None:
+    st.write("Processing data... Step 5: Applying filters and rendering tables")
+
     full_df = st.session_state.processed_data["full_summary_df"].copy()
     
-    # Apply filters to get included calls
+    def apply_filters(df, selected_industries, selected_products, unique_industries, account_products):
+        include_mask = pd.Series(True, index=df.index)
+
+        if selected_industries:
+            industry_mask = (
+                df['INDUSTRY_NORMALIZED'].str.lower().isin([ind.lower() for ind in selected_industries]) |
+                df['INDUSTRY_NORMALIZED'].isna() |
+                df['INDUSTRY_NORMALIZED'].str.lower().isin(['n/a', 'unknown', 'none', ''])
+            )
+            include_mask = include_mask & industry_mask
+
+        if selected_products:
+            matching_account_ids = set()
+            for account_id, products in account_products.items():
+                if any(product in selected_products for product in products):
+                    matching_account_ids.add(account_id)
+            product_mask = df['ACCOUNT_ID'].isin(matching_account_ids)
+            unknown_mask = (
+                df['ACCOUNT_ID'].isna() | 
+                df['ACCOUNT_ID'].str.lower().isin(['n/a', 'unknown', 'none', ''])
+            )
+            product_mask = product_mask | unknown_mask
+            include_mask = include_mask & product_mask
+
+        return df[include_mask]
+
     filtered_df = apply_filters(full_df, selected_backend_industries, selected_products, unique_industries, account_products)
     st.session_state.processed_data["summary_df"] = filtered_df
     
-    # Create included and excluded DataFrames
     included_df = filtered_df.copy()
     included_call_ids = set(included_df['CALL_ID'])
     excluded_df = full_df[~full_df['CALL_ID'].isin(included_call_ids)].copy()
 
-    # Add EXCLUSION_REASON to excluded_df using vectorized operations
-    excluded_df['EXCLUSION_REASON'] = 'Other'  # Default reason
-    # Check for malformed data (missing critical fields after unknown checks)
+    excluded_df['EXCLUSION_REASON'] = 'Other'
     malformed_mask = (
         (excluded_df['INDUSTRY_NORMALIZED'].isna() | (excluded_df['INDUSTRY_NORMALIZED'] == '')) &
         (excluded_df['ACCOUNT_ID'].isna() | (excluded_df['ACCOUNT_ID'] == ''))
     )
     excluded_df.loc[malformed_mask, 'EXCLUSION_REASON'] = 'Malformed Data'
-    # Check for industry filter failure
-    if selected_backend_industries:  # Use a proper boolean check
+    if selected_backend_industries:
         industry_mask = (
             ~excluded_df['INDUSTRY_NORMALIZED'].str.lower().isin([ind.lower() for ind in selected_backend_industries]) &
             ~excluded_df['INDUSTRY_NORMALIZED'].isna() &
             ~excluded_df['INDUSTRY_NORMALIZED'].str.lower().isin(['n/a', 'unknown', 'none', ''])
         )
         excluded_df.loc[industry_mask, 'EXCLUSION_REASON'] = 'Industry'
-    # Check for product filter failure
     if selected_products:
         product_mask = ~excluded_df['ACCOUNT_ID'].isin([account_id for account_id, products in account_products.items() if any(product in selected_products for product in products)]) & ~excluded_df['ACCOUNT_ID'].isna() & ~excluded_df['ACCOUNT_ID'].str.lower().isin(['n/a', 'unknown', 'none', ''])
         excluded_df.loc[product_mask & (excluded_df['EXCLUSION_REASON'] == 'Industry'), 'EXCLUSION_REASON'] = 'Industry and Product'
         excluded_df.loc[product_mask & (excluded_df['EXCLUSION_REASON'] == 'Other'), 'EXCLUSION_REASON'] = 'Product'
 
-    # Display two tables
     st.subheader("Included Calls")
     st.dataframe(included_df)
 
     st.subheader("Excluded Calls")
     st.dataframe(excluded_df)
 
-    # Download buttons for both filtered and unfiltered data
     start_date_str = st.session_state.processed_data["start_date_str"]
     end_date_str = st.session_state.processed_data["end_date_str"]
     
