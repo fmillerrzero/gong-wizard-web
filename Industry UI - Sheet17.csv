@@ -1,21 +1,21 @@
 Category,Industry (UI),Industry (CSVs)
-Business & Commercial,Commercial: Entertainment,Entertainment
-Business & Commercial,Commercial: Finance,Financial Services
-Business & Commercial,Commercial: Industrial,Industrial
-Business & Commercial,Commercial: Legal,Legal Services
-Business & Commercial,Commercial: Professional Services,Professional Services
-Business & Commercial,Commercial: Retail,Retail
-Real Estate & Infrastructure,CRE: Architecture,Real Estate (Architecture)
-Real Estate & Infrastructure,CRE: Development,Real Estate (Development)
-Real Estate & Infrastructure,CRE: Energy,Energy
-Real Estate & Infrastructure,CRE: Facilities,Real Estate (Facilities)
-Real Estate & Infrastructure,CRE: General,Real Estate
-Real Estate & Infrastructure,CRE: Investment,Real Estate (Investment)
-Real Estate & Infrastructure,CRE: Services,Real Estate (Services)
-Healthcare & Care,Health: Medical,Healthcare
-Healthcare & Care,Health: Senior Care,Senior Care
-Public & Social Sector,Public: Education,Education
-Public & Social Sector,Public: Government,Government
-Public & Social Sector,Public: NGO,Not For Profit
-Technology & Digital,Tech: Hardware,Hardware
-Technology & Digital,Tech: Software,Software
+Commercial Business,Commercial: Entertainment,Entertainment
+Commercial Business,Commercial: Finance,Financial Services
+Commercial Business,Commercial: Industrial,Industrial
+Commercial Business,Commercial: Legal,Legal Services
+Commercial Business,Commercial: Professional Services,Professional Services
+Commercial Business,Commercial: Retail,Retail
+Real Estate,CRE: Architecture,Real Estate (Architecture)
+Real Estate,CRE: Development,Real Estate (Development)
+Real Estate,CRE: Energy,Energy
+Real Estate,CRE: Facilities,Real Estate (Facilities)
+Real Estate,CRE: General,Real Estate
+Real Estate,CRE: Investment,Real Estate (Investment)
+Real Estate,CRE: Services,Real Estate (Services)
+Health & Senior Care,Health: Medical,Healthcare
+Health & Senior Care,Health: Senior Care,Senior Care
+Public Sector,Public: Education,Education
+Public Sector,Public: Government,Government
+Public Sector,Public: NGO,Not For Profit
+Technology,Tech: Hardware,Hardware
+Technology,Tech: Software,Software
