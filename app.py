@@ -9,210 +9,231 @@ import pandas as pd
 from fuzzywuzzy import fuzz
 from urllib.parse import urlparse
 
-# Debug message to confirm app startup
-st.write("App is starting... Step 1: Initializing session state")
+try:
+    # Debug message to confirm app startup
+    st.write("App is starting... Step 1: Initializing session state")
 
-# Initialize session state for storing processed data
-if "processed_data" not in st.session_state:
-    st.session_state.processed_data = {
-        "json_data": None,
-        "summary_csv": None,
-        "utterances_csv": None,
-        "start_date_str": None,
-        "end_date_str": None,
-        "summary_df": None,
-        "full_summary_df": None
-    }
-if "data_processed" not in st.session_state:
-    st.session_state.data_processed = False
-if "industry_selections" not in st.session_state:
-    st.session_state.industry_selections = []
-if "product_selections" not in st.session_state:
-    st.session_state.product_selections = []
-
-# Debug message after session state initialization
-st.write("App is starting... Step 2: Rendering sidebar")
-
-# Sidebar with configuration
-with st.sidebar:
-    # Add custom CSS to change sidebar background color and widen multiselect
-    st.markdown(
-        """
-        <style>
-        [data-testid="stSidebar"] {
-            background-color: white;
+    # Initialize session state for storing processed data
+    if "processed_data" not in st.session_state:
+        st.session_state.processed_data = {
+            "json_data": None,
+            "summary_csv": None,
+            "utterances_csv": None,
+            "start_date_str": None,
+            "end_date_str": None,
+            "summary_df": None,
+            "full_summary_df": None
         }
-        [data-testid="stMultiSelect"] {
-            min-width: 300px;  /* Widen the multiselect widget */
-        }
-        [data-testid="stMultiSelect"] div[role="button"] {
-            white-space: normal;  /* Allow text to wrap if needed */
-        }
-        </style>
-        """,
-        unsafe_allow_html=True
-    )
-
-    # App header inside sidebar
-    st.title("Gong Wizard")
-
-    access_key = st.text_input("Gong Access Key", type="password")
-    secret_key = st.text_input("Gong Secret Key", type="password")
-
-    date_range_options = ["Last 7 days", "Last 30 days", "Last 90 days"]
-    today = datetime.today().date()
-
-    if "start_date" not in st.session_state:
-        st.session_state.start_date = today - timedelta(days=7)
-    if "end_date" not in st.session_state:
-        st.session_state.end_date = today
-
-    def update_dates():
-        selected = st.session_state.quick_range
-        if selected == "Last 7 days":
-            st.session_state.start_date = today - timedelta(days=7)
-            st.session_state.end_date = today
-        elif selected == "Last 30 days":
-            st.session_state.start_date = today - timedelta(days=30)
-            st.session_state.end_date = today
-        elif selected == "Last 90 days":
-            st.session_state.start_date = today - timedelta(days=90)
-            st.session_state.end_date = today
-
-    st.selectbox("Quick Date Range", date_range_options, 
-                 index=0, key="quick_range", on_change=update_dates)
-
-    start_date = st.date_input("From Date", value=st.session_state.start_date, key="from_date")
-    end_date = st.date_input("To Date", value=st.session_state.end_date, key="to_date")
-
-    st.session_state.start_date = start_date
-    st.session_state.end_date = end_date
-
-    # Debug message before loading dropdowns
-    st.write("App is starting... Step 3: Preparing industry dropdown")
-
-    # Load category groupings from Industry UI - Sheet17.csv (deferred until needed)
-    def load_category_mappings():
-        category_options = {}
-        ui_to_backend = {}
-        prefix_to_industries = {}
-        skipped_rows = 0
-        try:
-            with open("Industry UI - Sheet17.csv", newline='', encoding='utf-8') as csvfile:
-                reader = csv.DictReader(csvfile)
-                for row in reader:
-                    category = row["Category"]
-                    ui_industry = row["Industry (UI)"]
-                    if ": " not in ui_industry:
-                        skipped_rows += 1
-                        continue  # Skip rows with malformed Industry (UI)
-                    prefix, industry = ui_industry.split(": ", 1)
-                    csv_industry = row["Industry (CSVs)"]
-                    
-                    if prefix not in category_options:
-                        category_options[prefix] = []
-                    if industry not in category_options[prefix]:
-                        category_options[prefix].append(industry)
-                    
-                    if prefix not in prefix_to_industries:
-                        prefix_to_industries[prefix] = []
-                    prefix_to_industries[prefix].append(industry)
-                    
-                    ui_to_backend[industry] = csv_industry
-            if skipped_rows > 0:
-                st.warning(f"Skipped {skipped_rows} rows in 'Industry UI - Sheet17.csv' due to malformed 'Industry (UI)' entries.")
-            return category_options, ui_to_backend, prefix_to_industries
-        except Exception as e:
-            st.error(f"Failed to load category mappings: {str(e)}")
-            return {}, {}, {}
-
-    # Load only the dropdown options at startup
-    category_options, ui_to_backend, prefix_to_industries = load_category_mappings()
-    if not category_options or not ui_to_backend:
-        st.error("Unable to load industry categories. Please ensure 'Industry UI - Sheet17.csv' exists and is correctly formatted.")
-        st.stop()
-
-    formatted_industry_options = ["Select All"]
-    unique_prefixes = sorted(category_options.keys())
-    formatted_industry_options.extend(unique_prefixes)
-
-    def handle_industry_selection():
-        current_selections = st.session_state.industry_multiselect
-        if "Select All" in current_selections and len(current_selections) > 1:
-            st.session_state.industry_selections = [opt for opt in formatted_industry_options if opt != "Select All"]
-            st.session_state.industry_multiselect = st.session_state.industry_selections
-        elif "Select All" in current_selections and len(current_selections) == 1:
-            st.session_state.industry_selections = [opt for opt in formatted_industry_options if opt != "Select All"]
-            st.session_state.industry_multiselect = st.session_state.industry_selections
-        elif len(current_selections) == 0 and len(st.session_state.industry_selections) > 0:
-            st.session_state.industry_selections = []
-        else:
-            st.session_state.industry_selections = current_selections
-
-    selected_industry_prefixes = st.multiselect(
-        "Industry",
-        options=formatted_industry_options,
-        default=st.session_state.industry_selections,
-        key="industry_multiselect",
-        on_change=handle_industry_selection
-    )
-
-    selected_industries = [prefix for prefix in selected_industry_prefixes if prefix != "Select All"]
-    selected_ui_industries = []
-    for prefix in selected_industries:
-        if prefix in prefix_to_industries:
-            selected_ui_industries.extend(prefix_to_industries[prefix])
-    selected_backend_industries = [ui_to_backend.get(ind, ind) for ind in selected_ui_industries]
-
-    # Debug message before loading product dropdown
-    st.write("App is starting... Step 4: Preparing product dropdown")
-
-    def load_products():
-        try:
-            products_df = pd.read_csv("products by account.csv")
-            unique_products = sorted(products_df["product"].unique())
-            account_products = products_df.groupby("id")["product"].apply(set).to_dict()
-            return unique_products, account_products
-        except Exception as e:
-            st.error(f"Failed to load products: {str(e)}")
-            return [], {}
-
-    product_options = ["Select All"]
-    unique_products, account_products = load_products()
-    product_options.extend(unique_products)
-
-    def handle_product_selection():
-        current_selections = st.session_state.product_multiselect
-        if "Select All" in current_selections and len(current_selections) > 1:
-            st.session_state.product_selections = [opt for opt in product_options if opt != "Select All"]
-            st.session_state.product_multiselect = st.session_state.product_selections
-        elif "Select All" in current_selections and len(current_selections) == 1:
-            st.session_state.product_selections = [opt for opt in product_options if opt != "Select All"]
-            st.session_state.product_multiselect = st.session_state.product_selections
-        elif len(current_selections) == 0 and len(st.session_state.product_selections) > 0:
-            st.session_state.product_selections = []
-        else:
-            st.session_state.product_selections = current_selections
-
-    selected_products = st.multiselect(
-        "Product",
-        options=product_options,
-        default=st.session_state.product_selections,
-        key="product_multiselect",
-        on_change=handle_product_selection
-    )
-
-    selected_products = [prod for prod in selected_products if prod != "Select All"]
-
-    if st.button("Clear All"):
+    if "data_processed" not in st.session_state:
+        st.session_state.data_processed = False
+    if "industry_selections" not in st.session_state:
         st.session_state.industry_selections = []
+    if "product_selections" not in st.session_state:
         st.session_state.product_selections = []
-        st.experimental_rerun()
 
-    process_button = st.button("Process Data", type="primary")
+    # Debug message after session state initialization
+    st.write("App is starting... Step 2: Rendering sidebar")
+
+    # Sidebar with configuration
+    with st.sidebar:
+        # Add custom CSS to widen multiselect (remove background-color to revert to default gray)
+        st.markdown(
+            """
+            <style>
+            [data-testid="stMultiSelect"] {
+                min-width: 300px;  /* Widen the multiselect widget */
+            }
+            [data-testid="stMultiSelect"] div[role="button"] {
+                white-space: normal;  /* Allow text to wrap if needed */
+            }
+            </style>
+            """,
+            unsafe_allow_html=True
+        )
+
+        # App header inside sidebar
+        st.title("Gong Wizard")
+
+        access_key = st.text_input("Gong Access Key", type="password")
+        secret_key = st.text_input("Gong Secret Key", type="password")
+
+        date_range_options = ["Last 7 days", "Last 30 days", "Last 90 days"]
+        today = datetime.today().date()
+
+        if "start_date" not in st.session_state:
+            st.session_state.start_date = today - timedelta(days=7)
+        if "end_date" not in st.session_state:
+            st.session_state.end_date = today
+
+        def update_dates():
+            selected = st.session_state.quick_range
+            if selected == "Last 7 days":
+                st.session_state.start_date = today - timedelta(days=7)
+                st.session_state.end_date = today
+            elif selected == "Last 30 days":
+                st.session_state.start_date = today - timedelta(days=30)
+                st.session_state.end_date = today
+            elif selected == "Last 90 days":
+                st.session_state.start_date = today - timedelta(days=90)
+                st.session_state.end_date = today
+
+        st.selectbox("Quick Date Range", date_range_options, 
+                     index=0, key="quick_range", on_change=update_dates)
+
+        start_date = st.date_input("From Date", value=st.session_state.start_date, key="from_date")
+        end_date = st.date_input("To Date", value=st.session_state.end_date, key="to_date")
+
+        st.session_state.start_date = start_date
+        st.session_state.end_date = end_date
+
+        # Debug message before loading dropdowns
+        st.write("App is starting... Step 3: Preparing industry dropdown")
+
+        # Load category groupings from Industry UI - Sheet17.csv (deferred until needed)
+        def load_category_mappings():
+            category_options = {}
+            ui_to_backend = {}
+            prefix_to_industries = {}
+            skipped_rows = 0
+            try:
+                with open("Industry UI - Sheet17.csv", newline='', encoding='utf-8') as csvfile:
+                    reader = csv.DictReader(csvfile)
+                    for row in reader:
+                        category = row["Category"]
+                        ui_industry = row["Industry (UI)"]
+                        if ": " not in ui_industry:
+                            skipped_rows += 1
+                            continue  # Skip rows with malformed Industry (UI)
+                        prefix, industry = ui_industry.split(": ", 1)
+                        csv_industry = row["Industry (CSVs)"]
+                        
+                        if prefix not in category_options:
+                            category_options[prefix] = []
+                        if industry not in category_options[prefix]:
+                            category_options[prefix].append(industry)
+                        
+                        if prefix not in prefix_to_industries:
+                            prefix_to_industries[prefix] = []
+                        prefix_to_industries[prefix].append(industry)
+                        
+                        ui_to_backend[industry] = csv_industry
+                if skipped_rows > 0:
+                    st.warning(f"Skipped {skipped_rows} rows in 'Industry UI - Sheet17.csv' due to malformed 'Industry (UI)' entries.")
+                return category_options, ui_to_backend, prefix_to_industries
+            except Exception as e:
+                st.error(f"Failed to load category mappings: {str(e)}")
+                return {}, {}, {}
+
+        # Load only the dropdown options at startup
+        category_options, ui_to_backend, prefix_to_industries = load_category_mappings()
+        if not category_options or not ui_to_backend:
+            st.error("Unable to load industry categories. Please ensure 'Industry UI - Sheet17.csv' exists and is correctly formatted.")
+            st.stop()
+
+        formatted_industry_options = ["Select All"]
+        unique_prefixes = sorted(category_options.keys())
+        formatted_industry_options.extend(unique_prefixes)
+
+        def handle_industry_selection():
+            current_selections = st.session_state.industry_multiselect
+            if "Select All" in current_selections and len(current_selections) > 1:
+                st.session_state.industry_selections = [opt for opt in formatted_industry_options if opt != "Select All"]
+                st.session_state.industry_multiselect = st.session_state.industry_selections
+            elif "Select All" in current_selections and len(current_selections) == 1:
+                st.session_state.industry_selections = [opt for opt in formatted_industry_options if opt != "Select All"]
+                st.session_state.industry_multiselect = st.session_state.industry_selections
+            elif len(current_selections) == 0 and len(st.session_state.industry_selections) > 0:
+                st.session_state.industry_selections = []
+            else:
+                st.session_state.industry_selections = current_selections
+
+        selected_industry_prefixes = st.multiselect(
+            "Industry",
+            options=formatted_industry_options,
+            default=st.session_state.industry_selections,
+            key="industry_multiselect",
+            on_change=handle_industry_selection
+        )
+
+        selected_industries = [prefix for prefix in selected_industry_prefixes if prefix != "Select All"]
+        selected_ui_industries = []
+        for prefix in selected_industries:
+            if prefix in prefix_to_industries:
+                selected_ui_industries.extend(prefix_to_industries[prefix])
+        selected_backend_industries = [ui_to_backend.get(ind, ind) for ind in selected_ui_industries]
+
+        # Debug message before loading product dropdown
+        st.write("App is starting... Step 4: Preparing product dropdown")
+
+        def load_products():
+            try:
+                products_df = pd.read_csv("products by account.csv")
+                unique_products = sorted(products_df["product"].unique())
+                account_products = products_df.groupby("id")["product"].apply(set).to_dict()
+                return unique_products, account_products
+            except Exception as e:
+                st.error(f"Failed to load products: {str(e)}")
+                return [], {}
+
+        product_options = ["Select All"]
+        unique_products, account_products = load_products()
+        product_options.extend(unique_products)
+
+        def handle_product_selection():
+            current_selections = st.session_state.product_multiselect
+            if "Select All" in current_selections and len(current_selections) > 1:
+                st.session_state.product_selections = [opt for opt in product_options if opt != "Select All"]
+                st.session_state.product_multiselect = st.session_state.product_selections
+            elif "Select All" in current_selections and len(current_selections) == 1:
+                st.session_state.product_selections = [opt for opt in product_options if opt != "Select All"]
+                st.session_state.product_multiselect = st.session_state.product_selections
+            elif len(current_selections) == 0 and len(st.session_state.product_selections) > 0:
+                st.session_state.product_selections = []
+            else:
+                st.session_state.product_selections = current_selections
+
+        selected_products = st.multiselect(
+            "Product",
+            options=product_options,
+            default=st.session_state.product_selections,
+            key="product_multiselect",
+            on_change=handle_product_selection
+        )
+
+        selected_products = [prod for prod in selected_products if prod != "Select All"]
+
+        if st.button("Clear All"):
+            st.session_state.industry_selections = []
+            st.session_state.product_selections = []
+            st.experimental_rerun()
+
+        process_button = st.button("Process Data", type="primary")
+
+except Exception as e:
+    st.error(f"Error during app startup: {str(e)}")
 
 # Debug message after sidebar rendering
 st.write("App is starting... Step 5: Sidebar rendered, waiting for user input")
+
+# Define format_duration function
+def format_duration(seconds):
+    try:
+        seconds = int(seconds)
+        minutes = seconds // 60
+        remaining_seconds = seconds % 60
+        return f"{minutes} min {remaining_seconds} sec"
+    except (ValueError, TypeError):
+        return "N/A"
+
+# Define csv_safe_value function (needed for CSV preparation)
+def csv_safe_value(value):
+    if value is None:
+        return '""'
+    str_value = str(value)
+    if ',' in str_value or '\n' in str_value or '"' in str_value:
+        str_value = str_value.replace('"', '""')
+        return f'"{str_value}"'
+    return str_value
 
 # Main processing logic
 if process_button:
