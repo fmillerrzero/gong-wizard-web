@@ -138,7 +138,9 @@ with st.sidebar:
     all_ui_industries = []
     for prefix, industries in category_options.items():
         for industry in industries:
-            if industry.lower().strip() in [ind.lower().strip() for ind in unique_industries]:
+            # Compare the CSV industry name with unique_industries
+            csv_industry = ui_to_backend.get(industry, industry)
+            if csv_industry.lower().strip() in [ind.lower().strip() for ind in unique_industries]:
                 formatted_industry_options.append(f"{prefix}: {industry}")
                 all_ui_industries.append(industry)
 
@@ -435,7 +437,7 @@ if process_button:
 
             # Save JSON to session state
             start_date_str = start_date.strftime("%d%b%y").lower()
-            end_date_str = end_date.strftime("%d%b%y").lower()
+            end_date_str = end_date.strftime("%Y-%m-%d")
             json_data = json.dumps(full_data, indent=4)
             st.session_state.processed_data["json_data"] = json_data
             st.session_state.processed_data["start_date_str"] = start_date_str
