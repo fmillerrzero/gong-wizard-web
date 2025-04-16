@@ -1,5 +1,5 @@
 requests
-fuzzywuzzy
+rapidfuzz
 python-levenshtein
 streamlit
 pandas

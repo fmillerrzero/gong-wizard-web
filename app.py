@@ -1,221 +1,174 @@
 import streamlit as st
-import requests
-import json
-import csv
-import os
-import time
-from datetime import datetime, timedelta
 import pandas as pd
-from fuzzywuzzy import fuzz
-from urllib.parse import urlparse
+import requests
+import base64
+import json
+import time
+from rapidfuzz import process
+from datetime import datetime, timedelta
+from typing import List, Dict, Any, Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import logging
 
-try:
-    # Debug message to confirm app startup
-    st.write("App is starting... Step 1: Initializing session state")
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-    # Initialize session state for storing processed data
-    if "processed_data" not in st.session_state:
-        st.session_state.processed_data = {
-            "json_data": None,
-            "summary_csv": None,
-            "utterances_csv": None,
-            "start_date_str": None,
-            "end_date_str": None,
-            "summary_df": None,
-            "full_summary_df": None
+# Gong API base URL
+GONG_API_BASE = "https://us-11211.api.gong.io"
+
+# Initialize session state
+if "step" not in st.session_state:
+    st.session_state.step = 1
+if "processed_data" not in st.session_state:
+    st.session_state.processed_data = {}
+if "config" not in st.session_state:
+    st.session_state.config = {
+        "min_word_count": 8,
+        "max_attempts": 3,
+        "excluded_topics": ["Call Setup", "Small Talk", "Wrap-up"],
+        "excluded_affiliations": ["Internal"]
+    }
+
+# Load CSV data with caching
+@st.cache_data
+def load_csv_data():
+    try:
+        industry_mapping = pd.read_csv("industry_mapping.csv")
+        ui_industries = pd.read_csv("Industry UI - Sheet17.csv")
+        normalized_orgs = pd.read_csv("normalized_orgs.csv")
+        products = pd.read_csv("products by account.csv")
+        return industry_mapping, ui_industries, normalized_orgs, products
+    except Exception as e:
+        st.error(f"Cannot find CSV files: {str(e)}. Please check your folder.")
+        logger.error(f"CSV load error: {str(e)}")
+        return None, None, None, None
+
+# Helper functions
+def normalize_org(org_name: str, normalized_orgs: pd.DataFrame, threshold: int = 80) -> Optional[str]:
+    if normalized_orgs.empty or not org_name:
+        return None
+    try:
+        match = process.extractOne(org_name, normalized_orgs["Org name"], score_cutoff=threshold)
+        return normalized_orgs[normalized_orgs["Org name"] == match[0]]["FINAL"].values[0] if match else None
+    except Exception as e:
+        logger.warning(f"Org normalization error for {org_name}: {str(e)}")
+        return None
+
+def create_auth_header(access_key: str, secret_key: str) -> Dict[str, str]:
+    credentials = base64.b64encode(f"{access_key}:{secret_key}".encode()).decode()
+    return {"Authorization": f"Basic {credentials}"}
+
+def fetch_call_list(session: requests.Session, from_date: str, to_date: str, max_attempts: int = 3) -> List[str]:
+    url = f"{GONG_API_BASE}/v2/calls"
+    params = {"fromDateTime": from_date, "toDateTime": to_date}
+    call_ids = []
+    for attempt in range(max_attempts):
+        try:
+            while True:
+                response = session.get(url, params=params, timeout=30)
+                if response.status_code == 200:
+                    data = response.json()
+                    call_ids.extend(call["id"] for call in data.get("calls", []))
+                    cursor = data.get("records", {}).get("cursor")
+                    if not cursor:
+                        break
+                    params["cursor"] = cursor
+                    time.sleep(1)
+                elif response.status_code == 429:
+                    wait_time = int(response.headers.get("Retry-After", (2 ** attempt) * 1))
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    st.error(f"Failed to fetch calls: {response.status_code} - {response.text}")
+                    return call_ids
+            break
+        except Exception as e:
+            if attempt < max_attempts - 1:
+                time.sleep((2 ** attempt) * 1)
+            else:
+                st.error(f"Call list error: {str(e)}")
+                logger.error(f"Call list error: {str(e)}")
+    return call_ids
+
+def fetch_call_details(session: requests.Session, call_ids: List[str], max_attempts: int = 3) -> List[Dict[str, Any]]:
+    url = f"{GONG_API_BASE}/v2/calls/extensive"
+    request_body = {
+        "filter": {"callIds": call_ids},
+        "contentSelector": {
+            "context": "Extended",
+            "exposedFields": {
+                "parties": True,
+                "content": {"structure": True, "topics": True, "trackers": True, "brief": True, "keyPoints": True, "callOutcome": True},
+                "interaction": {"speakers": True, "personInteractionStats": True, "questions": True, "video": True},
+                "collaboration": {"publicComments": True},
+                "media": True
+            }
         }
-    if "data_processed" not in st.session_state:
-        st.session_state.data_processed = False
-    if "industry_selections" not in st.session_state:
-        st.session_state.industry_selections = []
-    if "product_selections" not in st.session_state:
-        st.session_state.product_selections = []
-
-    # Debug message after session state initialization
-    st.write("App is starting... Step 2: Rendering sidebar")
-
-    # Sidebar with configuration
-    with st.sidebar:
-        # Add custom CSS to widen multiselect (remove background-color to revert to default gray)
-        st.markdown(
-            """
-            <style>
-            [data-testid="stMultiSelect"] {
-                min-width: 300px;  /* Widen the multiselect widget */
-            }
-            [data-testid="stMultiSelect"] div[role="button"] {
-                white-space: normal;  /* Allow text to wrap if needed */
-            }
-            </style>
-            """,
-            unsafe_allow_html=True
-        )
-
-        # App header inside sidebar
-        st.title("Gong Wizard")
-
-        access_key = st.text_input("Gong Access Key", type="password")
-        secret_key = st.text_input("Gong Secret Key", type="password")
-
-        date_range_options = ["Last 7 days", "Last 30 days", "Last 90 days"]
-        today = datetime.today().date()
-
-        if "start_date" not in st.session_state:
-            st.session_state.start_date = today - timedelta(days=7)
-        if "end_date" not in st.session_state:
-            st.session_state.end_date = today
-
-        def update_dates():
-            selected = st.session_state.quick_range
-            if selected == "Last 7 days":
-                st.session_state.start_date = today - timedelta(days=7)
-                st.session_state.end_date = today
-            elif selected == "Last 30 days":
-                st.session_state.start_date = today - timedelta(days=30)
-                st.session_state.end_date = today
-            elif selected == "Last 90 days":
-                st.session_state.start_date = today - timedelta(days=90)
-                st.session_state.end_date = today
-
-        st.selectbox("Quick Date Range", date_range_options, 
-                     index=0, key="quick_range", on_change=update_dates)
-
-        start_date = st.date_input("From Date", value=st.session_state.start_date, key="from_date")
-        end_date = st.date_input("To Date", value=st.session_state.end_date, key="to_date")
-
-        st.session_state.start_date = start_date
-        st.session_state.end_date = end_date
-
-        # Debug message before loading dropdowns
-        st.write("App is starting... Step 3: Preparing industry dropdown")
-
-        # Load category groupings from Industry UI - Sheet17.csv (deferred until needed)
-        def load_category_mappings():
-            category_options = {}
-            ui_to_backend = {}
-            prefix_to_industries = {}
-            skipped_rows = 0
-            try:
-                with open("Industry UI - Sheet17.csv", newline='', encoding='utf-8') as csvfile:
-                    reader = csv.DictReader(csvfile)
-                    for row in reader:
-                        category = row["Category"]
-                        ui_industry = row["Industry (UI)"]
-                        if ": " not in ui_industry:
-                            skipped_rows += 1
-                            continue  # Skip rows with malformed Industry (UI)
-                        prefix, industry = ui_industry.split(": ", 1)
-                        csv_industry = row["Industry (CSVs)"]
-                        
-                        if prefix not in category_options:
-                            category_options[prefix] = []
-                        if industry not in category_options[prefix]:
-                            category_options[prefix].append(industry)
-                        
-                        if prefix not in prefix_to_industries:
-                            prefix_to_industries[prefix] = []
-                        prefix_to_industries[prefix].append(industry)
-                        
-                        ui_to_backend[industry] = csv_industry
-                if skipped_rows > 0:
-                    st.warning(f"Skipped {skipped_rows} rows in 'Industry UI - Sheet17.csv' due to malformed 'Industry (UI)' entries.")
-                return category_options, ui_to_backend, prefix_to_industries
-            except Exception as e:
-                st.error(f"Failed to load category mappings: {str(e)}")
-                return {}, {}, {}
-
-        # Load only the dropdown options at startup
-        category_options, ui_to_backend, prefix_to_industries = load_category_mappings()
-        if not category_options or not ui_to_backend:
-            st.error("Unable to load industry categories. Please ensure 'Industry UI - Sheet17.csv' exists and is correctly formatted.")
-            st.stop()
-
-        formatted_industry_options = ["Select All"]
-        unique_prefixes = sorted(category_options.keys())
-        formatted_industry_options.extend(unique_prefixes)
-
-        def handle_industry_selection():
-            current_selections = st.session_state.industry_multiselect
-            if "Select All" in current_selections and len(current_selections) > 1:
-                st.session_state.industry_selections = [opt for opt in formatted_industry_options if opt != "Select All"]
-                st.session_state.industry_multiselect = st.session_state.industry_selections
-            elif "Select All" in current_selections and len(current_selections) == 1:
-                st.session_state.industry_selections = [opt for opt in formatted_industry_options if opt != "Select All"]
-                st.session_state.industry_multiselect = st.session_state.industry_selections
-            elif len(current_selections) == 0 and len(st.session_state.industry_selections) > 0:
-                st.session_state.industry_selections = []
+    }
+    for attempt in range(max_attempts):
+        try:
+            response = session.post(url, json=request_body, timeout=60)
+            if response.status_code == 200:
+                return response.json().get("calls", [])
+            elif response.status_code == 429:
+                wait_time = int(response.headers.get("Retry-After", (2 ** attempt) * 1))
+                time.sleep(wait_time)
             else:
-                st.session_state.industry_selections = current_selections
-
-        selected_industry_prefixes = st.multiselect(
-            "Industry",
-            options=formatted_industry_options,
-            default=st.session_state.industry_selections,
-            key="industry_multiselect",
-            on_change=handle_industry_selection
-        )
-
-        selected_industries = [prefix for prefix in selected_industry_prefixes if prefix != "Select All"]
-        selected_ui_industries = []
-        for prefix in selected_industries:
-            if prefix in prefix_to_industries:
-                selected_ui_industries.extend(prefix_to_industries[prefix])
-        selected_backend_industries = [ui_to_backend.get(ind, ind) for ind in selected_ui_industries]
-
-        # Debug message before loading product dropdown
-        st.write("App is starting... Step 4: Preparing product dropdown")
-
-        def load_products():
-            try:
-                products_df = pd.read_csv("products by account.csv")
-                unique_products = sorted(products_df["product"].unique())
-                account_products = products_df.groupby("id")["product"].apply(set).to_dict()
-                return unique_products, account_products
-            except Exception as e:
-                st.error(f"Failed to load products: {str(e)}")
-                return [], {}
-
-        product_options = ["Select All"]
-        unique_products, account_products = load_products()
-        product_options.extend(unique_products)
-
-        def handle_product_selection():
-            current_selections = st.session_state.product_multiselect
-            if "Select All" in current_selections and len(current_selections) > 1:
-                st.session_state.product_selections = [opt for opt in product_options if opt != "Select All"]
-                st.session_state.product_multiselect = st.session_state.product_selections
-            elif "Select All" in current_selections and len(current_selections) == 1:
-                st.session_state.product_selections = [opt for opt in product_options if opt != "Select All"]
-                st.session_state.product_multiselect = st.session_state.product_selections
-            elif len(current_selections) == 0 and len(st.session_state.product_selections) > 0:
-                st.session_state.product_selections = []
+                logger.warning(f"Call details fetch failed: {response.status_code} - {response.text}")
+                break
+        except Exception as e:
+            if attempt < max_attempts - 1:
+                time.sleep((2 ** attempt) * 1)
             else:
-                st.session_state.product_selections = current_selections
+                logger.warning(f"Error fetching call details: {str(e)}")
+                break
+    return []
 
-        selected_products = st.multiselect(
-            "Product",
-            options=product_options,
-            default=st.session_state.product_selections,
-            key="product_multiselect",
-            on_change=handle_product_selection
-        )
+def fetch_transcript(session: requests.Session, call_ids: List[str], max_attempts: int = 3) -> Dict[str, List[Dict[str, Any]]]:
+    url = f"{GONG_API_BASE}/v2/calls/transcript"
+    request_body = {"filter": {"callIds": call_ids}}
+    for attempt in range(max_attempts):
+        try:
+            response = session.post(url, json=request_body, timeout=60)
+            if response.status_code == 200:
+                transcripts = response.json().get("callTranscripts", [])
+                return {t["callId"]: t.get("transcript", []) for t in transcripts}
+            elif response.status_code == 429:
+                wait_time = int(response.headers.get("Retry-After", (2 ** attempt) * 1))
+                time.sleep(wait_time)
+            else:
+                logger.warning(f"Transcript fetch failed: {response.status_code} - {response.text}")
+                break
+        except Exception as e:
+            if attempt < max_attempts - 1:
+                time.sleep((2 ** attempt) * 1)
+            else:
+                logger.warning(f"Error fetching transcripts: {str(e)}")
+                break
+    return {call_id: [] for call_id in call_ids}
 
-        selected_products = [prod for prod in selected_products if prod != "Select All"]
+def normalize_call_data(call_data: Dict[str, Any], transcript: List[Dict[str, Any]], normalized_orgs: pd.DataFrame, api_to_normalized: Dict[str, str]) -> Dict[str, Any]:
+    if not call_data:
+        return {}
+    try:
+        account_context = next((ctx for ctx in call_data.get("context", []) if any(obj.get("objectType") == "Account" for obj in ctx.get("objects", []))), {})
+        industry_api = next((field.get("value", "Unknown") for obj in account_context.get("objects", []) for field in obj.get("fields", []) if field.get("name") == "Industry"), "Unknown")
+        account_name = next((field.get("value", "Unknown") for obj in account_context.get("objects", []) for field in obj.get("fields", []) if field.get("name") == "Name"), "Unknown")
+        account_id = next((obj.get("objectId", "Unknown") for obj in account_context.get("objects", []) if obj.get("objectType") == "Account"), "Unknown")
+        normalized_industry = api_to_normalized.get(industry_api, industry_api)
+        normalized_account = normalize_org(account_name, normalized_orgs) or account_name
+        call_data["industry_api"] = industry_api
+        call_data["account_api"] = account_name
+        call_data["industry_normalized"] = normalized_industry
+        call_data["account_normalized"] = normalized_account
+        call_data["account_id"] = account_id
+        call_data["utterances"] = transcript
+        return call_data
+    except Exception as e:
+        logger.error(f"Normalization error: {str(e)}")
+        return {}
 
-        if st.button("Clear All"):
-            st.session_state.industry_selections = []
-            st.session_state.product_selections = []
-            st.experimental_rerun()
-
-        process_button = st.button("Process Data", type="primary")
-
-except Exception as e:
-    st.error(f"Error during app startup: {str(e)}")
-
-# Debug message after sidebar rendering
-st.write("App is starting... Step 5: Sidebar rendered, waiting for user input")
-
-# Define format_duration function
 def format_duration(seconds):
     try:
         seconds = int(seconds)
@@ -225,7 +178,6 @@ def format_duration(seconds):
     except (ValueError, TypeError):
         return "N/A"
 
-# Define csv_safe_value function (needed for CSV preparation)
 def csv_safe_value(value):
     if value is None:
         return '""'
@@ -235,551 +187,317 @@ def csv_safe_value(value):
         return f'"{str_value}"'
     return str_value
 
-# Main processing logic
-if process_button:
-    if access_key and secret_key:
-        st.write("Processing data... Step 1: Loading industry mappings")
-        
-        def load_industry_mapping():
-            try:
-                with open("industry_mapping.csv", newline='', encoding='utf-8') as csvfile:
-                    mapping = {row["Industry (API)"]: row["Industry (Normalized)"] for row in csv.DictReader(csvfile)}
-                    industries_from_mapping = sorted(set(mapping.values()))
-                
-                with open("normalized_orgs.csv", newline='', encoding='utf-8') as csvfile:
-                    normalized_data = list(csv.DictReader(csvfile))
-                    industries_from_normalized = sorted(set(row["FINAL"] for row in normalized_data))
-                
-                all_industries = sorted(set(industries_from_mapping + industries_from_normalized))
-                return mapping, all_industries
-            except Exception as e:
-                st.error(f"Failed to load industry mappings: {str(e)}")
-                return {}, []
-
-        industry_mapping, unique_industries = load_industry_mapping()
-
-        st.write("Processing data... Step 2: Fetching Gong API data")
-
-        config = {
-            "access_key": access_key,
-            "secret_key": secret_key,
-            "from_date": start_date.strftime("%Y-%m-%d"),
-            "to_date": end_date.strftime("%Y-%m-%d"),
-            "output_folder": ".",
-            "excluded_topics": ["Call Setup", "Small Talk", "Wrap-up"],
-            "excluded_affiliations": ["Internal"],
-            "min_word_count": 8
-        }
-        
+def prepare_summary_df(calls: List[Dict[str, Any]]) -> pd.DataFrame:
+    summary_data = []
+    for call in calls:
+        if not call:
+            continue
         try:
-            BASE_URL = "https://us-11211.api.gong.io"
-            batch_size = 20
-            
-            session = requests.Session()
-            auth = (config['access_key'], config['secret_key'])
-            
-            all_calls = []
-            cursor = None
-            params = {
-                "fromDateTime": f"{config['from_date']}T00:00:00-00:00",
-                "toDateTime": f"{config['to_date']}T23:59:59-00:00"
-            }
-            
-            while True:
-                if cursor:
-                    params["cursor"] = cursor
-                resp = session.get(
-                    f"{BASE_URL}/v2/calls", 
-                    headers={"Content-Type": "application/json"}, 
-                    params=params, 
-                    auth=auth, 
-                    timeout=30
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                all_calls.extend(data.get("calls", []))
-                cursor = data.get("records", {}).get("cursor")
-                if not cursor:
-                    break
-                time.sleep(1)
-            
-            call_ids = [call["id"] for call in all_calls]
+            meta = call.get("metaData", {})
+            account_context = next((ctx for ctx in call.get("context", []) if any(obj.get("objectType") == "Account" for obj in ctx.get("objects", []))), {})
+            opportunity = next((obj for obj in account_context.get("objects", []) if obj.get("objectType") == "Opportunity"), {})
+            parties = call.get("parties", [])
+            speakers = call.get("interaction", {}).get("speakers", [])
+            talk_times = {speaker.get("id", ""): speaker.get("talkTime", 0) for speaker in speakers}
+            total_talk_time = sum(talk_times.values())
+            internal_participants = []
+            external_participants = []
+            for party in parties:
+                speaker_id = party.get("speakerId")
+                if not speaker_id:
+                    continue
+                name = party.get("name", "N/A")
+                title = party.get("title", "Unknown")
+                affiliation = party.get("affiliation", "Unknown")
+                talk_time = talk_times.get(speaker_id, 0)
+                talk_time_pct = round((talk_time / total_talk_time * 100)) if total_talk_time > 0 else 0
+                participant_info = f"{name} ({title}) [talk time: {talk_time_pct}%]" if title.lower() not in ["unknown", "n/a", ""] else f"{name} [talk time: {talk_time_pct}%]"
+                if affiliation in st.session_state.config["excluded_affiliations"]:
+                    internal_participants.append(participant_info)
+                elif affiliation == "External":
+                    external_participants.append(participant_info)
+            trackers = call.get("content", {}).get("trackers", [])
+            tracker_dict = {tracker.get("name", "N/A"): tracker.get("count", 0) for tracker in trackers}
+            sales_trackers = [f"{name}:{count}" for name, count in tracker_dict.items() if count > 0]
+            topics = call.get("content", {}).get("topics", [])
+            summary_data.append({
+                "CALL_ID": meta.get("id", "N/A"),
+                "SHORT_CALL_ID": f"{str(meta.get('id', 'N/A'))[:5]}_{meta.get('started', 'unknown').split('T')[0]}" if meta.get("started") else "N/A",
+                "CALL_TITLE": meta.get("title", "N/A"),
+                "CALL_DATE": datetime.fromisoformat(meta.get("started", "1970-01-01T00:00:00Z").replace("Z", "+00:00")).strftime("%Y-%m-%d") if meta.get("started") else "N/A",
+                "DURATION": format_duration(meta.get("duration", 0)),
+                "MEETING_URL": meta.get("meetingUrl", "N/A"),
+                "WEBSITE": next((field.get("value", "N/A") for obj in account_context.get("objects", []) for field in obj.get("fields", []) if field.get("name") == "Website"), "N/A"),
+                "ACCOUNT_ID": call.get("account_id", "N/A"),
+                "ACCOUNT_NORMALIZED": call.get("account_normalized", "N/A"),
+                "INDUSTRY_NORMALIZED": call.get("industry_normalized", "Unknown"),
+                "OPPORTUNITY_NAME": next((field.get("value", "N/A") for field in opportunity.get("fields", []) if field.get("name") == "Name"), "N/A"),
+                "LEAD_SOURCE": next((field.get("value", "N/A") for field in opportunity.get("fields", []) if field.get("name") == "LeadSource"), "N/A"),
+                "DEAL_STAGE": next((field.get("value", "N/A") for field in opportunity.get("fields", []) if field.get("name") == "StageName"), "N/A"),
+                "FORECAST_CATEGORY": next((field.get("value", "N/A") for field in opportunity.get("fields", []) if field.get("name") == "ForecastCategoryName"), "N/A"),
+                "EXTERNAL_PARTICIPANTS": ", ".join(external_participants) or "N/A",
+                "INTERNAL_PARTICIPANTS": ", ".join(internal_participants) or "N/A",
+                "INTERNAL_SPEAKERS": len(set(u.get("speakerId", "") for u in call.get("utterances", []) if u.get("speakerId") in [p.get("speakerId", "") for p in parties if p.get("affiliation") in st.session_state.config["excluded_affiliations"]])),
+                "EXTERNAL_SPEAKERS": len(set(u.get("speakerId", "") for u in call.get("utterances", []) if u.get("speakerId") in [p.get("speakerId", "") for p in parties if p.get("affiliation") == "External"])),
+                "SALES_TRACKERS": " | ".join(sales_trackers) or "N/A",
+                "PRICING_DURATION": format_duration(next((t.get("duration", 0) for t in topics if t.get("name") == "Pricing"), 0)),
+                "NEXT_STEPS_DURATION": format_duration(next((t.get("duration", 0) for t in topics if t.get("name") == "Next Steps"), 0)),
+                "CALL_BRIEF": call.get("content", {}).get("brief", "N/A"),
+                "KEY_POINTS": ";".join(p.get("text", "N/A") for p in call.get("content", {}).get("keyPoints", [])) or "N/A"
+            })
+        except Exception as e:
+            logger.error(f"Summary prep error: {str(e)}")
+    return pd.DataFrame(summary_data)
 
+def prepare_utterances_df(calls: List[Dict[str, Any]]) -> pd.DataFrame:
+    utterances_data = []
+    for call in calls:
+        if not call:
+            continue
+        try:
+            call_id = call.get("metaData", {}).get("id", "N/A")
+            short_call_id = f"{str(call_id)[:5]}_{call.get('metaData', {}).get('started', 'unknown').split('T')[0]}" if call.get('metaData', {}).get('started') else "N/A"
+            call_title = call.get("metaData", {}).get("title", "N/A")
+            call_date = datetime.fromisoformat(call.get("metaData", {}).get("started", "1970-01-01T00:00:00Z").replace("Z", "+00:00")).strftime("%Y-%m-%d") if call.get("metaData", {}).get("started") else "N/A"
+            account_id = call.get("account_id", "N/A")
+            normalized_account = call.get("account_normalized", "N/A")
+            normalized_industry = call.get("industry_normalized", "Unknown")
+            parties = call.get("parties", [])
+            speaker_info = {p.get("speakerId", ""): {"name": p.get("name", "N/A"), "title": p.get("title", "Unknown")} for p in parties}
+            for utterance in call.get("utterances", []):
+                sentences = utterance.get("sentences", [])
+                if not sentences:
+                    continue
+                text = " ".join(s.get("text", "N/A") for s in sentences)
+                word_count = len(text.split())
+                topic = utterance.get("topic", "N/A")
+                if topic in st.session_state.config["excluded_topics"] or word_count < st.session_state.config["min_word_count"]:
+                    continue
+                speaker_id = utterance.get("speakerId", "N/A")
+                speaker = speaker_info.get(speaker_id, {"name": "N/A", "title": "Unknown"})
+                start_time = sentences[0].get("start", 0)
+                end_time = sentences[-1].get("end", 0)
+                duration = format_duration(end_time - start_time) if end_time and start_time else "N/A"
+                utterances_data.append({
+                    "CALL_ID": call_id,
+                    "SHORT_CALL_ID": short_call_id,
+                    "CALL_TITLE": call_title,
+                    "CALL_DATE": call_date,
+                    "ACCOUNT_ID": account_id,
+                    "ACCOUNT_NORMALIZED": normalized_account,
+                    "INDUSTRY_NORMALIZED": normalized_industry,
+                    "SPEAKER_JOB_TITLE": speaker["title"],
+                    "UTTERANCE_DURATION": duration,
+                    "UTTERANCE_TEXT": text,
+                    "TOPIC": topic
+                })
+        except Exception as e:
+            logger.error(f"Utterance prep error: {str(e)}")
+    return pd.DataFrame(utterances_data)
+
+def get_normalized_industries(categories: List[str], category_to_normalized: Dict[str, List[str]]) -> List[str]:
+    return list(set(sum([category_to_normalized.get(cat, []) for cat in categories], [])))
+
+def apply_filters(df: pd.DataFrame, industries: List[str], products: List[str], account_products: Dict[str, set]) -> pd.DataFrame:
+    if not industries and not products:
+        return df
+    filtered_df = df.copy()
+    
+    # Ensure required columns exist, add with default "Unknown" if missing
+    if "INDUSTRY_NORMALIZED" not in filtered_df.columns:
+        filtered_df["INDUSTRY_NORMALIZED"] = "Unknown"
+    if "ACCOUNT_ID" not in filtered_df.columns:
+        filtered_df["ACCOUNT_ID"] = "Unknown"
+    
+    try:
+        if industries:
+            industries_lower = [i.lower() for i in industries]
+            filtered_df = filtered_df[
+                filtered_df["INDUSTRY_NORMALIZED"].str.lower().isin(industries_lower) |
+                filtered_df["INDUSTRY_NORMALIZED"].str.lower().isin(["unknown", "n/a", ""])
+            ]
+        if products:
+            matching_account_ids = {aid for aid, prods in account_products.items() if any(p in products for p in prods)}
+            filtered_df = filtered_df[
+                filtered_df["ACCOUNT_ID"].isin(matching_account_ids) |
+                filtered_df["ACCOUNT_ID"].str.lower().isin(["unknown", "n/a", ""])
+            ]
+        return filtered_df
+    except Exception as e:
+        st.error(f"Filtering error: {str(e)}")
+        logger.error(f"Filtering error: {str(e)}")
+        return df
+
+def download_csv(df: pd.DataFrame, filename: str):
+    csv = df.to_csv(index=False, encoding='utf-8-sig')
+    st.download_button(f"Download {filename}", data=csv, file_name=filename, mime="text/csv")
+
+def download_json(data: Any, filename: str):
+    json_data = json.dumps(data, indent=4, ensure_ascii=False, default=str)
+    st.download_button(f"Download {filename}", data=json_data, file_name=filename, mime="application/json")
+
+# Main app
+def main():
+    st.title("📞 Gong Wizard")
+    st.markdown(
+        """
+        <style>
+        [data-testid="stMultiSelect"] { min-width: 300px; }
+        [data-testid="stMultiSelect"] div[role="button"] { white-space: normal; }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
+    # Load CSVs
+    industry_mapping, ui_industries, normalized_orgs, products_df = load_csv_data()
+    if industry_mapping is None:
+        return
+
+    # Initialize mappings
+    api_to_normalized = dict(zip(industry_mapping["Industry (API)"], industry_mapping["Industry (Normalized)"]))
+    category_to_normalized = {category: ui_industries[ui_industries["Category"] == category]["Industry (CSVs)"].unique().tolist() 
+                             for category in ui_industries["Category"].unique()}
+    account_products = products_df.groupby("id")["product"].apply(set).to_dict()
+    unique_products = sorted(products_df["product"].unique())
+
+    # Sidebar
+    with st.sidebar:
+        st.header("Configuration")
+        access_key = st.text_input("Gong Access Key", type="password")
+        secret_key = st.text_input("Gong Secret Key", type="password")
+        headers = create_auth_header(access_key, secret_key) if access_key and secret_key else {}
+        
+        today = datetime.today().date()
+        start_date = st.date_input("From Date", value=today - timedelta(days=7))
+        end_date = st.date_input("To Date", value=today)
+        industry_categories = list(category_to_normalized.keys())
+        selected_categories = st.multiselect("Industry", ["Select All"] + industry_categories, default=["Select All"])
+        selected_products = st.multiselect("Product", ["Select All"] + unique_products, default=["Select All"])
+        if st.button("Reset", type="secondary"):
+            st.session_state.clear()
+            st.session_state.step = 1
+            st.rerun()
+
+    # Validate headers
+    if not headers:
+        st.warning("Please provide your Gong Access Key and Secret Key.")
+        return
+
+    # Normalize selections
+    if "Select All" in selected_categories:
+        selected_categories = industry_categories
+    if "Select All" in selected_products:
+        selected_products = unique_products
+
+    # Step 1: Fetch call list
+    if st.session_state.step == 1:
+        st.markdown("### Step 1: Fetch Call List")
+        if st.button("Fetch Call List", type="primary"):
+            with st.spinner("Fetching call list..."):
+                session = requests.Session()
+                session.headers.update(headers)
+                call_ids = fetch_call_list(session, start_date.isoformat() + "T00:00:00Z", end_date.isoformat() + "T23:59:59Z")
+                if call_ids:
+                    st.session_state.processed_data["call_ids"] = call_ids
+                    st.session_state.processed_data["start_date_str"] = start_date.strftime("%d%b%y").lower()
+                    st.session_state.processed_data["end_date_str"] = end_date.strftime("%Y-%m-%d")
+                    st.success(f"Found {len(call_ids)} calls.")
+                    if st.button("Proceed to Step 2", type="primary"):
+                        st.session_state.step = 2
+                        st.rerun()
+
+    # Step 2: Fetch call details
+    elif st.session_state.step == 2:
+        st.markdown("### Step 2: Fetch Call Details")
+        if "call_ids" not in st.session_state.processed_data:
+            st.warning("Please fetch the call list first.")
+        elif st.button("Fetch Call Details", type="primary"):
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            session = requests.Session()
+            session.headers.update(headers)
+            call_ids = st.session_state.processed_data["call_ids"]
             full_data = []
-            
+            total = len(call_ids)
+            processed = 0
+            batch_size = 50  # Batch size to reduce API calls
             for i in range(0, len(call_ids), batch_size):
                 batch = call_ids[i:i + batch_size]
-                request_body = {
-                    "filter": {
-                        "callIds": batch,
-                        "fromDateTime": f"{config['from_date']}T00:00:00-00:00",
-                        "toDateTime": f"{config['to_date']}T23:59:59-00:00"
-                    },
-                    "contentSelector": {
-                        "context": "Extended",
-                        "exposedFields": {
-                            "parties": True,
-                            "content": {
-                                "structure": True,
-                                "topics": True,
-                                "trackers": True,
-                                "brief": True,
-                                "keyPoints": True,
-                                "callOutcome": True
-                            },
-                            "interaction": {
-                                "speakers": True,
-                                "personInteractionStats": True,
-                                "questions": True,
-                                "video": True
-                            },
-                            "collaboration": {
-                                "publicComments": True
-                            },
-                            "media": True
-                        }
-                    }
-                }
-                r = session.post(f"{BASE_URL}/v2/calls/extensive", headers={"Content-Type": "application/json"}, json=request_body, auth=auth, timeout=60)
-                r.raise_for_status()
-                calls_data = r.json().get("calls", [])
-                call_metadata = {call_data["metaData"]["id"]: call_data for call_data in calls_data if "metaData" in call_data and "id" in call_data["metaData"]}
+                # Fetch details
+                details = fetch_call_details(session, batch)
+                # Fetch transcripts for the same batch
+                transcripts = fetch_transcript(session, batch)
+                for call in details:
+                    call_id = call.get("metaData", {}).get("id", "")
+                    call_transcript = transcripts.get(call_id, [])
+                    normalized_data = normalize_call_data(call, call_transcript, normalized_orgs, api_to_normalized)
+                    if normalized_data:
+                        full_data.append(normalized_data)
+                processed += len(batch)
+                progress = processed / total
+                progress_bar.progress(progress)
+                status_text.text(f"Processed {processed}/{total} calls")
+            progress_bar.empty()
+            status_text.empty()
+            if full_data:
+                st.session_state.processed_data["full_data"] = full_data
+                st.session_state.processed_data["summary_df"] = prepare_summary_df(full_data)
+                st.session_state.processed_data["utterances_df"] = prepare_utterances_df(full_data)
+                st.session_state.processed_data["json_data"] = json.dumps(full_data, indent=4, ensure_ascii=False, default=str)
+                st.success(f"Processed {len(full_data)} calls.")
+                if st.button("Proceed to Step 3", type="primary"):
+                    st.session_state.step = 3
+                    st.rerun()
+            else:
+                st.error("No call details fetched.")
 
-                transcript_request = {
-                    "filter": {
-                        "callIds": batch,
-                        "fromDateTime": f"{config['from_date']}T00:00:00-00:00",
-                        "toDateTime": f"{config['to_date']}T23:59:59-00:00"
-                    }
-                }
-                transcript_response = session.post(f"{BASE_URL}/v2/calls/transcript", headers={"Content-Type": "application/json"}, json=transcript_request, auth=auth, timeout=60)
-                transcript_response.raise_for_status()
-                transcripts_batch = {t["callId"]: t["transcript"] for t in transcript_response.json().get("callTranscripts", [])}
+    # Step 3: Filter and analyze
+    elif st.session_state.step == 3:
+        st.markdown("### Step 3: Filter and Analyze")
+        if "summary_df" not in st.session_state.processed_data:
+            st.warning("Please fetch call details first.")
+        else:
+            summary_df = st.session_state.processed_data["summary_df"]
+            utterances_df = st.session_state.processed_data["utterances_df"]
+            full_data = st.session_state.processed_data["full_data"]
+            normalized_industries = get_normalized_industries(selected_categories, category_to_normalized)
+            filtered_df = apply_filters(summary_df, normalized_industries, selected_products, account_products)
+            included_call_ids = set(filtered_df["CALL_ID"])
+            excluded_df = summary_df[~summary_df["CALL_ID"].isin(included_call_ids)].copy()
+            excluded_df["EXCLUSION_REASON"] = "Other"
+            if selected_categories and "Select All" not in selected_categories:
+                industry_mask = (~excluded_df["INDUSTRY_NORMALIZED"].str.lower().isin([i.lower() for i in normalized_industries]) & 
+                                ~excluded_df["INDUSTRY_NORMALIZED"].str.lower().isin(["unknown", "n/a", ""]))
+                excluded_df.loc[industry_mask, "EXCLUSION_REASON"] = "Industry"
+            if selected_products and "Select All" not in selected_products:
+                matching_account_ids = {aid for aid, prods in account_products.items() if any(p in products for p in prods)}
+                product_mask = (~excluded_df["ACCOUNT_ID"].isin(matching_account_ids) & 
+                               ~excluded_df["ACCOUNT_ID"].str.lower().isin(["unknown", "n/a", ""]))
+                excluded_df.loc[product_mask & (excluded_df["EXCLUSION_REASON"] == "Industry"), "EXCLUSION_REASON"] = "Industry and Product"
+                excluded_df.loc[product_mask & (excluded_df["EXCLUSION_REASON"] == "Other"), "EXCLUSION_REASON"] = "Product"
+            st.subheader("Included Calls")
+            st.dataframe(filtered_df)
+            st.subheader("Excluded Calls")
+            st.dataframe(excluded_df)
+            st.subheader("Utterances")
+            st.dataframe(utterances_df[utterances_df["CALL_ID"].isin(filtered_df["CALL_ID"])])
+            start_date_str = st.session_state.processed_data["start_date_str"]
+            end_date_str = st.session_state.processed_data["end_date_str"]
+            st.subheader("Download Options")
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown("**Unfiltered Data**")
+                download_csv(summary_df, f"unfiltered_summary_gong_{start_date_str}_to_{end_date_str}.csv")
+                download_csv(utterances_df, f"unfiltered_utterances_gong_{start_date_str}_to_{end_date_str}.csv")
+                download_json(full_data, f"unfiltered_json_gong_{start_date_str}_to_{end_date_str}.json")
+            with col2:
+                st.markdown("**Filtered Data**")
+                download_csv(filtered_df, f"filtered_summary_gong_{start_date_str}_to_{end_date_str}.csv")
+                filtered_utterances = utterances_df[utterances_df["CALL_ID"].isin(filtered_df["CALL_ID"])]
+                download_csv(filtered_utterances, f"filtered_utterances_gong_{start_date_str}_to_{end_date_str}.csv")
+                filtered_json = [call for call in full_data if call.get("metaData", {}).get("id", "N/A") in filtered_df["CALL_ID"].values]
+                download_json(filtered_json, f"filtered_json_gong_{start_date_str}_to_{end_date_str}.json")
 
-                for call_id in batch:
-                    if call_id in call_metadata and call_id in transcripts_batch:
-                        call = call_metadata[call_id]
-                        call_date_str = "unknown-date"
-                        if call.get("metaData", {}).get("started"):
-                            call_date_obj = datetime.fromisoformat(call["metaData"]["started"].replace('Z', '+00:00'))
-                            call_date_str = call_date_obj.strftime("%Y-%m-%d")
-                        call_id_prefix = str(call_id)[:5] if call_id and len(str(call_id)) >= 5 else str(call_id)
-                        short_call_id = f"{call_id_prefix}_{call_date_str}"
-                        utterances_with_short_id = [{**utterance, "short_call_id": short_call_id} for utterance in transcripts_batch[call_id]]
-                        call_meta = call_metadata[call_id]
-                        if 'parties' in call_meta:
-                            for party in call_meta['parties']:
-                                if party.get('affiliation') == "Unknown":
-                                    party['affiliation'] = "External"
-                        account_id = "N/A"
-                        account_context = next((ctx for ctx in call_meta.get('context', []) if any(obj.get('objectType') == 'Account' for obj in ctx.get('objects', []))), {})
-                        if account_context:
-                            account_id = next((obj.get('objectId', 'N/A') for obj in account_context.get('objects', []) if obj.get('objectType') == 'Account'), 'N/A')
-                        call_data = {
-                            "call_id": str(call_id),
-                            "short_call_id": short_call_id,
-                            "call_metadata": call_meta,
-                            "utterances": utterances_with_short_id,
-                            "account_id": account_id
-                        }
-                        full_data.append(call_data)
-
-            st.write("Processing data... Step 3: Normalizing organizations")
-
-            # Normalize orgs
-            def load_normalized_orgs():
-                try:
-                    with open("normalized_orgs.csv", newline='', encoding='utf-8') as csvfile:
-                        return list(csv.DictReader(csvfile))
-                except Exception as e:
-                    st.error(f"Failed to load normalized organizations: {str(e)}")
-                    return []
-
-            normalized_orgs = load_normalized_orgs()
-
-            def normalize_org(account_name, website, industry_api):
-                domain = urlparse(website).netloc.lower() if website and website != 'N/A' else ''
-                for org in normalized_orgs:
-                    if domain and org.get("Primary external org domain", "").lower() == domain:
-                        return org.get("Org name", account_name), org.get("FINAL", industry_api), industry_api
-                
-                best_match = None
-                highest_score = 0
-                for org in normalized_orgs:
-                    score = fuzz.token_sort_ratio(account_name.lower(), org.get("Org name", "").lower())
-                    if score > highest_score and score > 80:
-                        highest_score = score
-                        best_match = org
-                
-                if best_match:
-                    return best_match.get("Org name", account_name), best_match.get("FINAL", industry_api), industry_api
-                
-                for org in normalized_orgs:
-                    if industry_api == org.get("FINAL"):
-                        return account_name, industry_api, industry_api
-                
-                normalized_industry = industry_mapping.get(industry_api, None)
-                if normalized_industry:
-                    return account_name, normalized_industry, industry_api
-                
-                return account_name, industry_api, industry_api
-
-            for call_data in full_data:
-                account_context = next((ctx for ctx in call_data['call_metadata'].get('context', []) if any(obj.get('objectType') == 'Account' for obj in ctx.get('objects', []))), {})
-                industry = next((field.get('value', 'N/A') for obj in account_context.get('objects', []) for field in obj.get('fields', []) if field.get('name') == 'Industry'), 'N/A')
-                website = next((field.get('value', 'N/A') for obj in account_context.get('objects', []) for field in obj.get('fields', []) if field.get('name') == 'Website'), 'N/A')
-                account_name = next((field.get('value', 'N/A') for obj in account_context.get('objects', []) for field in obj.get('fields', []) if field.get('name') == 'Name'), 'N/A')
-                normalized_account, normalized_industry, industry_api = normalize_org(account_name, website, industry)
-                meaningful_account = account_name if account_name.lower() not in ['n/a', 'none', 'unknown', ''] else normalized_account
-                meaningful_industry = industry_api if industry_api.lower() not in ['n/a', 'none', 'unknown', ''] else normalized_industry
-                call_data['industry_api'] = industry_api
-                call_data['account_api'] = account_name
-                call_data['industry_normalized'] = meaningful_industry
-                call_data['account_normalized'] = meaningful_account
-
-            st.write("Processing data... Step 4: Preparing JSON and CSV data")
-
-            start_date_str = start_date.strftime("%d%b%y").lower()
-            end_date_str = end_date.strftime("%Y-%m-%d")
-            json_data = json.dumps(full_data, indent=4)
-            st.session_state.processed_data["json_data"] = json_data
-            st.session_state.processed_data["start_date_str"] = start_date_str
-            st.session_state.processed_data["end_date_str"] = end_date_str
-
-            utterances_rows = []
-            headers = [
-                'CALL_ID', 'SHORT_CALL_ID', 'CALL_TITLE', 'CALL_DATE', 
-                'ACCOUNT_ID', 'ACCOUNT_NORMALIZED', 'INDUSTRY_NORMALIZED', 
-                'SPEAKER_JOB_TITLE', 'UTTERANCE_DURATION', 'UTTERANCE_TEXT',
-                'TOPIC'
-            ]
-            utterances_rows.append(headers)
-            
-            for call_data in full_data:
-                call_id = call_data['call_id']
-                short_call_id = call_data['short_call_id']
-                meta = call_data['call_metadata'].get('metaData', {})
-                call_title = meta.get('title', 'N/A')
-                call_date = 'N/A'
-                if meta.get('started'):
-                    try:
-                        call_date_obj = datetime.fromisoformat(meta['started'].replace('Z', '+00:00'))
-                        call_date = call_date_obj.strftime("%Y-%m-%d")
-                    except ValueError:
-                        call_date = 'N/A'
-                account_id = call_data.get('account_id', 'N/A')
-                normalized_account = call_data.get('account_normalized', 'N/A')
-                normalized_industry = call_data.get('industry_normalized', 'Unknown')
-                parties = call_data['call_metadata'].get('parties', [])
-                speaker_info = {party.get('speakerId'): {
-                    'name': party.get('name', 'N/A'),
-                    'title': party.get('title', 'Unknown')
-                } for party in parties if party.get('speakerId')}
-                utterances = call_data.get('utterances', [])
-                for utterance in utterances:
-                    speaker_id = utterance.get('speakerId', 'N/A')
-                    sentences = utterance.get('sentences', [])
-                    if not sentences:
-                        continue
-                    utterance_text = " ".join(sentence.get('text', 'N/A') for sentence in sentences)
-                    word_count = len(utterance_text.split())
-                    topic = utterance.get('topic', 'N/A')
-                    if topic in config["excluded_topics"] or word_count <= config["min_word_count"]:
-                        continue
-                    speaker = speaker_info.get(speaker_id, {'name': 'N/A', 'title': 'Unknown'})
-                    start_time = sentences[0].get('start', 'N/A') if sentences else 'N/A'
-                    end_time = sentences[-1].get('end', 'N/A') if sentences else 'N/A'
-                    try:
-                        utterance_duration = int(end_time) - int(start_time)
-                        utterance_duration_formatted = format_duration(utterance_duration)
-                    except (ValueError, TypeError):
-                        utterance_duration_formatted = 'N/A'
-                    row = [
-                        f'"{call_id}"',
-                        csv_safe_value(short_call_id),
-                        csv_safe_value(call_title),
-                        csv_safe_value(call_date),
-                        csv_safe_value(account_id),
-                        csv_safe_value(normalized_account),
-                        csv_safe_value(normalized_industry),
-                        csv_safe_value(speaker['title']),
-                        csv_safe_value(utterance_duration_formatted),
-                        csv_safe_value(utterance_text),
-                        csv_safe_value(topic)
-                    ]
-                    utterances_rows.append(row)
-
-            utterances_csv_lines = []
-            for row in utterances_rows:
-                utterances_csv_lines.append(','.join(row))
-            utterances_csv_data = '\n'.join(utterances_csv_lines)
-            st.session_state.processed_data["utterances_csv"] = utterances_csv_data
-
-            summary_rows = []
-            summary_headers = [
-                'CALL_ID', 'SHORT_CALL_ID', 'CALL_TITLE', 'CALL_DATE',
-                'DURATION', 'MEETING_URL', 'WEBSITE',
-                'ACCOUNT_ID', 'ACCOUNT_NORMALIZED', 'INDUSTRY_NORMALIZED',
-                'OPPORTUNITY_NAME', 'LEAD_SOURCE',
-                'DEAL_STAGE', 'FORECAST_CATEGORY',
-                'EXTERNAL_PARTICIPANTS', 'INTERNAL_PARTICIPANTS',
-                'INTERNAL_SPEAKERS', 'EXTERNAL_SPEAKERS',
-                'SALES_TRACKERS', 'PRICING_DURATION', 'NEXT_STEPS_DURATION',
-                'CALL_BRIEF', 'KEY_POINTS'
-            ]
-            summary_rows.append(summary_headers)
-            
-            for call_data in full_data:
-                call_id = call_data['call_id']
-                short_call_id = call_data['short_call_id']
-                meta = call_data['call_metadata'].get('metaData', {})
-                call_title = meta.get('title', 'N/A')
-                call_date = 'N/A'
-                if meta.get('started'):
-                    try:
-                        call_date_obj = datetime.fromisoformat(meta['started'].replace('Z', '+00:00'))
-                        call_date = call_date_obj.strftime("%Y-%m-%d")
-                    except ValueError:
-                        call_date = 'N/A'
-                duration = meta.get('duration', 'N/A')
-                duration_formatted = format_duration(duration)
-                meeting_url = meta.get('meetingUrl', 'N/A')
-                account_id = call_data.get('account_id', 'N/A')
-                normalized_account = call_data.get('account_normalized', 'N/A')
-                normalized_industry = call_data.get('industry_normalized', 'Unknown')
-                account_context = next((ctx for ctx in call_data['call_metadata'].get('context', []) if any(obj.get('objectType') == 'Account' for obj in ctx.get('objects', []))), {})
-                website = next((field.get('value', 'N/A') for obj in account_context.get('objects', []) for field in obj.get('fields', []) if field.get('name') == 'Website'), 'N/A')
-                opportunity = next((obj for obj in account_context.get('objects', []) if obj.get('objectType') == 'Opportunity'), {})
-                opportunity_name = next((field.get('value', 'N/A') for field in opportunity.get('fields', []) if field.get('name') == 'Name'), 'N/A')
-                lead_source = next((field.get('value', 'N/A') for field in opportunity.get('fields', []) if field.get('name') == 'LeadSource'), 'N/A')
-                deal_stage = next((field.get('value', 'N/A') for field in opportunity.get('fields', []) if field.get('name') == 'StageName'), 'N/A')
-                forecast_category = next((field.get('value', 'N/A') for field in opportunity.get('fields', []) if field.get('name') == 'ForecastCategoryName'), 'N/A')
-                
-                # Format participants
-                parties = call_data['call_metadata'].get('parties', [])
-                speakers = call_data['call_metadata'].get('interaction', {}).get('speakers', [])
-                talk_times = {speaker.get('id'): speaker.get('talkTime', 0) for speaker in speakers}
-                total_talk_time = sum(talk_times.values())
-                internal_participants_list = []
-                external_participants_list = []
-                all_speakers = []
-                for party in parties:
-                    if not party.get('speakerId'):
-                        continue
-                    speaker_id = party.get('speakerId')
-                    name = party.get('name', 'N/A')
-                    title = party.get('title', 'Unknown')
-                    affiliation = party.get('affiliation', 'Unknown')
-                    talk_time = talk_times.get(speaker_id, 0)
-                    talk_time_pct = round((talk_time / total_talk_time * 100)) if total_talk_time > 0 else 0
-                    participant_info = {
-                        'name': name,
-                        'title': title,
-                        'talk_time': talk_time,
-                        'talk_time_pct': talk_time_pct,
-                        'speaker_id': speaker_id
-                    }
-                    if affiliation in config['excluded_affiliations']:
-                        internal_participants_list.append(participant_info)
-                    elif affiliation == 'External':
-                        external_participants_list.append(participant_info)
-                    all_speakers.append(participant_info)
-                all_speakers.sort(key=lambda x: x['talk_time'], reverse=True)
-                total_speakers = len(all_speakers)
-                speaker_ranks = {speaker['speaker_id']: idx + 1 for idx, speaker in enumerate(all_speakers)}
-                internal_participants_list.sort(key=lambda x: x['talk_time'], reverse=True)
-                internal_formatted = []
-                for participant in internal_participants_list:
-                    name = participant['name']
-                    title = participant['title']
-                    talk_time_pct = participant['talk_time_pct']
-                    rank = speaker_ranks[participant['speaker_id']]
-                    if title.lower() in ['unknown', 'n/a', '']:
-                        participant_str = f"{name} [talk time & rank: {talk_time_pct}% & {rank} of {total_speakers}]"
-                    else:
-                        participant_str = f"{name} ({title}) [talk time & rank: {talk_time_pct}% & {rank} of {total_speakers}]"
-                    internal_formatted.append(participant_str)
-                internal_participants = ", ".join(internal_formatted) if internal_formatted else 'N/A'
-                external_participants_list.sort(key=lambda x: x['talk_time'], reverse=True)
-                external_formatted = []
-                for participant in external_participants_list:
-                    name = participant['name']
-                    title = participant['title']
-                    talk_time_pct = participant['talk_time_pct']
-                    rank = speaker_ranks[participant['speaker_id']]
-                    if title.lower() in ['unknown', 'n/a', '']:
-                        participant_str = f"{name} [talk time & rank: {talk_time_pct}% & {rank} of {total_speakers}]"
-                    else:
-                        participant_str = f"{name} ({title}) [talk time & rank: {talk_time_pct}% & {rank} of {total_speakers}]"
-                    external_formatted.append(participant_str)
-                external_participants = ", ".join(external_formatted) if external_formatted else 'N/A'
-                internal_speakers = len(set(utterance.get('speakerId') for utterance in call_data.get('utterances', []) if utterance.get('speakerId') in [party.get('speakerId') for party in parties if party.get('affiliation') in config['excluded_affiliations']]))
-                external_speakers = len(set(utterance.get('speakerId') for utterance in call_data.get('utterances', []) if utterance.get('speakerId') in [party.get('speakerId') for party in parties if party.get('affiliation') == 'External']))
-                
-                # Process trackers dynamically
-                trackers = call_data['call_metadata'].get('content', {}).get('trackers', [])
-                tracker_dict = {}
-                for tracker in trackers:
-                    tracker_name = tracker.get('name', 'N/A')
-                    tracker_count = tracker.get('count', 0)
-                    if tracker_name in tracker_dict:
-                        tracker_dict[tracker_name] += tracker_count
-                    else:
-                        tracker_dict[tracker_name] = tracker_count
-                
-                sales_trackers = []
-                
-                for tracker_name, tracker_count in tracker_dict.items():
-                    if tracker_count > 0:
-                        tracker_entry = f"{tracker_name}:{tracker_count}"
-                        sales_trackers.append(tracker_entry)
-                
-                sales_trackers_str = " | ".join(sales_trackers) if sales_trackers else 'N/A'
-                
-                topics = call_data['call_metadata'].get('content', {}).get('topics', [])
-                pricing_duration = next((topic.get('duration', 0) for topic in topics if topic.get('name') == 'Pricing'), 0)
-                pricing_duration_formatted = format_duration(pricing_duration)
-                next_steps_duration = next((topic.get('duration', 0) for topic in topics if topic.get('name') == 'Next Steps'), 0)
-                next_steps_duration_formatted = format_duration(next_steps_duration)
-                call_brief = call_data['call_metadata'].get('content', {}).get('brief', 'N/A')
-                key_points = call_data['call_metadata'].get('content', {}).get('keyPoints', [])
-                key_points_str = ";".join([point.get('text', 'N/A') for point in key_points]) if key_points else 'N/A'
-                summary_row = [
-                    f'"{call_id}"',
-                    csv_safe_value(short_call_id),
-                    csv_safe_value(call_title),
-                    csv_safe_value(call_date),
-                    csv_safe_value(duration_formatted),
-                    csv_safe_value(meeting_url),
-                    csv_safe_value(website),
-                    csv_safe_value(account_id),
-                    csv_safe_value(normalized_account),
-                    csv_safe_value(normalized_industry),
-                    csv_safe_value(opportunity_name),
-                    csv_safe_value(lead_source),
-                    csv_safe_value(deal_stage),
-                    csv_safe_value(forecast_category),
-                    csv_safe_value(external_participants),
-                    csv_safe_value(internal_participants),
-                    csv_safe_value(internal_speakers),
-                    csv_safe_value(external_speakers),
-                    csv_safe_value(sales_trackers_str),
-                    csv_safe_value(pricing_duration_formatted),
-                    csv_safe_value(next_steps_duration_formatted),
-                    csv_safe_value(call_brief),
-                    csv_safe_value(key_points_str)
-                ]
-                summary_rows.append(summary_row)
-
-            summary_csv_lines = []
-            for row in summary_rows:
-                summary_csv_lines.append(','.join(row))
-            summary_csv_data = '\n'.join(summary_csv_lines)
-            st.session_state.processed_data["summary_csv"] = summary_csv_data
-
-            df = pd.DataFrame([row for row in summary_rows[1:]], columns=summary_headers)
-            st.session_state.processed_data["full_summary_df"] = df
-
-            st.session_state.data_processed = True
-            
-        except Exception as e:
-            st.error(f"Error processing data: {str(e)}")
-
-# Apply filters and display the filtered Summary table
-if st.session_state.data_processed and st.session_state.processed_data["full_summary_df"] is not None:
-    st.write("Processing data... Step 5: Applying filters and rendering tables")
-
-    full_df = st.session_state.processed_data["full_summary_df"].copy()
-    
-    def apply_filters(df, selected_industries, selected_products, unique_industries, account_products):
-        include_mask = pd.Series(True, index=df.index)
-
-        if selected_industries:
-            industry_mask = (
-                df['INDUSTRY_NORMALIZED'].str.lower().isin([ind.lower() for ind in selected_industries]) |
-                df['INDUSTRY_NORMALIZED'].isna() |
-                df['INDUSTRY_NORMALIZED'].str.lower().isin(['n/a', 'unknown', 'none', ''])
-            )
-            include_mask = include_mask & industry_mask
-
-        if selected_products:
-            matching_account_ids = set()
-            for account_id, products in account_products.items():
-                if any(product in selected_products for product in products):
-                    matching_account_ids.add(account_id)
-            product_mask = df['ACCOUNT_ID'].isin(matching_account_ids)
-            unknown_mask = (
-                df['ACCOUNT_ID'].isna() | 
-                df['ACCOUNT_ID'].str.lower().isin(['n/a', 'unknown', 'none', ''])
-            )
-            product_mask = product_mask | unknown_mask
-            include_mask = include_mask & product_mask
-
-        return df[include_mask]
-
-    filtered_df = apply_filters(full_df, selected_backend_industries, selected_products, unique_industries, account_products)
-    st.session_state.processed_data["summary_df"] = filtered_df
-    
-    included_df = filtered_df.copy()
-    included_call_ids = set(included_df['CALL_ID'])
-    excluded_df = full_df[~full_df['CALL_ID'].isin(included_call_ids)].copy()
-
-    excluded_df['EXCLUSION_REASON'] = 'Other'
-    malformed_mask = (
-        (excluded_df['INDUSTRY_NORMALIZED'].isna() | (excluded_df['INDUSTRY_NORMALIZED'] == '')) &
-        (excluded_df['ACCOUNT_ID'].isna() | (excluded_df['ACCOUNT_ID'] == ''))
-    )
-    excluded_df.loc[malformed_mask, 'EXCLUSION_REASON'] = 'Malformed Data'
-    if selected_backend_industries:
-        industry_mask = (
-            ~excluded_df['INDUSTRY_NORMALIZED'].str.lower().isin([ind.lower() for ind in selected_backend_industries]) &
-            ~excluded_df['INDUSTRY_NORMALIZED'].isna() &
-            ~excluded_df['INDUSTRY_NORMALIZED'].str.lower().isin(['n/a', 'unknown', 'none', ''])
-        )
-        excluded_df.loc[industry_mask, 'EXCLUSION_REASON'] = 'Industry'
-    if selected_products:
-        product_mask = ~excluded_df['ACCOUNT_ID'].isin([account_id for account_id, products in account_products.items() if any(product in selected_products for product in products)]) & ~excluded_df['ACCOUNT_ID'].isna() & ~excluded_df['ACCOUNT_ID'].str.lower().isin(['n/a', 'unknown', 'none', ''])
-        excluded_df.loc[product_mask & (excluded_df['EXCLUSION_REASON'] == 'Industry'), 'EXCLUSION_REASON'] = 'Industry and Product'
-        excluded_df.loc[product_mask & (excluded_df['EXCLUSION_REASON'] == 'Other'), 'EXCLUSION_REASON'] = 'Product'
-
-    st.subheader("Included Calls")
-    st.dataframe(included_df)
-
-    st.subheader("Excluded Calls")
-    st.dataframe(excluded_df)
-
-    start_date_str = st.session_state.processed_data["start_date_str"]
-    end_date_str = st.session_state.processed_data["end_date_str"]
-    
-    st.download_button(
-        label="Download Full Summary CSV",
-        data=st.session_state.processed_data["summary_csv"],
-        file_name=f"full_summary_gong_{start_date_str}_to_{end_date_str}.csv",
-        mime="text/csv",
-        key="download_full_summary_csv"
-    )
-
-    filtered_csv = st.session_state.processed_data["summary_df"].to_csv(index=False)
-    st.download_button(
-        label="Download Filtered Summary CSV",
-        data=filtered_csv,
-        file_name=f"filtered_summary_gong_{start_date_str}_to_{end_date_str}.csv",
-        mime="text/csv",
-        key="download_filtered_summary_csv"
-    )
-
-    st.download_button(
-        label="Download Utterances CSV",
-        data=st.session_state.processed_data["utterances_csv"],
-        file_name=f"utterances_gong_{start_date_str}_to_{end_date_str}.csv",
-        mime="text/csv",
-        key="download_utterances_csv"
-    )
-
-    st.download_button(
-        label="Download Full Transcript JSON",
-        data=st.session_state.processed_data["json_data"],
-        file_name=f"json_gong_{start_date_str}_to_{end_date_str}.json",
-        mime="application/json",
-        key="download_json"
-    )
+if __name__ == "__main__":
+    main()
