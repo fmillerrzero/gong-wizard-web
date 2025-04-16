@@ -313,7 +313,7 @@ def apply_filters(df: pd.DataFrame, industries: List[str], selected_products: Li
                 filtered_df["INDUSTRY_NORMALIZED"].str.lower().isin(industries_lower) |
                 filtered_df["INDUSTRY_NORMALIZED"].str.lower().isin(["unknown", "n/a", ""])
             ]
-        if selected_products:  # Changed 'products' to 'selected_products' to match parameter
+        if selected_products:
             matching_account_ids = {aid for aid, prods in account_products.items() if any(p in selected_products for p in prods)}
             filtered_df = filtered_df[
                 filtered_df["ACCOUNT_ID"].isin(matching_account_ids) |
@@ -493,6 +493,8 @@ def main():
                 excluded_df.loc[industry_mask, "EXCLUSION_REASON"] = "Industry"
             if selected_products and "Select All" not in selected_products:
                 matching_account_ids = {aid for aid, prods in account_products.items() if any(p in selected_products for p in prods)}
+                product_mask = (~excluded_df["ACCOUNT_ID"].isin(matching_account_ids) & 
+                               ~excluded_df["ACCOUNT_ID"].str.lower().isin(["unknown", "n/a", ""]))
                 excluded_df.loc[product_mask & (excluded_df["EXCLUSION_REASON"] == "Industry"), "EXCLUSION_REASON"] = "Industry and Product"
                 excluded_df.loc[product_mask & (excluded_df["EXCLUSION_REASON"] == "Other"), "EXCLUSION_REASON"] = "Product"
             st.subheader("Included Calls")
