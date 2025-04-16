@@ -32,6 +32,24 @@ if "product_selections" not in st.session_state:
 
 # Sidebar with configuration
 with st.sidebar:
+    # Add custom CSS to change sidebar background color and widen multiselect
+    st.markdown(
+        """
+        <style>
+        [data-testid="stSidebar"] {
+            background-color: white;
+        }
+        [data-testid="stMultiSelect"] {
+            min-width: 300px;  /* Widen the multiselect widget */
+        }
+        [data-testid="stMultiSelect"] div[role="button"] {
+            white-space: normal;  /* Allow text to wrap if needed */
+        }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
     access_key = st.text_input("Gong Access Key", type="password")
     secret_key = st.text_input("Gong Secret Key", type="password")
 
@@ -100,6 +118,7 @@ with st.sidebar:
     def load_category_mappings():
         category_options = {}
         ui_to_backend = {}
+        prefix_to_industries = {}  # Map prefixes to their industries
         skipped_rows = 0
         try:
             with open("Industry UI - Sheet17.csv", newline='', encoding='utf-8') as csvfile:
@@ -118,31 +137,30 @@ with st.sidebar:
                     if industry not in category_options[prefix]:
                         category_options[prefix].append(industry)
                     
+                    # Map prefix to its industries for filtering
+                    if prefix not in prefix_to_industries:
+                        prefix_to_industries[prefix] = []
+                    prefix_to_industries[prefix].append(industry)
+                    
                     ui_to_backend[industry] = csv_industry
             if skipped_rows > 0:
                 st.warning(f"Skipped {skipped_rows} rows in 'Industry UI - Sheet17.csv' due to malformed 'Industry (UI)' entries. Expected format: 'Prefix: Industry' (e.g., 'Commercial: Entertainment').")
-            return category_options, ui_to_backend
+            return category_options, ui_to_backend, prefix_to_industries
         except Exception as e:
             st.error(f"Failed to load category mappings from Industry UI - Sheet17.csv: {str(e)}")
-            return {}, {}
+            return {}, {}, {}
 
-    category_options, ui_to_backend = load_category_mappings()
+    category_options, ui_to_backend, prefix_to_industries = load_category_mappings()
 
     # Check if category mappings loaded successfully
     if not category_options or not ui_to_backend:
         st.error("Unable to load industry categories. Please ensure 'Industry UI - Sheet17.csv' exists and is correctly formatted.")
         st.stop()
 
-    # Format industry options with category prefixes, without dividers
+    # Format industry options with only unique prefixes
     formatted_industry_options = ["Select All"]
-    all_ui_industries = []
-    for prefix, industries in category_options.items():
-        for industry in industries:
-            # Compare the CSV industry name with unique_industries
-            csv_industry = ui_to_backend.get(industry, industry)
-            if csv_industry.lower().strip() in [ind.lower().strip() for ind in unique_industries]:
-                formatted_industry_options.append(f"{prefix}: {industry}")
-                all_ui_industries.append(industry)
+    unique_prefixes = sorted(category_options.keys())  # Get unique prefixes
+    formatted_industry_options.extend(unique_prefixes)
 
     # Create a callback function for handling industry selections
     def handle_industry_selection():
@@ -158,8 +176,8 @@ with st.sidebar:
         else:
             st.session_state.industry_selections = current_selections
 
-    # Industry dropdown with callback
-    selected_industries = st.multiselect(
+    # Industry dropdown with callback (now showing only prefixes)
+    selected_industry_prefixes = st.multiselect(
         "Industry",
         options=formatted_industry_options,
         default=st.session_state.industry_selections,
@@ -167,9 +185,13 @@ with st.sidebar:
         on_change=handle_industry_selection
     )
 
-    # Map to backend values
-    selected_ui_industries = [ind for ind in selected_industries if ind != "Select All"]
-    selected_backend_industries = [ui_to_backend.get(ind.split(": ")[1], ind.split(": ")[1]) for ind in selected_ui_industries]
+    # Map selected prefixes to all industries under them
+    selected_industries = [prefix for prefix in selected_industry_prefixes if prefix != "Select All"]
+    selected_ui_industries = []
+    for prefix in selected_industries:
+        if prefix in prefix_to_industries:
+            selected_ui_industries.extend(prefix_to_industries[prefix])
+    selected_backend_industries = [ui_to_backend.get(ind, ind) for ind in selected_ui_industries]
 
     # Product dropdown (no "Unknown" visible)
     product_options = ["Select All"] + unique_products
@@ -270,13 +292,12 @@ def format_duration(seconds):
 def apply_filters(df, selected_industries, selected_products, unique_industries, account_products):
     include_mask = pd.Series(True, index=df.index)
 
-    if selected_industries:
-        industry_mask = df['INDUSTRY_NORMALIZED'].fillna('Unknown').str.lower().isin([ind.lower() for ind in selected_industries])
-        unknown_mask = (
-            df['INDUSTRY_NORMALIZED'].isna() | 
-            df['INDUSTRY_NORMALIZED'].str.lower().isin(['n/a', 'unknown', 'none', ''])
+    if selected_industries:  # Check if there are selected industries
+        industry_mask = (
+            ~df['INDUSTRY_NORMALIZED'].str.lower().isin([ind.lower() for ind in selected_industries]) &
+            ~df['INDUSTRY_NORMALIZED'].isna() &
+            ~df['INDUSTRY_NORMALIZED'].str.lower().isin(['n/a', 'unknown', 'none', ''])
         )
-        industry_mask = industry_mask | unknown_mask
         include_mask = include_mask & industry_mask
 
     if selected_products:
@@ -710,13 +731,13 @@ if st.session_state.data_processed and st.session_state.processed_data["full_sum
     )
     excluded_df.loc[malformed_mask, 'EXCLUSION_REASON'] = 'Malformed Data'
     # Check for industry filter failure
-    industry_mask = (
-        selected_industries &
-        ~excluded_df['INDUSTRY_NORMALIZED'].str.lower().isin([ind.lower() for ind in selected_backend_industries]) &
-        ~excluded_df['INDUSTRY_NORMALIZED'].isna() &
-        ~excluded_df['INDUSTRY_NORMALIZED'].str.lower().isin(['n/a', 'unknown', 'none', ''])
-    )
-    excluded_df.loc[industry_mask, 'EXCLUSION_REASON'] = 'Industry'
+    if selected_backend_industries:  # Use a proper boolean check
+        industry_mask = (
+            ~excluded_df['INDUSTRY_NORMALIZED'].str.lower().isin([ind.lower() for ind in selected_backend_industries]) &
+            ~excluded_df['INDUSTRY_NORMALIZED'].isna() &
+            ~excluded_df['INDUSTRY_NORMALIZED'].str.lower().isin(['n/a', 'unknown', 'none', ''])
+        )
+        excluded_df.loc[industry_mask, 'EXCLUSION_REASON'] = 'Industry'
     # Check for product filter failure
     if selected_products:
         product_mask = ~excluded_df['ACCOUNT_ID'].isin([account_id for account_id, products in account_products.items() if any(product in selected_products for product in products)]) & ~excluded_df['ACCOUNT_ID'].isna() & ~excluded_df['ACCOUNT_ID'].str.lower().isin(['n/a', 'unknown', 'none', ''])
