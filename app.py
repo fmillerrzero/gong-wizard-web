@@ -208,7 +208,8 @@ def prepare_utterances_df(calls: List[Dict[str, Any]]) -> pd.DataFrame:
                 duration = format_duration(end_time - start_time) if end_time and start_time else "N/A"
                 utterances_data.append({
                     "CALL_ID": call_id,
-                    "CALL_TITLE": call_title    "CALL_DATE": call_date,
+                    "CALL_TITLE": call_title,
+                    "CALL_DATE": call_date,
                     "ACCOUNT_ID": account_id,
                     "ACCOUNT_NORMALIZED": normalized_account,
                     "SPEAKER_JOB_TITLE": speaker["title"],
