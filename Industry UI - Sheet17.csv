@@ -1,21 +1,21 @@
 Category,Industry (UI),Industry (CSVs)
-Public & Social Sector,Education,Education
-Public & Social Sector,Government,Government
-Public & Social Sector,Not For Profit,Not For Profit
-Healthcare & Care,Healthcare,Healthcare
-Healthcare & Care,Senior Care,Senior Care
-Business & Commercial,Entertainment,Entertainment
-Business & Commercial,Financial Services,Financial Services
-Business & Commercial,Legal Services,Legal Services
-Business & Commercial,Professional Services,Professional Services
-Business & Commercial,Retail,Retail
-Real Estate & Infrastructure,Energy,Energy
-Real Estate & Infrastructure,Industrial,Industrial
-Real Estate & Infrastructure,General CRE,Real Estate
-Real Estate & Infrastructure,Architecture,Real Estate (Architecture)
-Real Estate & Infrastructure,Construction,Real Estate (Development)
-Real Estate & Infrastructure,Facilities,Real Estate (Facilities)
-Real Estate & Infrastructure,Investment,Real Estate (Investment)
-Real Estate & Infrastructure,Services,Real Estate (Services)
-Technology & Digital,Software and Hardware,Technology
-Technology & Digital,Information Services,Information Services
+Business & Commercial,Commercial: Entertainment,Entertainment
+Business & Commercial,Commercial: Finance,Financial Services
+Business & Commercial,Commercial: Industrial,Industrial
+Business & Commercial,Commercial: Legal,Legal Services
+Business & Commercial,Commercial: Professional Services,Professional Services
+Business & Commercial,Commercial: Retail,Retail
+Real Estate & Infrastructure,CRE: Architecture,Real Estate (Architecture)
+Real Estate & Infrastructure,CRE: Development,Real Estate (Development)
+Real Estate & Infrastructure,CRE: Energy,Energy
+Real Estate & Infrastructure,CRE: Facilities,Real Estate (Facilities)
+Real Estate & Infrastructure,CRE: General,Real Estate
+Real Estate & Infrastructure,CRE: Investment,Real Estate (Investment)
+Real Estate & Infrastructure,CRE: Services,Real Estate (Services)
+Healthcare & Care,Health: Medical,Healthcare
+Healthcare & Care,Health: Senior Care,Senior Care
+Public & Social Sector,Public: Education,Education
+Public & Social Sector,Public: Government,Government
+Public & Social Sector,Public: NGO,Not For Profit
+Technology & Digital,Tech: Hardware,Hardware
+Technology & Digital,Tech: Software,Software
