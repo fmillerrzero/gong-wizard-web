@@ -100,12 +100,16 @@ with st.sidebar:
     def load_category_mappings():
         category_options = {}
         ui_to_backend = {}
+        skipped_rows = 0
         try:
             with open("Industry UI - Sheet17.csv", newline='', encoding='utf-8') as csvfile:
                 reader = csv.DictReader(csvfile)
                 for row in reader:
                     category = row["Category"]
                     ui_industry = row["Industry (UI)"]
+                    if ": " not in ui_industry:
+                        skipped_rows += 1
+                        continue  # Skip rows with malformed Industry (UI)
                     prefix, industry = ui_industry.split(": ", 1)
                     csv_industry = row["Industry (CSVs)"]
                     
@@ -115,6 +119,8 @@ with st.sidebar:
                         category_options[prefix].append(industry)
                     
                     ui_to_backend[industry] = csv_industry
+            if skipped_rows > 0:
+                st.warning(f"Skipped {skipped_rows} rows in 'Industry UI - Sheet17.csv' due to malformed 'Industry (UI)' entries. Expected format: 'Prefix: Industry' (e.g., 'Commercial: Entertainment').")
             return category_options, ui_to_backend
         except Exception as e:
             st.error(f"Failed to load category mappings from Industry UI - Sheet17.csv: {str(e)}")
