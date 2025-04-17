@@ -242,6 +242,10 @@ def normalize_call_data(call_data: Dict[str, Any], transcript: List[Dict[str, An
     if not call_data:
         return {}
     call_data["partial_data"] = False
+    # Initialize required fields to avoid downstream issues
+    call_data["products"] = []
+    call_data["domain_matches"] = []
+    call_data["tracker_matches"] = []
     try:
         account_context = {}
         for ctx in call_data.get("context", []):
@@ -275,11 +279,6 @@ def normalize_call_data(call_data: Dict[str, Any], transcript: List[Dict[str, An
         domain = extract_domain(account_website)
         call_data["domain"] = domain
         
-        # Initialize product tags and debug info
-        products = []
-        domain_matches = []
-        tracker_matches = []
-        
         # Process trackers
         trackers = call_data.get("content", {}).get("trackers", [])
         for tracker in trackers:
@@ -287,8 +286,8 @@ def normalize_call_data(call_data: Dict[str, Any], transcript: List[Dict[str, An
             count = tracker.get("count", 0)
             if count > 0 and tracker_name in PRODUCT_TAG_TRACKERS:
                 product_tag = PRODUCT_TAG_TRACKERS[tracker_name]
-                products.append(product_tag)
-                tracker_matches.append({
+                call_data["products"].append(product_tag)
+                call_data["tracker_matches"].append({
                     "tracker_name": tracker_name,
                     "count": count,
                     "product_tag": product_tag
@@ -297,31 +296,27 @@ def normalize_call_data(call_data: Dict[str, Any], transcript: List[Dict[str, An
         
         # Domain matching
         if domain:
-            ea_match, ea_matched_domain = fuzzy_match_domain(domain, domain_lists["occupancy_analytics"])
-            if ea_match:
-                products.append("Occupancy Analytics (Tenant)")
-                domain_matches.append({
+            oa_match, oa_matched_domain = fuzzy_match_domain(domain, domain_lists["occupancy_analytics"])
+            if oa_match:
+                call_data["products"].append("Occupancy Analytics (Tenant)")
+                call_data["domain_matches"].append({
                     "domain": domain,
-                    "matched_domain": ea_matched_domain,
+                    "matched_domain": oa_matched_domain,
                     "list": "occupancy_analytics",
                     "product_tag": "Occupancy Analytics (Tenant)"
                 })
-                logger.info(f"Applied 'Occupancy Analytics (Tenant)' tag - matched domain '{domain}' to '{ea_matched_domain}'")
+                logger.info(f"Applied 'Occupancy Analytics (Tenant)' tag - matched domain '{domain}' to '{oa_matched_domain}'")
             
             owner_match, owner_matched_domain = fuzzy_match_domain(domain, domain_lists["owner_offering"])
             if owner_match:
-                products.append("Owner Offering")
-                domain_matches.append({
+                call_data["products"].append("Owner Offering")
+                call_data["domain_matches"].append({
                     "domain": domain,
                     "matched_domain": owner_matched_domain,
                     "list": "owner_offering",
                     "product_tag": "Owner Offering"
                 })
                 logger.info(f"Applied 'Owner Offering' tag - matched domain '{domain}' to '{owner_matched_domain}'")
-        
-        call_data["products"] = products
-        call_data["domain_matches"] = domain_matches
-        call_data["tracker_matches"] = tracker_matches
         
         return call_data
     except Exception as e:
@@ -345,7 +340,7 @@ def prepare_summary_df(calls: List[Dict[str, Any]], high_quality_call_ids: Set[s
     """Prepare summary DataFrame for calls with high-quality utterances."""
     summary_data = []
     for call in calls:
-        if not call:
+        if not call or "metaData" not in call:
             continue
         call_id = str(call.get("metaData", {}).get("id", ""))
         if call_id not in high_quality_call_ids:
@@ -439,7 +434,7 @@ def prepare_call_tables(calls: List[Dict[str, Any]], selected_products: List[str
     excluded_data = []
     
     for call in calls:
-        if not call:
+        if not call or "metaData" not in call:
             continue
         try:
             call_id = str(call.get("metaData", {}).get("id", ""))
@@ -509,7 +504,7 @@ def prepare_utterances_df(calls: List[Dict[str, Any]]) -> pd.DataFrame:
     """Prepare utterances DataFrame with quality labels."""
     utterances_data = []
     for call in calls:
-        if not call:
+        if not call or "metaData" not in call:
             continue
         try:
             call_id = str(call.get("metaData", {}).get("id", ""))
