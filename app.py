@@ -133,7 +133,7 @@ def fetch_transcript(session: requests.Session, call_ids: List[str], max_attempt
                 break
     return {call_id: [] for call_id in call_ids}
 
-def normalize_call_data(call_data: Dict[str, Any], transcript: List[Dict[str, Any]]) -> Dict[str, Any]:
+def normalize_call_data(call_data: Dict[str, Any], transcript: List[Dict[str, Any]], account_products: Dict[str, List[str]]) -> Dict[str, Any]:
     if not call_data:
         return {}
     try:
@@ -145,6 +145,11 @@ def normalize_call_data(call_data: Dict[str, Any], transcript: List[Dict[str, An
         call_data["account_id"] = account_id
         call_data["account_website"] = account_website
         call_data["utterances"] = transcript
+        
+        # Add products metadata
+        products = account_products.get(account_id, [])
+        call_data["products"] = products
+        
         return call_data
     except Exception as e:
         logger.error(f"Normalization error: {str(e)}")
@@ -214,29 +219,48 @@ def prepare_summary_df(calls: List[Dict[str, Any]]) -> pd.DataFrame:
                 "affiliation": p.get("affiliation", "Unknown")
             } for p in parties}
             
-            # New: show all speakers regardless of talk time
-            internal_speakers = []
-            external_speakers = []
-            
             # Get talk times if available
             talk_times = get_speaker_talk_time(call)
             
-            # Loop through all parties with speaker info
-            for party in parties:
-                name = party.get("name", "").strip()
-                if not name:
+            # Get valid talk-time speakers sorted by % descending
+            sorted_speakers = sorted(
+                [(sid, pct) for sid, pct in talk_times.items() if pct > 0],
+                key=lambda x: x[1], reverse=True
+            )
+            
+            internal_speakers = []
+            external_speakers = []
+            unknown_speakers = []
+            
+            for speaker_id, pct in sorted_speakers:
+                party = next((p for p in parties if p.get("speakerId") == speaker_id), None)
+                if not party:
                     continue
+                    
+                name = party.get("name", "").strip()
+                if not name or name == "N/A":
+                    continue
+                    
                 title = party.get("title", "").strip()
                 affiliation = party.get("affiliation", "Unknown")
-                speaker_id = party.get("speakerId")  # Use speakerId from parties
-                talk_pct = f", {round(talk_times.get(speaker_id, 0))}%" if speaker_id in talk_times else ""
                 
-                speaker_str = f"{name}" + (f", {title}" if title else "") + talk_pct
+                speaker_str = f"{name}" + (f", {title}" if title else "") + f", {round(pct)}%"
+                logger.info(f"{affiliation}: {speaker_str} (speakerId: {speaker_id})")
                 
                 if affiliation == "Internal":
                     internal_speakers.append(speaker_str)
-                else:
+                elif affiliation == "External":
                     external_speakers.append(speaker_str)
+                else:
+                    unknown_speakers.append(speaker_str)
+            
+            # Default to "None" if no speakers in group
+            if not internal_speakers:
+                internal_speakers = ["None"]
+            if not external_speakers:
+                external_speakers = ["None"]
+            if not unknown_speakers:
+                unknown_speakers = ["None"]
             
             # Process trackers
             trackers = call.get("content", {}).get("trackers", [])
@@ -249,6 +273,10 @@ def prepare_summary_df(calls: List[Dict[str, Any]]) -> pd.DataFrame:
             tracker_list.sort(key=lambda x: x[1], reverse=True)
             tracker_str = "|".join(f"{name}:{count}" for name, count in tracker_list if name != "Unknown")
             
+            # Get products
+            products = call.get("products", [])
+            products_str = "|".join(products) if products else "Unmapped"
+            
             summary_data.append({
                 "call_id": f'"{meta.get("id", "N/A")}"',
                 "call_title": meta.get("title", "N/A"),
@@ -258,9 +286,11 @@ def prepare_summary_df(calls: List[Dict[str, Any]]) -> pd.DataFrame:
                 "account_id": call.get("account_id", "N/A"),
                 "account_name": call.get("account_name", "N/A"),
                 "account_website": call.get("account_website", "N/A"),
+                "products": products_str,
                 "trackers": tracker_str,
-                "internal_speakers": "|".join(internal_speakers) if internal_speakers else "None",
-                "external_speakers": "|".join(external_speakers) if external_speakers else "None"
+                "internal_speakers": "|".join(internal_speakers),
+                "external_speakers": "|".join(external_speakers),
+                "unknown_speakers": "|".join(unknown_speakers)
             })
         except Exception as e:
             logger.error(f"Summary prep error: {str(e)}")
@@ -278,6 +308,8 @@ def prepare_utterances_df(calls: List[Dict[str, Any]]) -> pd.DataFrame:
             account_id = call.get("account_id", "N/A")
             account_name = call.get("account_name", "N/A")
             account_website = call.get("account_website", "N/A")
+            products = call.get("products", [])
+            products_str = "|".join(products) if products else "Unmapped"
             parties = call.get("parties", [])
             speaker_info = {p.get("speakerId", ""): {"name": p.get("name", "N/A"), "title": p.get("title", ""), "affiliation": p.get("affiliation", "Unknown")} for p in parties}
             for utterance in call.get("utterances", []):
@@ -301,6 +333,8 @@ def prepare_utterances_df(calls: List[Dict[str, Any]]) -> pd.DataFrame:
                     "account_id": account_id,
                     "account_name": account_name,
                     "account_website": account_website,
+                    "products": products_str,
+                    "speaker_name": speaker["name"],
                     "speaker_job_title": speaker["title"] if speaker["title"] else "",
                     "speaker_affiliation": speaker["affiliation"],
                     "utterance_duration": duration,
@@ -315,10 +349,20 @@ def apply_filters(df: pd.DataFrame, selected_products: List[str], account_produc
     if not selected_products or "Select All" in selected_products:
         return df.copy()
     try:
-        if "account_id" not in df.columns:
-            df["account_id"] = "Unknown"
-        exclude_account_ids = {aid for aid, prods in account_products.items() if not any(p in selected_products for p in prods)}
-        return df[~df["account_id"].isin(exclude_account_ids)]
+        # Create a filtered DataFrame
+        filtered_df = df.copy()
+        
+        # Only filter out accounts if we're 100% sure they don't match any selected product
+        known_accounts = set(account_products.keys())
+        
+        # Mark rows where account_id is in our known list but doesn't have any of the selected products
+        exclude_account_ids = {aid for aid in known_accounts 
+                               if aid in account_products 
+                               and not any(p in selected_products for p in account_products[aid])}
+        
+        # Apply the filter - keep all rows where account_id isn't in the exclude list
+        # This way, we keep unknown accounts and only exclude accounts we're sure about
+        return filtered_df[~filtered_df["account_id"].isin(exclude_account_ids)]
     except Exception as e:
         st.error(f"Filtering error: {str(e)}")
         logger.error(f"Filtering error: {str(e)}")
@@ -342,7 +386,7 @@ def main():
         return
 
     # Initialize mappings
-    account_products = products_df.groupby("Account ID")["Product"].apply(set).to_dict()
+    account_products = products_df.groupby("Account ID")["Product"].apply(list).to_dict()
     unique_products = sorted(products_df["Product"].unique())
 
     # Sidebar
@@ -409,9 +453,9 @@ def main():
                 st.json(details[0])
             
             for call in details:
-                call_id = call.get("metaData", {}).get("id", "")
+                call_id = str(call.get("metaData", {}).get("id", ""))
                 call_transcript = transcripts.get(call_id, [])
-                normalized_data = normalize_call_data(call, call_transcript)
+                normalized_data = normalize_call_data(call, call_transcript, account_products)
                 if normalized_data:
                     full_data.append(normalized_data)
 
@@ -424,7 +468,8 @@ def main():
 
         filtered_summary_df = apply_filters(summary_df, selected_products, account_products)
         filtered_utterances_df = utterances_df[utterances_df["call_id"].isin(filtered_summary_df["call_id"])]
-        filtered_json = [call for call in full_data if f'"{call.get("metaData", {}).get("id", "N/A")}"' in filtered_summary_df["call_id"].values]
+        call_id_set = set(id.strip('"') for id in filtered_summary_df["call_id"])
+        filtered_json = [call for call in full_data if call.get("metaData", {}).get("id", "N/A") in call_id_set]
 
     st.subheader("Filtered Calls")
     st.dataframe(filtered_summary_df)
