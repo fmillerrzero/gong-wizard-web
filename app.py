@@ -720,6 +720,7 @@ def main():
                 st.json(sample_calls)
 
             st.subheader("INCLUDED CALLS (Product Filter)")
+            st.write("Note: Calls in 'Included Calls' are based on product filtering. Only calls with high-quality utterances (`quality == 'high'`) are included in `summary.csv`.")
             st.dataframe(included_calls_df)
 
             st.subheader("EXCLUDED CALLS (Product Filter)")
