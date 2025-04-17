@@ -297,16 +297,16 @@ def normalize_call_data(call_data: Dict[str, Any], transcript: List[Dict[str, An
         
         # Domain matching
         if domain:
-            oa_match, oa_matched_domain = fuzzy_match_domain(domain, domain_lists["occupancy_analytics"])
-            if oa_match:
+            ea_match, ea_matched_domain = fuzzy_match_domain(domain, domain_lists["occupancy_analytics"])
+            if ea_match:
                 products.append("Occupancy Analytics (Tenant)")
                 domain_matches.append({
                     "domain": domain,
-                    "matched_domain": oa_matched_domain,
+                    "matched_domain": ea_matched_domain,
                     "list": "occupancy_analytics",
                     "product_tag": "Occupancy Analytics (Tenant)"
                 })
-                logger.info(f"Applied 'Occupancy Analytics (Tenant)' tag - matched domain '{domain}' to '{oa_matched_domain}'")
+                logger.info(f"Applied 'Occupancy Analytics (Tenant)' tag - matched domain '{domain}' to '{ea_matched_domain}'")
             
             owner_match, owner_matched_domain = fuzzy_match_domain(domain, domain_lists["owner_offering"])
             if owner_match:
@@ -608,12 +608,6 @@ def main():
         access_key = st.text_input("Gong Access Key", type="password")
         secret_key = st.text_input("Gong Secret Key", type="password")
         
-        if not access_key or not secret_key:
-            st.error("Please provide both Gong Access Key and Secret Key.")
-            st.stop()
-        
-        headers = create_auth_header(access_key, secret_key)
-        
         today = datetime.today().date()
         if "start_date" not in st.session_state:
             st.session_state.start_date = today - timedelta(days=7)
@@ -649,11 +643,16 @@ def main():
     domain_lists = load_domain_lists()
 
     if submit:
+        if not access_key or not secret_key:
+            st.error("Please provide both Gong Access Key and Secret Key.")
+            return
+
         if st.session_state.start_date > st.session_state.end_date:
             st.error("Start date must be before or equal to end date.")
             return
         with st.spinner("Fetching calls..."):
             session = requests.Session()
+            headers = create_auth_header(access_key, secret_key)
             session.headers.update(headers)
             call_ids = fetch_call_list(session, st.session_state.start_date.isoformat() + "T00:00:00Z", st.session_state.end_date.isoformat() + "T23:59:59Z")
             if not call_ids:
