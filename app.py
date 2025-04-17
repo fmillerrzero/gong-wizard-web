@@ -162,16 +162,35 @@ def format_duration(seconds):
 def get_speaker_talk_time(call: Dict[str, Any]) -> Dict[str, float]:
     talk_times = {}
     try:
-        # Fix: Correct path to access interaction stats
-        stats = call.get("interaction", {}).get("personInteractionStats", [])
-        total_duration = sum(stat.get("talkTime", 0) for stat in stats)
-        if total_duration == 0:
-            return {}
-        for stat in stats:
-            speaker_id = stat.get("speakerId")
-            talk_time = stat.get("talkTime", 0)
-            if speaker_id and talk_time > 0:
-                talk_times[speaker_id] = (talk_time / total_duration) * 100
+        # Get parties and speakers from their respective locations in the API response
+        parties = call.get("parties", [])
+        speakers = call.get("interaction", {}).get("speakers", [])
+        
+        # Map party IDs to speakerIds
+        party_to_speaker_map = {}
+        for party in parties:
+            party_id = party.get("id")
+            speaker_id = party.get("speakerId")
+            if party_id and speaker_id:
+                party_to_speaker_map[party_id] = speaker_id
+        
+        # Get talk time for each speaker
+        speaker_talk_times = {}
+        for speaker in speakers:
+            party_id = speaker.get("id")
+            talk_time = speaker.get("talkTime", 0)
+            if party_id and talk_time > 0:
+                speaker_id = party_to_speaker_map.get(party_id)
+                if speaker_id:
+                    speaker_talk_times[speaker_id] = talk_time
+        
+        # Calculate percentages
+        if speaker_talk_times:
+            total_duration = sum(speaker_talk_times.values())
+            if total_duration > 0:
+                for speaker_id, talk_time in speaker_talk_times.items():
+                    talk_times[speaker_id] = (talk_time / total_duration) * 100
+                
         return talk_times
     except Exception as e:
         logger.error(f"Error calculating talk time: {str(e)}")
@@ -186,10 +205,10 @@ def prepare_summary_df(calls: List[Dict[str, Any]]) -> pd.DataFrame:
             meta = call.get("metaData", {})
             parties = call.get("parties", [])
             
-            # Fix: Create speaker_info by using parties correctly
+            # Create speaker_info dictionary with correct speaker IDs
             speaker_info = {}
             for p in parties:
-                speaker_id = p.get("speakerId", "")
+                speaker_id = p.get("speakerId")
                 if speaker_id:
                     speaker_info[speaker_id] = {
                         "name": p.get("name", "N/A"),
@@ -197,14 +216,12 @@ def prepare_summary_df(calls: List[Dict[str, Any]]) -> pd.DataFrame:
                         "affiliation": p.get("affiliation", "Unknown")
                     }
             
+            # Get speaker talk times
             talk_times = get_speaker_talk_time(call)
+            
+            # Process internal and external speakers
             internal_speakers = []
             external_speakers = []
-            
-            # Debug information to help diagnose the issue
-            logger.info(f"Call ID: {meta.get('id', 'N/A')}")
-            logger.info(f"Speaker info: {json.dumps(speaker_info)}")
-            logger.info(f"Talk times: {json.dumps(talk_times)}")
             
             for speaker_id, percentage in sorted(talk_times.items(), key=lambda x: x[1], reverse=True):
                 speaker = speaker_info.get(speaker_id, {"name": "N/A", "title": "", "affiliation": "Unknown"})
@@ -216,12 +233,13 @@ def prepare_summary_df(calls: List[Dict[str, Any]]) -> pd.DataFrame:
                     speaker_str += f", {speaker['title']}"
                 speaker_str += f", {percentage:.0f}%"
                 
-                # Fix: Check affiliation correctly
+                # Check for "Internal" affiliation, not "Company"
                 if speaker["affiliation"] == "Internal":
                     internal_speakers.append(speaker_str)
                 else:
                     external_speakers.append(speaker_str)
             
+            # Process trackers
             trackers = call.get("content", {}).get("trackers", [])
             tracker_list = []
             for tracker in trackers:
@@ -357,6 +375,9 @@ def main():
                 st.rerun()
 
         selected_products = st.multiselect("Product", ["Select All"] + unique_products, default=["Select All"])
+        
+        # Add debug mode option
+        debug_mode = st.checkbox("Debug Mode", value=False)
 
     # Validate headers
     if not headers:
@@ -375,9 +396,6 @@ def main():
         if not call_ids:
             st.error("No calls found.")
             return
-
-        # Add a debug checkbox to see raw API data
-        debug_mode = st.checkbox("Debug Mode", value=False)
 
         full_data = []
         batch_size = 50
