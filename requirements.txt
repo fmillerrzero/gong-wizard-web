@@ -1,6 +1,5 @@
-requests
-rapidfuzz
-python-levenshtein
-streamlit
-pandas
-tldextract>=3.4
+requests==2.31.0
+streamlit==1.24.0
+pandas==2.0.3
+tldextract==3.4.0
+rapidfuzz==3.6.1
