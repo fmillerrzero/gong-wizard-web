@@ -146,13 +146,44 @@ def normalize_call_data(call_data: Dict[str, Any], transcript: List[Dict[str, An
         call_data["account_website"] = account_website
         call_data["utterances"] = transcript
         
-        # Add products metadata
-        products = account_products.get(account_id, [])
+        # Debug log the account ID
+        logger.info(f"Normalizing call for Account ID from API: {account_id}")
+        
+        # Get products with flexible matching for Salesforce IDs
+        products = []
+        
+        # The API returns IDs like "0018a00001rEelCAAS" but the CSV has IDs like "001Pr000008IK8X"
+        # Both are Salesforce IDs, where the first 3 characters (001) are the object prefix
+        # We'll try to match based on those first 3 characters
+        
+        if account_id and account_id != "Unknown":
+            # Clean up the ID
+            clean_id = str(account_id).strip('"')
+            
+            # Try direct match first
+            if clean_id in account_products:
+                products = account_products[clean_id]
+                logger.info(f"Direct match found: {clean_id}")
+            else:
+                # Get just the prefix (first 3 chars)
+                prefix = clean_id[:3] if len(clean_id) >= 3 else ""
+                
+                # Check for any keys in account_products that have the same prefix
+                matching_keys = [key for key in account_products.keys() 
+                                if key.startswith(prefix) and len(key) >= 3]
+                
+                if matching_keys:
+                    # Use the first matching key
+                    products = account_products[matching_keys[0]]
+                    logger.info(f"Prefix match found: {matching_keys[0]} for {clean_id}")
+        
         call_data["products"] = products
         
         return call_data
     except Exception as e:
         logger.error(f"Normalization error: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
         return call_data
 
 def format_duration(seconds):
@@ -212,47 +243,26 @@ def prepare_summary_df(calls: List[Dict[str, Any]]) -> pd.DataFrame:
             meta = call.get("metaData", {})
             parties = call.get("parties", [])
             
-            # Create speaker_info dictionary with correct speaker IDs
-            speaker_info = {p.get("speakerId", ""): {
-                "name": p.get("name", "N/A"),
-                "title": p.get("title", ""),
-                "affiliation": p.get("affiliation", "Unknown")
-            } for p in parties}
-            
-            # Get talk times if available
-            talk_times = get_speaker_talk_time(call)
-            
-            # Get valid talk-time speakers sorted by % descending
-            sorted_speakers = sorted(
-                [(sid, pct) for sid, pct in talk_times.items() if pct > 0],
-                key=lambda x: x[1], reverse=True
-            )
-            
+            # Simplified speaker handling - just collect those who spoke
             internal_speakers = []
             external_speakers = []
             unknown_speakers = []
             
-            for speaker_id, pct in sorted_speakers:
-                party = next((p for p in parties if p.get("speakerId") == speaker_id), None)
-                if not party:
-                    continue
+            # Process all parties (people on the call)
+            for party in parties:
+                name = party.get("name", "")
+                if name and name != "N/A":
+                    title = party.get("title", "")
+                    affiliation = party.get("affiliation", "Unknown")
                     
-                name = party.get("name", "").strip()
-                if not name or name == "N/A":
-                    continue
+                    speaker_str = f"{name}" + (f", {title}" if title else "")
                     
-                title = party.get("title", "").strip()
-                affiliation = party.get("affiliation", "Unknown")
-                
-                speaker_str = f"{name}" + (f", {title}" if title else "") + f", {round(pct)}%"
-                logger.info(f"{affiliation}: {speaker_str} (speakerId: {speaker_id})")
-                
-                if affiliation == "Internal":
-                    internal_speakers.append(speaker_str)
-                elif affiliation == "External":
-                    external_speakers.append(speaker_str)
-                else:
-                    unknown_speakers.append(speaker_str)
+                    if affiliation == "Internal":
+                        internal_speakers.append(speaker_str)
+                    elif affiliation == "External":
+                        external_speakers.append(speaker_str)
+                    else:
+                        unknown_speakers.append(speaker_str)
             
             # Default to "None" if no speakers in group
             if not internal_speakers:
@@ -277,13 +287,16 @@ def prepare_summary_df(calls: List[Dict[str, Any]]) -> pd.DataFrame:
             products = call.get("products", [])
             products_str = "|".join(products) if products else "Unmapped"
             
+            # Raw account ID for debugging
+            raw_account_id = call.get("account_id", "N/A")
+            
             summary_data.append({
                 "call_id": f'"{meta.get("id", "N/A")}"',
                 "call_title": meta.get("title", "N/A"),
                 "call_date": datetime.fromisoformat(meta.get("started", "1970-01-01T00:00:00Z").replace("Z", "+00:00")).strftime("%Y-%m-%d") if meta.get("started") else "N/A",
                 "duration": format_duration(meta.get("duration", 0)),
                 "meeting_url": meta.get("meetingUrl", "N/A"),
-                "account_id": call.get("account_id", "N/A"),
+                "account_id": raw_account_id,
                 "account_name": call.get("account_name", "N/A"),
                 "account_website": call.get("account_website", "N/A"),
                 "products": products_str,
@@ -294,6 +307,8 @@ def prepare_summary_df(calls: List[Dict[str, Any]]) -> pd.DataFrame:
             })
         except Exception as e:
             logger.error(f"Summary prep error: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
     return pd.DataFrame(summary_data)
 
 def prepare_utterances_df(calls: List[Dict[str, Any]]) -> pd.DataFrame:
@@ -302,7 +317,7 @@ def prepare_utterances_df(calls: List[Dict[str, Any]]) -> pd.DataFrame:
         if not call:
             continue
         try:
-            call_id = call.get("metaData", {}).get("id", "N/A")
+            call_id = str(call.get("metaData", {}).get("id", ""))
             call_title = call.get("metaData", {}).get("title", "N/A")
             call_date = datetime.fromisoformat(call.get("metaData", {}).get("started", "1970-01-01T00:00:00Z").replace("Z", "+00:00")).strftime("%Y-%m-%d") if call.get("metaData", {}).get("started") else "N/A"
             account_id = call.get("account_id", "N/A")
@@ -343,6 +358,8 @@ def prepare_utterances_df(calls: List[Dict[str, Any]]) -> pd.DataFrame:
                 })
         except Exception as e:
             logger.error(f"Utterance prep error: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
     return pd.DataFrame(utterances_data)
 
 def apply_filters(df: pd.DataFrame, selected_products: List[str], account_products: Dict[str, set]) -> pd.DataFrame:
@@ -385,9 +402,26 @@ def main():
     if products_df is None:
         return
 
+    # Debug the products data
+    logger.info(f"Product data loaded: {len(products_df)} rows")
+    if len(products_df) > 0:
+        logger.info(f"Sample account IDs: {products_df['Account ID'].head(5).tolist()}")
+        logger.info(f"Sample products: {products_df['Product'].head(5).tolist()}")
+    
     # Initialize mappings
+    # FIXED: Ensure account IDs are strings in the mapping
     account_products = products_df.groupby("Account ID")["Product"].apply(list).to_dict()
+    account_products = {str(k): v for k, v in account_products.items()}
+    
+    # Debug the mapping
+    logger.info(f"Account to product mapping created: {len(account_products)} accounts")
+    if account_products:
+        sample_keys = list(account_products.keys())[:3]
+        for key in sample_keys:
+            logger.info(f"Sample mapping - Account {key}: Products {account_products[key]}")
+    
     unique_products = sorted(products_df["Product"].unique())
+    logger.info(f"Unique products: {unique_products}")
 
     # Sidebar
     with st.sidebar:
@@ -447,10 +481,26 @@ def main():
             details = fetch_call_details(session, batch)
             transcripts = fetch_transcript(session, batch)
             
-            # Debug: Display raw API response for the first call
+            # Add enhanced debug mode display
             if debug_mode and i == 0 and details:
-                st.subheader("Debug: Raw API Response (First Call)")
-                st.json(details[0])
+                st.subheader("Debug Information")
+                if call_ids:
+                    st.write(f"Number of calls found: {len(call_ids)}")
+                
+                # Display the first call's raw API data if available
+                if details and len(details) > 0:
+                    st.subheader("First Call Raw Data")
+                    # Display parties (speakers) data separately for easier debugging
+                    parties = details[0].get("parties", [])
+                    if parties:
+                        st.subheader("Parties/Speakers Data")
+                        st.json(parties)
+                    
+                    # Display talk time data if available
+                    interaction = details[0].get("interaction", {})
+                    if interaction:
+                        st.subheader("Interaction Data")
+                        st.json(interaction)
             
             for call in details:
                 call_id = str(call.get("metaData", {}).get("id", ""))
@@ -468,11 +518,40 @@ def main():
 
         filtered_summary_df = apply_filters(summary_df, selected_products, account_products)
         filtered_utterances_df = utterances_df[utterances_df["call_id"].isin(filtered_summary_df["call_id"])]
+        
+        # Improved matching for filtered JSON
         call_id_set = set(id.strip('"') for id in filtered_summary_df["call_id"])
         filtered_json = [call for call in full_data if call.get("metaData", {}).get("id", "N/A") in call_id_set]
 
     st.subheader("Filtered Calls")
     st.dataframe(filtered_summary_df)
+    
+    if debug_mode:
+        st.subheader("Debug: Product Mapping")
+        # Show a sample of the account_products mapping
+        sample_mapping = {k: v for i, (k, v) in enumerate(account_products.items()) if i < 5}
+        st.json(sample_mapping)
+        
+        # Show data from the first few rows of the filtered summary
+        st.subheader("Debug: First 5 rows of filtered summary")
+        st.write(filtered_summary_df.head(5))
+        
+        # Show how many accounts are mapped vs unmapped
+        if len(filtered_summary_df) > 0:
+            mapped = filtered_summary_df[filtered_summary_df["products"] != "Unmapped"].shape[0]
+            unmapped = filtered_summary_df[filtered_summary_df["products"] == "Unmapped"].shape[0]
+            st.write(f"Mapped accounts: {mapped}, Unmapped accounts: {unmapped}")
+            
+            # Show account IDs that are unmapped
+            if unmapped > 0:
+                unmapped_accounts = filtered_summary_df[filtered_summary_df["products"] == "Unmapped"]["account_id"].unique()
+                st.write(f"Sample unmapped account IDs: {list(unmapped_accounts)[:5]}")
+                
+                # Check if these IDs exist in the product mapping
+                for acc_id in list(unmapped_accounts)[:5]:
+                    acc_id_str = str(acc_id).strip('"')
+                    in_mapping = acc_id_str in account_products
+                    st.write(f"Account ID {acc_id_str} exists in mapping: {in_mapping}")
 
     start_date_str = st.session_state.start_date.strftime("%d%b%y").lower()
     end_date_str = st.session_state.end_date.strftime("%Y-%m-%d")
