@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Any, Set, Tuple
 import logging
 from difflib import SequenceMatcher
-import tldextract  # Added for proper domain normalization
+import tldextract  # For proper domain normalization
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -339,13 +339,17 @@ def load_domain_lists():
 
 # Extract and normalize domain from URL using tldextract
 def extract_domain(url: str) -> str:
-    """Extract and normalize domain from a URL using tldextract to handle complex TLDs."""
+    """Extract and normalize domain from a URL using tldextract to handle complex TLDs and strip ports."""
     if not url or url in ["Unknown", "N/A"]:
         return ""
     if not url.startswith(('http://', 'https://')):
         url = 'https://' + url
     try:
-        extracted = tldextract.extract(url)
+        # Strip port numbers using urlparse
+        parsed_url = urlparse(url)
+        netloc = parsed_url.netloc.split(":")[0]  # Remove port (e.g., example.com:443 -> example.com)
+        # Extract domain using tldextract
+        extracted = tldextract.extract(netloc)
         # Combine domain and suffix (e.g., 'client.com.sg' instead of just 'com.sg')
         domain = f"{extracted.domain}.{extracted.suffix}".lower()
         if not domain or domain == ".":
@@ -357,25 +361,36 @@ def extract_domain(url: str) -> str:
 
 # Fuzzy domain matching
 def fuzzy_match_domain(domain: str, domain_list: Set[str], debug_info: List[Dict[str, Any]]) -> Tuple[bool, str]:
-    """Check if domain matches any in domain_list using fuzzy matching."""
+    """Check if domain matches any in domain_list using fuzzy matching on the registered domain."""
     if not domain:
         return False, ""
+    
+    # Extract the registered domain (domain + suffix) for the input domain
+    extracted = tldextract.extract(domain)
+    domain_normalized = f"{extracted.domain}.{extracted.suffix}".lower()
     
     best_match = None
     best_ratio = 0
     match_type = "none"
     for list_domain in domain_list:
-        ratio = SequenceMatcher(None, domain, list_domain).ratio() * 100
+        # Extract the registered domain for the domain in the list
+        list_extracted = tldextract.extract(list_domain)
+        list_domain_normalized = f"{list_extracted.domain}.{list_extracted.suffix}".lower()
+        
+        # Compare the normalized domains
+        ratio = SequenceMatcher(None, domain_normalized, list_domain_normalized).ratio() * 100
         if ratio > best_ratio and ratio >= FUZZY_MATCH_THRESHOLD:
             best_ratio = ratio
             best_match = list_domain
             match_type = "fuzzy" if ratio < 100 else "exact"
     
     if best_match:
-        logger.info(f"Matched domain '{domain}' to '{best_match}' with ratio {best_ratio:.2f} ({match_type})")
+        logger.info(f"Matched domain '{domain}' (normalized: {domain_normalized}) to '{best_match}' (normalized: {list_domain_normalized}) with ratio {best_ratio:.2f} ({match_type})")
         debug_info.append({
             "domain": domain,
+            "normalized_domain": domain_normalized,
             "matched_domain": best_match,
+            "normalized_matched_domain": list_domain_normalized,
             "ratio": best_ratio,
             "match_type": match_type
         })
@@ -414,9 +429,9 @@ def fetch_call_list(session: requests.Session, from_date: str, to_date: str, max
                     time.sleep(wait_time)
                     continue
                 else:
-                    st.error(f"Failed to fetch calls: {response.status_code} - {response.text}")
-                    logger.error(f"Call list fetch failed: {response.status_code} - {response.text}")
-                    return call_ids
+                    error_msg = f"Gong API error {response.status_code}: {response.text}"
+                    logger.error(error_msg)
+                    raise RuntimeError(error_msg)
             break
         except Exception as e:
             if attempt < max_attempts - 1:
@@ -424,6 +439,7 @@ def fetch_call_list(session: requests.Session, from_date: str, to_date: str, max
             else:
                 st.error(f"Call list error: {str(e)}")
                 logger.error(f"Call list error: {str(e)}")
+                raise
     return call_ids
 
 def fetch_call_details(session: requests.Session, call_ids: List[str], max_attempts: int = 3) -> List[Dict[str, Any]]:
@@ -466,14 +482,15 @@ def fetch_call_details(session: requests.Session, call_ids: List[str], max_attem
                     time.sleep(wait_time)
                     continue
                 else:
-                    logger.warning(f"Call details fetch failed: {response.status_code} - {response.text}")
-                    return call_details
+                    error_msg = f"Gong API error {response.status_code}: {response.text}"
+                    logger.error(error_msg)
+                    raise RuntimeError(error_msg)
             except Exception as e:
                 if attempt < max_attempts - 1:
                     time.sleep((2 ** attempt) * 1)
                 else:
                     logger.warning(f"Error fetching call details: {str(e)}")
-                    return call_details
+                    raise
     return call_details
 
 def fetch_transcript(session: requests.Session, call_ids: List[str], max_attempts: int = 3) -> Dict[str, List[Dict[str, Any]]]:
@@ -506,14 +523,15 @@ def fetch_transcript(session: requests.Session, call_ids: List[str], max_attempt
                     time.sleep(wait_time)
                     continue
                 else:
-                    logger.warning(f"Transcript fetch failed: {response.status_code} - {response.text}")
-                    return {call_id: [] for call_id in call_ids}
+                    error_msg = f"Gong API error {response.status_code}: {response.text}"
+                    logger.error(error_msg)
+                    raise RuntimeError(error_msg)
             except Exception as e:
                 if attempt < max_attempts - 1:
                     time.sleep((2 ** attempt) * 1)
                 else:
                     logger.warning(f"Error fetching transcripts: {str(e)}")
-                    return {call_id: [] for call_id in call_ids}
+                    raise
     return result
 
 def normalize_call_data(call_data: Dict[str, Any], transcript: List[Dict[str, Any]], domain_lists: Dict[str, Set[str]], debug_domain_matches: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -802,10 +820,10 @@ def prepare_utterances_df(calls: List[Dict[str, Any]]) -> pd.DataFrame:
                 # Attempt to match speaker using speakerId
                 speaker = speaker_info.get(speaker_id, None)
                 fallback_attempted = False
+                speaker_name_in_utterance = None  # Initialize to None to avoid UnboundLocalError
                 if not speaker:
                     logger.warning(f"Missing or unmatched speakerId: {speaker_id} in call {call_id}, utterance {idx}, text: {text[:20]}")
                     # Fallback: match by name if available
-                    speaker_name_in_utterance = None
                     for sentence in sentences:
                         if "speaker" in sentence and "name" in sentence["speaker"]:
                             speaker_name_in_utterance = sentence["speaker"]["name"]
@@ -924,6 +942,13 @@ def run_test_harness(selected_products: List[str], debug_mode: bool = False):
     utterances_df = prepare_utterances_df(full_data)
     high_quality_call_ids = set(utterances_df[utterances_df["quality"] == "high"]["call_id"])
     included_calls_df, excluded_calls_df = prepare_call_tables(full_data, selected_products, high_quality_call_ids)
+
+    # Guard clause to check for 'call_id' in included_calls_df
+    if "call_id" not in included_calls_df.columns:
+        st.error("Test Harness Error: included_calls_df missing 'call_id'. Skipping filtered utterances.")
+        logger.error("included_calls_df missing 'call_id' column. DataFrame contents: %s", included_calls_df.to_dict())
+        return
+
     utterances_filtered_df = utterances_df[utterances_df["quality"] == "high"]
     # Filter utterances_filtered_df to only include calls from included_calls_df
     utterances_filtered_df = utterances_filtered_df[utterances_filtered_df["call_id"].isin(set(included_calls_df["call_id"]))]
@@ -1031,8 +1056,9 @@ def main():
     domain_lists = load_domain_lists()
     debug_domain_matches = []  # For debug output of domain matching
 
+    # Temporarily disable test harness for stability
     if run_test:
-        run_test_harness(selected_products, debug_mode)
+        st.warning("Test Harness disabled for stability. Use production Gong data instead.")
         return
 
     if submit:
@@ -1051,7 +1077,11 @@ def main():
                 session = requests.Session()
                 headers = create_auth_header(access_key, secret_key)
                 session.headers.update(headers)
-                call_ids = fetch_call_list(session, st.session_state.start_date.isoformat() + "T00:00:00Z", st.session_state.end_date.isoformat() + "T23:59:59Z")
+                try:
+                    call_ids = fetch_call_list(session, st.session_state.start_date.isoformat() + "T00:00:00Z", st.session_state.end_date.isoformat() + "T23:59:59Z")
+                except Exception as e:
+                    st.error(f"Failed to fetch calls: {str(e)}")
+                    return
                 if not call_ids:
                     st.error("No calls found.")
                     return
@@ -1061,8 +1091,12 @@ def main():
                 batch_size = 50
                 for i in range(0, len(call_ids), batch_size):
                     batch = call_ids[i:i + batch_size]
-                    details = fetch_call_details(session, batch)
-                    transcripts = fetch_transcript(session, batch)
+                    try:
+                        details = fetch_call_details(session, batch)
+                        transcripts = fetch_transcript(session, batch)
+                    except Exception as e:
+                        st.error(f"Failed to fetch call details or transcripts: {str(e)}")
+                        return
                     
                     if debug_mode and i == 0 and details:
                         st.subheader("Debug Information")
