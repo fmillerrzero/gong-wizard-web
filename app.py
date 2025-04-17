@@ -162,7 +162,8 @@ def format_duration(seconds):
 def get_speaker_talk_time(call: Dict[str, Any]) -> Dict[str, float]:
     talk_times = {}
     try:
-        stats = call.get("interactionStats", {}).get("personInteractionStats", [])
+        # Fix: Correct path to access interaction stats
+        stats = call.get("interaction", {}).get("personInteractionStats", [])
         total_duration = sum(stat.get("talkTime", 0) for stat in stats)
         if total_duration == 0:
             return {}
@@ -184,19 +185,39 @@ def prepare_summary_df(calls: List[Dict[str, Any]]) -> pd.DataFrame:
         try:
             meta = call.get("metaData", {})
             parties = call.get("parties", [])
-            speaker_info = {p.get("speakerId", ""): {"name": p.get("name", "N/A"), "title": p.get("title", ""), "affiliation": p.get("affiliation", "Unknown")} for p in parties}
+            
+            # Fix: Create speaker_info by using parties correctly
+            speaker_info = {}
+            for p in parties:
+                speaker_id = p.get("speakerId", "")
+                if speaker_id:
+                    speaker_info[speaker_id] = {
+                        "name": p.get("name", "N/A"),
+                        "title": p.get("title", ""),
+                        "affiliation": p.get("affiliation", "Unknown")
+                    }
+            
             talk_times = get_speaker_talk_time(call)
             internal_speakers = []
             external_speakers = []
+            
+            # Debug information to help diagnose the issue
+            logger.info(f"Call ID: {meta.get('id', 'N/A')}")
+            logger.info(f"Speaker info: {json.dumps(speaker_info)}")
+            logger.info(f"Talk times: {json.dumps(talk_times)}")
+            
             for speaker_id, percentage in sorted(talk_times.items(), key=lambda x: x[1], reverse=True):
                 speaker = speaker_info.get(speaker_id, {"name": "N/A", "title": "", "affiliation": "Unknown"})
                 if speaker["name"] == "N/A":
                     continue
+                    
                 speaker_str = f"{speaker['name']}"
                 if speaker["title"]:
                     speaker_str += f", {speaker['title']}"
                 speaker_str += f", {percentage:.0f}%"
-                if speaker["affiliation"] == "Company":
+                
+                # Fix: Check affiliation correctly
+                if speaker["affiliation"] == "Internal":
                     internal_speakers.append(speaker_str)
                 else:
                     external_speakers.append(speaker_str)
@@ -355,12 +376,21 @@ def main():
             st.error("No calls found.")
             return
 
+        # Add a debug checkbox to see raw API data
+        debug_mode = st.checkbox("Debug Mode", value=False)
+
         full_data = []
         batch_size = 50
         for i in range(0, len(call_ids), batch_size):
             batch = call_ids[i:i + batch_size]
             details = fetch_call_details(session, batch)
             transcripts = fetch_transcript(session, batch)
+            
+            # Debug: Display raw API response for the first call
+            if debug_mode and i == 0 and details:
+                st.subheader("Debug: Raw API Response (First Call)")
+                st.json(details[0])
+            
             for call in details:
                 call_id = call.get("metaData", {}).get("id", "")
                 call_transcript = transcripts.get(call_id, [])
