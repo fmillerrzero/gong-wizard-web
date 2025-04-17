@@ -166,13 +166,19 @@ def get_speaker_talk_time(call: Dict[str, Any]) -> Dict[str, float]:
         parties = call.get("parties", [])
         speakers = call.get("interaction", {}).get("speakers", [])
         
-        # Map party IDs to speakerIds
+        # Map party IDs to speakerIds and collect speaker info
         party_to_speaker_map = {}
+        speaker_info = {}
         for party in parties:
             party_id = party.get("id")
             speaker_id = party.get("speakerId")
             if party_id and speaker_id:
                 party_to_speaker_map[party_id] = speaker_id
+                speaker_info[speaker_id] = {
+                    "name": party.get("name", "N/A"),
+                    "title": party.get("title", ""),
+                    "affiliation": party.get("affiliation", "Unknown")
+                }
         
         # Get talk time for each speaker
         speaker_talk_times = {}
@@ -206,15 +212,11 @@ def prepare_summary_df(calls: List[Dict[str, Any]]) -> pd.DataFrame:
             parties = call.get("parties", [])
             
             # Create speaker_info dictionary with correct speaker IDs
-            speaker_info = {}
-            for p in parties:
-                speaker_id = p.get("speakerId")
-                if speaker_id:
-                    speaker_info[speaker_id] = {
-                        "name": p.get("name", "N/A"),
-                        "title": p.get("title", ""),
-                        "affiliation": p.get("affiliation", "Unknown")
-                    }
+            speaker_info = {p.get("speakerId", ""): {
+                "name": p.get("name", "N/A"),
+                "title": p.get("title", ""),
+                "affiliation": p.get("affiliation", "Unknown")
+            } for p in parties}
             
             # Get speaker talk times
             talk_times = get_speaker_talk_time(call)
@@ -224,8 +226,8 @@ def prepare_summary_df(calls: List[Dict[str, Any]]) -> pd.DataFrame:
             external_speakers = []
             
             for speaker_id, percentage in sorted(talk_times.items(), key=lambda x: x[1], reverse=True):
-                speaker = speaker_info.get(speaker_id, {"name": "N/A", "title": "", "affiliation": "Unknown"})
-                if speaker["name"] == "N/A":
+                speaker = speaker_info.get(speaker_id)
+                if not speaker or speaker["name"] == "N/A":
                     continue
                     
                 speaker_str = f"{speaker['name']}"
@@ -233,7 +235,6 @@ def prepare_summary_df(calls: List[Dict[str, Any]]) -> pd.DataFrame:
                     speaker_str += f", {speaker['title']}"
                 speaker_str += f", {percentage:.0f}%"
                 
-                # Check for "Internal" affiliation, not "Company"
                 if speaker["affiliation"] == "Internal":
                     internal_speakers.append(speaker_str)
                 else:
@@ -436,15 +437,13 @@ def main():
     st.subheader("Download Options")
     col1, col2 = st.columns(2)
     with col1:
-        st.markdown("**Unfiltered Data**")
-        download_csv(summary_df, f"unfiltered_summary_gong_{start_date_str}_to_{end_date_str}.csv", "Download Unfiltered Calls CSV")
-        download_csv(utterances_df, f"unfiltered_utterances_gong_{start_date_str}_to_{end_date_str}.csv", "Download Unfiltered Utterances CSV")
-        download_json(full_data, f"unfiltered_json_gong_{start_date_str}_to_{end_date_str}.json", "Download Unfiltered JSON")
+        st.download_csv(summary_df, f"unfiltered_summary_gong_{start_date_str}_to_{end_date_str}.csv", "Download Unfiltered Calls CSV")
+        st.download_csv(utterances_df, f"unfiltered_utterances_gong_{start_date_str}_to_{end_date_str}.csv", "Download Unfiltered Utterances CSV")
+        st.download_json(full_data, f"unfiltered_json_gong_{start_date_str}_to_{end_date_str}.json", "Download Unfiltered JSON")
     with col2:
-        st.markdown("**Filtered Data**")
-        download_csv(filtered_summary_df, f"filtered_summary_gong_{start_date_str}_to_{end_date_str}.csv", "Download Filtered Calls CSV")
-        download_csv(filtered_utterances_df, f"filtered_utterances_gong_{start_date_str}_to_{end_date_str}.csv", "Download Filtered Utterances CSV")
-        download_json(filtered_json, f"filtered_json_gong_{start_date_str}_to_{end_date_str}.json", "Download Filtered JSON")
+        st.download_csv(filtered_summary_df, f"filtered_summary_gong_{start_date_str}_to_{end_date_str}.csv", "Download Filtered Calls CSV")
+        st.download_csv(filtered_utterances_df, f"filtered_utterances_gong_{start_date_str}_to_{end_date_str}.csv", "Download Filtered Utterances CSV")
+        st.download_json(filtered_json, f"filtered_json_gong_{start_date_str}_to_{end_date_str}.json", "Download Filtered JSON")
 
 if __name__ == "__main__":
     main()
