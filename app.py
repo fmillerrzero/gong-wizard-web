@@ -214,24 +214,26 @@ def prepare_summary_df(calls: List[Dict[str, Any]]) -> pd.DataFrame:
                 "affiliation": p.get("affiliation", "Unknown")
             } for p in parties}
             
-            # Get speaker talk times
-            talk_times = get_speaker_talk_time(call)
-            
-            # Process internal and external speakers
+            # New: show all speakers regardless of talk time
             internal_speakers = []
             external_speakers = []
             
-            for speaker_id, percentage in sorted(talk_times.items(), key=lambda x: x[1], reverse=True):
-                speaker = speaker_info.get(speaker_id)
-                if not speaker or speaker["name"] == "N/A":
+            # Get talk times if available
+            talk_times = get_speaker_talk_time(call)
+            
+            # Loop through all parties with speaker info
+            for party in parties:
+                name = party.get("name", "").strip()
+                if not name:
                     continue
-                    
-                speaker_str = f"{speaker['name']}"
-                if speaker["title"]:
-                    speaker_str += f", {speaker['title']}"
-                speaker_str += f", {percentage:.0f}%"
+                title = party.get("title", "").strip()
+                affiliation = party.get("affiliation", "Unknown")
+                speaker_id = party.get("speakerId")  # Use speakerId from parties
+                talk_pct = f", {round(talk_times.get(speaker_id, 0))}%" if speaker_id in talk_times else ""
                 
-                if speaker["affiliation"] == "Internal":
+                speaker_str = f"{name}" + (f", {title}" if title else "") + talk_pct
+                
+                if affiliation == "Internal":
                     internal_speakers.append(speaker_str)
                 else:
                     external_speakers.append(speaker_str)
