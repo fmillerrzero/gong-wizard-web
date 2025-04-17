@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Any, Set, Tuple
 import logging
 from difflib import SequenceMatcher
+import tldextract  # Added for proper domain normalization
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -300,7 +301,7 @@ def load_domain_lists():
         occupancy_df = pd.read_csv("Occupancy Analytics Tenant Customers Gong Bot Sheet3.csv", header=None, names=["domain"])
         if "domain" not in occupancy_df.columns:
             raise ValueError("Occupancy Analytics CSV missing 'domain' column")
-        # Normalize domains in the list
+        # Normalize domains in the list using tldextract
         occupancy_domains = set(occupancy_df["domain"].str.lower().dropna().apply(extract_domain).tolist())
         domain_lists["occupancy_analytics"] = occupancy_domains
         
@@ -308,7 +309,7 @@ def load_domain_lists():
         owner_df = pd.read_csv("Owner Orgs Gong Bot Sheet3.csv", header=None, names=["domain"])
         if "domain" not in owner_df.columns:
             raise ValueError("Owner Orgs CSV missing 'domain' column")
-        # Normalize domains in the list
+        # Normalize domains in the list using tldextract
         owner_domains = set(owner_df["domain"].str.lower().dropna().apply(extract_domain).tolist())
         domain_lists["owner_offering"] = owner_domains
         
@@ -336,25 +337,20 @@ def load_domain_lists():
     
     return domain_lists
 
-# Extract and normalize domain from URL
+# Extract and normalize domain from URL using tldextract
 def extract_domain(url: str) -> str:
-    """Extract and normalize domain from a URL, removing subdomains, www, and trailing slashes."""
+    """Extract and normalize domain from a URL using tldextract to handle complex TLDs."""
     if not url or url in ["Unknown", "N/A"]:
         return ""
     if not url.startswith(('http://', 'https://')):
         url = 'https://' + url
     try:
-        parsed_url = urlparse(url)
-        domain = parsed_url.netloc
-        # Remove www
-        domain = re.sub(r'^www\.', '', domain)
-        # Remove trailing slashes
-        domain = domain.rstrip('/')
-        # Extract the main domain (remove subdomains)
-        parts = domain.split('.')
-        if len(parts) > 2:
-            domain = '.'.join(parts[-2:])  # Keep the last two parts (e.g., example.com)
-        return domain.lower()
+        extracted = tldextract.extract(url)
+        # Combine domain and suffix (e.g., 'client.com.sg' instead of just 'com.sg')
+        domain = f"{extracted.domain}.{extracted.suffix}".lower()
+        if not domain or domain == ".":
+            return ""
+        return domain
     except Exception as e:
         logger.warning(f"Error extracting domain from {url}: {str(e)}")
         return ""
@@ -740,9 +736,10 @@ def prepare_call_tables(calls: List[Dict[str, Any]], selected_products: List[str
     return included_df, excluded_df
 
 def prepare_utterances_df(calls: List[Dict[str, Any]]) -> pd.DataFrame:
-    """Prepare utterances DataFrame with quality labels."""
+    """Prepare utterances DataFrame with quality labels, deduplicating utterances by (start, end, text)."""
     utterances_data = []
     debug_speaker_info = []  # For debug output
+    seen_utterances = set()  # For deduplication by (start, end, text)
     for call in calls:
         if not call or "metaData" not in call:
             continue
@@ -788,6 +785,16 @@ def prepare_utterances_df(calls: List[Dict[str, Any]]) -> pd.DataFrame:
                 if not sentences:
                     continue
                 text = " ".join(s.get("text", "N/A") for s in sentences)
+                start_time = sentences[0].get("start", 0)
+                end_time = sentences[-1].get("end", 0)
+                
+                # Deduplicate utterances by (start, end, text)
+                utterance_key = (start_time, end_time, text)
+                if utterance_key in seen_utterances:
+                    logger.debug(f"Deduplicated utterance in call {call_id}, index {idx}: {text}")
+                    continue
+                seen_utterances.add(utterance_key)
+                
                 word_count = len(text.split())
                 topic = utterance.get("topic", "N/A")
                 speaker_id = utterance.get("speakerId", "")
@@ -842,8 +849,6 @@ def prepare_utterances_df(calls: List[Dict[str, Any]]) -> pd.DataFrame:
                 elif word_count < 8 and speaker["affiliation"] == "External":
                     quality = "short"
                 
-                start_time = sentences[0].get("start", 0)
-                end_time = sentences[-1].get("end", 0)
                 duration = format_duration(end_time - start_time) if end_time and start_time else "N/A"
                 utterances_data.append({
                     "call_id": call_id,

@@ -3,3 +3,4 @@ rapidfuzz
 python-levenshtein
 streamlit
 pandas
+tldextract>=3.4
