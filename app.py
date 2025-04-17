@@ -52,53 +52,293 @@ ALL_PRODUCT_TAGS = [
 # Fuzzy matching threshold
 FUZZY_MATCH_THRESHOLD = 85
 
+# Synthetic domain lists for testing
+TEST_DOMAIN_LISTS = {
+    "occupancy_analytics": {"example0.com", "example1.com"},
+    "owner_offering": {"example2.com", "example3.com"}
+}
+
+# Synthetic call and transcript data
+SYNTHETIC_CALLS = [
+    {
+        "metaData": {"id": "call_0", "title": "Test Call 0", "started": "2025-04-17T15:45:36.540364Z"},
+        "context": [{
+            "objects": [{
+                "objectType": "Account",
+                "objectId": "acc_0",
+                "fields": [
+                    {"name": "Name", "value": "Account 0"},
+                    {"name": "Website", "value": "https://www.example0.com"}
+                ]
+            }]
+        }],
+        "content": {
+            "trackers": [{"name": "ODCV", "count": 2}, {"name": "Filter", "count": 1}],
+            "topics": ["Call Setup", "Business Value", "Wrap-up"],
+            "brief": "Brief summary",
+            "keyPoints": ["Key point 0"],
+            "callOutcome": "Advanced"
+        },
+        "parties": [
+            {"speakerId": "speaker_ext_0", "name": "External User 0", "title": "VP of Operations", "affiliation": "External"},
+            {"speakerId": "speaker_int_0", "name": "Internal Rep 0", "title": "AE", "affiliation": "Internal"}
+        ]
+    }
+]
+
+SYNTHETIC_TRANSCRIPTS = {
+    "call_0": [
+        {
+            "speakerId": "speaker_ext_0",
+            "topic": "Business Value",
+            "sentences": [{"text": "This is a high-quality external utterance.", "start": 0, "end": 10}]
+        },
+        {
+            "speakerId": "speaker_int_0",
+            "topic": "Call Setup",
+            "sentences": [{"text": "Internal speaker saying hello.", "start": 10, "end": 20}]
+        }
+    ]
+}
+
+# Synthetic edge cases
+SYNTHETIC_EDGE_CALLS = [
+    # 1. Missing metaData
+    {
+        "context": [{
+            "objects": [{
+                "objectType": "Account",
+                "objectId": "acc_1",
+                "fields": [
+                    {"name": "Name", "value": "Account 1"},
+                    {"name": "Website", "value": "https://www.example1.com"}
+                ]
+            }]
+        }],
+        "content": {
+            "trackers": [{"name": "ODCV", "count": 1}],
+            "topics": ["Business Value"],
+            "brief": "Brief summary",
+            "keyPoints": ["Key point 1"],
+            "callOutcome": "Advanced"
+        },
+        "parties": [
+            {"speakerId": "speaker_ext_1", "name": "External User 1", "title": "Manager", "affiliation": "External"}
+        ]
+    },
+    # 2. Mismatched Subdomain
+    {
+        "metaData": {"id": "call_2", "title": "Test Call 2", "started": "2025-04-17T16:00:00Z"},
+        "context": [{
+            "objects": [{
+                "objectType": "Account",
+                "objectId": "acc_2",
+                "fields": [
+                    {"name": "Name", "value": "Account 2"},
+                    {"name": "Website", "value": "https://www.sub.example3.com"}
+                ]
+            }]
+        }],
+        "content": {
+            "trackers": [],
+            "topics": ["Business Value"],
+            "brief": "Brief summary",
+            "keyPoints": ["Key point 2"],
+            "callOutcome": "Advanced"
+        },
+        "parties": [
+            {"speakerId": "speaker_ext_2", "name": "External User 2", "title": "Director", "affiliation": "External"}
+        ]
+    },
+    # 3. All Internal / Low-Quality Utterances
+    {
+        "metaData": {"id": "call_3", "title": "Test Call 3", "started": "2025-04-17T16:15:00Z"},
+        "context": [{
+            "objects": [{
+                "objectType": "Account",
+                "objectId": "acc_3",
+                "fields": [
+                    {"name": "Name", "value": "Account 3"},
+                    {"name": "Website", "value": "https://www.example3.com"}
+                ]
+            }]
+        }],
+        "content": {
+            "trackers": [{"name": "ODCV", "count": 1}],
+            "topics": ["Small Talk"],
+            "brief": "Brief summary",
+            "keyPoints": ["Key point 3"],
+            "callOutcome": "Advanced"
+        },
+        "parties": [
+            {"speakerId": "speaker_int_3", "name": "Internal Rep 3", "title": "AE", "affiliation": "Internal"}
+        ]
+    },
+    # 4. No Product Tags / No Domain Match
+    {
+        "metaData": {"id": "call_4", "title": "Test Call 4", "started": "2025-04-17T16:30:00Z"},
+        "context": [{
+            "objects": [{
+                "objectType": "Account",
+                "objectId": "acc_4",
+                "fields": [
+                    {"name": "Name", "value": "Account 4"},
+                    {"name": "Website", "value": "https://unmatched-domain.com"}
+                ]
+            }]
+        }],
+        "content": {
+            "trackers": [],
+            "topics": ["Business Value"],
+            "brief": "Brief summary",
+            "keyPoints": ["Key point 4"],
+            "callOutcome": "Advanced"
+        },
+        "parties": [
+            {"speakerId": "speaker_ext_4", "name": "External User 4", "title": "CEO", "affiliation": "External"}
+        ]
+    },
+    # 5. Malformed Party Entry
+    {
+        "metaData": {"id": "call_5", "title": "Test Call 5", "started": "2025-04-17T16:45:00Z"},
+        "context": [{
+            "objects": [{
+                "objectType": "Account",
+                "objectId": "acc_5",
+                "fields": [
+                    {"name": "Name", "value": "Account 5"},
+                    {"name": "Website", "value": "https://www.example5.com"}
+                ]
+            }]
+        }],
+        "content": {
+            "trackers": [{"name": "Filter", "count": 1}],
+            "topics": ["Business Value"],
+            "brief": "Brief summary",
+            "keyPoints": ["Key point 5"],
+            "callOutcome": "Advanced"
+        },
+        "parties": [
+            {"name": "Unknown User 5", "title": "Unknown Title"}  # Missing speakerId and affiliation
+        ]
+    },
+    # 6. Malformed Timestamp + Duplicate Speakers
+    {
+        "metaData": {"id": "call_6", "title": "Test Call 6 - Timestamp & Speaker Edge Case", "started": "invalid-timestamp"},
+        "context": [{
+            "objects": [{
+                "objectType": "Account",
+                "objectId": "acc_6",
+                "fields": [
+                    {"name": "Name", "value": "Account 6"},
+                    {"name": "Website", "value": "https://www.example6.com"}
+                ]
+            }]
+        }],
+        "content": {
+            "trackers": [],
+            "topics": ["Business Value"],
+            "brief": "Brief summary",
+            "keyPoints": ["Key point 6"],
+            "callOutcome": "Advanced"
+        },
+        "parties": [
+            {"speakerId": "dup_speaker", "name": "Person A", "title": "CTO", "affiliation": "External"},
+            {"speakerId": "dup_speaker", "name": "Person B", "title": "Engineer", "affiliation": "Internal"}  # Duplicate ID with conflicting affiliation
+        ]
+    }
+]
+
+SYNTHETIC_EDGE_TRANSCRIPTS = {
+    "call_2": [
+        {
+            "speakerId": "speaker_ext_2",
+            "topic": "Business Value",
+            "sentences": [{"text": "This is another high-quality external utterance.", "start": 0, "end": 10}]
+        }
+    ],
+    "call_3": [
+        {
+            "speakerId": "speaker_int_3",
+            "topic": "Small Talk",
+            "sentences": [{"text": "Internal speaker discussing small talk.", "start": 0, "end": 10}]
+        }
+    ],
+    "call_4": [
+        {
+            "speakerId": "speaker_ext_4",
+            "topic": "Business Value",
+            "sentences": [{"text": "This is a high-quality external utterance with no product tags.", "start": 0, "end": 10}]
+        }
+    ],
+    "call_5": [
+        {
+            "speakerId": "",  # Missing speakerId
+            "topic": "Business Value",
+            "sentences": [{"text": "This utterance should default to External.", "start": 0, "end": 10}]
+        }
+    ],
+    "call_6": [
+        {
+            "speakerId": "dup_speaker",
+            "topic": "Business Value",
+            "sentences": [{"text": "This tests speaker conflict and bad timestamp.", "start": 0, "end": 10}]
+        }
+    ]
+}
+
 # Load domain lists for product tagging
 @st.cache_data
 def load_domain_lists():
     """Load domain lists from CSVs for Occupancy Analytics and Owner Offering."""
+    domain_lists = {
+        "occupancy_analytics": set(),
+        "owner_offering": set()
+    }
     try:
         # Validate Occupancy Analytics file
         occupancy_df = pd.read_csv("Occupancy Analytics Tenant Customers Gong Bot Sheet3.csv", header=None, names=["domain"])
         if "domain" not in occupancy_df.columns:
             raise ValueError("Occupancy Analytics CSV missing 'domain' column")
-        occupancy_domains = set(occupancy_df["domain"].str.lower().dropna().tolist())
+        # Normalize domains in the list
+        occupancy_domains = set(occupancy_df["domain"].str.lower().dropna().apply(extract_domain).tolist())
+        domain_lists["occupancy_analytics"] = occupancy_domains
         
         # Validate Owner Offering file
         owner_df = pd.read_csv("Owner Orgs Gong Bot Sheet3.csv", header=None, names=["domain"])
         if "domain" not in owner_df.columns:
             raise ValueError("Owner Orgs CSV missing 'domain' column")
-        owner_domains = set(owner_df["domain"].str.lower().dropna().tolist())
+        # Normalize domains in the list
+        owner_domains = set(owner_df["domain"].str.lower().dropna().apply(extract_domain).tolist())
+        domain_lists["owner_offering"] = owner_domains
         
-        logger.info(f"Loaded {len(occupancy_domains)} Occupancy Analytics domains and {len(owner_domains)} Owner Offering domains")
-        return {
-            "occupancy_analytics": occupancy_domains,
-            "owner_offering": owner_domains
-        }
+        logger.info(f"Loaded {len(domain_lists['occupancy_analytics'])} Occupancy Analytics domains and {len(domain_lists['owner_offering'])} Owner Offering domains")
     except FileNotFoundError as e:
         st.sidebar.error(f"Domain list file not found: {str(e)}. Please ensure the files are present.")
         logger.error(f"Domain list file not found: {str(e)}")
-        return {
-            "occupancy_analytics": set(),
-            "owner_offering": set()
-        }
     except ValueError as e:
         st.sidebar.error(f"Domain list file error: {str(e)}. Please check the file format.")
         logger.error(f"Domain list file error: {str(e)}")
-        return {
-            "occupancy_analytics": set(),
-            "owner_offering": set()
-        }
     except Exception as e:
         st.sidebar.error(f"Error loading domain lists: {str(e)}")
         logger.error(f"Domain list load error: {str(e)}")
-        return {
-            "occupancy_analytics": set(),
-            "owner_offering": set()
-        }
+    
+    # Check if domain lists are empty and notify user
+    if not domain_lists["occupancy_analytics"] and not domain_lists["owner_offering"]:
+        st.error("Domain lists are empty. Domain-based product tagging will not function. Please check the domain list files.")
+        logger.warning("Both domain lists are empty after loading. Domain tagging will be skipped.")
+    elif not domain_lists["occupancy_analytics"]:
+        st.warning("Occupancy Analytics domain list is empty. Tagging for 'Occupancy Analytics (Tenant)' will not function.")
+        logger.warning("Occupancy Analytics domain list is empty after loading.")
+    elif not domain_lists["owner_offering"]:
+        st.warning("Owner Offering domain list is empty. Tagging for 'Owner Offering' will not function.")
+        logger.warning("Owner Offering domain list is empty after loading.")
+    
+    return domain_lists
 
-# Extract domain from URL
+# Extract and normalize domain from URL
 def extract_domain(url: str) -> str:
-    """Extract and normalize domain from a URL."""
+    """Extract and normalize domain from a URL, removing subdomains, www, and trailing slashes."""
     if not url or url in ["Unknown", "N/A"]:
         return ""
     if not url.startswith(('http://', 'https://')):
@@ -106,28 +346,43 @@ def extract_domain(url: str) -> str:
     try:
         parsed_url = urlparse(url)
         domain = parsed_url.netloc
+        # Remove www
         domain = re.sub(r'^www\.', '', domain)
+        # Remove trailing slashes
+        domain = domain.rstrip('/')
+        # Extract the main domain (remove subdomains)
+        parts = domain.split('.')
+        if len(parts) > 2:
+            domain = '.'.join(parts[-2:])  # Keep the last two parts (e.g., example.com)
         return domain.lower()
     except Exception as e:
         logger.warning(f"Error extracting domain from {url}: {str(e)}")
         return ""
 
 # Fuzzy domain matching
-def fuzzy_match_domain(domain: str, domain_list: Set[str]) -> Tuple[bool, str]:
+def fuzzy_match_domain(domain: str, domain_list: Set[str], debug_info: List[Dict[str, Any]]) -> Tuple[bool, str]:
     """Check if domain matches any in domain_list using fuzzy matching."""
     if not domain:
         return False, ""
-    if domain in domain_list:
-        return True, domain
+    
     best_match = None
     best_ratio = 0
+    match_type = "none"
     for list_domain in domain_list:
         ratio = SequenceMatcher(None, domain, list_domain).ratio() * 100
         if ratio > best_ratio and ratio >= FUZZY_MATCH_THRESHOLD:
             best_ratio = ratio
             best_match = list_domain
+            match_type = "fuzzy" if ratio < 100 else "exact"
+    
     if best_match:
-        logger.info(f"Fuzzy matched domain {domain} to {best_match} with ratio {best_ratio:.2f}")
+        logger.info(f"Matched domain '{domain}' to '{best_match}' with ratio {best_ratio:.2f} ({match_type})")
+        debug_info.append({
+            "domain": domain,
+            "matched_domain": best_match,
+            "ratio": best_ratio,
+            "match_type": match_type
+        })
         return True, best_match
     return False, ""
 
@@ -149,9 +404,12 @@ def fetch_call_list(session: requests.Session, from_date: str, to_date: str, max
                 response = session.get(url, params=page_params, timeout=30)
                 if response.status_code == 200:
                     data = response.json()
-                    call_ids.extend(call["id"] for call in data.get("calls", []))
+                    page_calls = data.get("calls", [])
+                    call_ids.extend(call["id"] for call in page_calls)
                     cursor = data.get("records", {}).get("cursor")
-                    if not cursor:
+                    if not cursor and page_calls:  # Continue if page has data but no cursor
+                        break
+                    elif not page_calls and not cursor:  # Break if page is empty
                         break
                     page_params["cursor"] = cursor
                     time.sleep(1)
@@ -198,10 +456,14 @@ def fetch_call_details(session: requests.Session, call_ids: List[str], max_attem
                 response = session.post(url, json=request_body, timeout=60)
                 if response.status_code == 200:
                     data = response.json()
-                    call_details.extend(data.get("calls", []))
+                    page_calls = data.get("calls", [])
+                    call_details.extend(page_calls)
                     cursor = data.get("records", {}).get("cursor")
-                    if not cursor:
-                        return call_details
+                    if not cursor and page_calls:  # Continue if page has data but no cursor
+                        break
+                    elif not page_calls and not cursor:  # Break if page is empty
+                        break
+                    time.sleep(1)
                     break
                 elif response.status_code == 429:
                     wait_time = int(response.headers.get("Retry-After", (2 ** attempt) * 1))
@@ -216,8 +478,6 @@ def fetch_call_details(session: requests.Session, call_ids: List[str], max_attem
                 else:
                     logger.warning(f"Error fetching call details: {str(e)}")
                     return call_details
-        if not cursor:
-            break
     return call_details
 
 def fetch_transcript(session: requests.Session, call_ids: List[str], max_attempts: int = 3) -> Dict[str, List[Dict[str, Any]]]:
@@ -239,8 +499,11 @@ def fetch_transcript(session: requests.Session, call_ids: List[str], max_attempt
                         if t.get("callId"):
                             result[t["callId"]] = t.get("transcript", [])
                     cursor = data.get("records", {}).get("cursor")
-                    if not cursor:
-                        return result
+                    if not cursor and transcripts:  # Continue if page has data but no cursor
+                        break
+                    elif not transcripts and not cursor:  # Break if page is empty
+                        break
+                    time.sleep(1)
                     break
                 elif response.status_code == 429:
                     wait_time = int(response.headers.get("Retry-After", (2 ** attempt) * 1))
@@ -255,25 +518,37 @@ def fetch_transcript(session: requests.Session, call_ids: List[str], max_attempt
                 else:
                     logger.warning(f"Error fetching transcripts: {str(e)}")
                     return {call_id: [] for call_id in call_ids}
-        if not cursor:
-            break
     return result
 
-def normalize_call_data(call_data: Dict[str, Any], transcript: List[Dict[str, Any]], domain_lists: Dict[str, Set[str]]) -> Dict[str, Any]:
+def normalize_call_data(call_data: Dict[str, Any], transcript: List[Dict[str, Any]], domain_lists: Dict[str, Set[str]], debug_domain_matches: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Process call data and apply product tags based on trackers and domain matching."""
     if not call_data:
-        return {
-            "metaData": {},
-            "parties": [],
-            "utterances": [],
-            "products": [],
-            "domain_matches": [],
-            "tracker_matches": [],
-            "partial_data": True
-        }
+        logger.warning("Call data is empty or None")
+        return {}
+    
+    # Validate required fields
+    if "metaData" not in call_data or not call_data["metaData"]:
+        logger.error("Call missing metaData")
+        return {}
+    if "id" not in call_data["metaData"]:
+        logger.error("Call metaData missing id")
+        return {}
+    if "parties" not in call_data:
+        logger.error(f"Call {call_data['metaData']['id']} missing parties")
+        return {}
     
     # Ensure consistent structure even if processing fails
     call_data["metaData"] = call_data.get("metaData", {})
+    call_data["context"] = call_data.get("context", [])
+    call_data["content"] = call_data.get("content", {
+        "structure": [],
+        "topics": [],
+        "trackers": [],
+        "trackerOccurrences": [],
+        "brief": "",
+        "keyPoints": [],
+        "callOutcome": ""
+    })
     call_data["parties"] = call_data.get("parties", [])
     call_data["utterances"] = transcript if transcript is not None else []
     call_data["products"] = []
@@ -314,7 +589,7 @@ def normalize_call_data(call_data: Dict[str, Any], transcript: List[Dict[str, An
         call_data["domain"] = domain
         
         # Process trackers
-        trackers = call_data.get("content", {}).get("trackers", [])
+        trackers = call_data["content"].get("trackers", [])
         for tracker in trackers:
             tracker_name = tracker.get("name", "")
             count = tracker.get("count", 0)
@@ -333,7 +608,7 @@ def normalize_call_data(call_data: Dict[str, Any], transcript: List[Dict[str, An
         
         # Domain matching
         if domain:
-            oa_match, oa_matched_domain = fuzzy_match_domain(domain, domain_lists["occupancy_analytics"])
+            oa_match, oa_matched_domain = fuzzy_match_domain(domain, domain_lists["occupancy_analytics"], debug_domain_matches)
             if oa_match:
                 call_data["products"].append("Occupancy Analytics (Tenant)")
                 call_data["domain_matches"].append({
@@ -344,7 +619,7 @@ def normalize_call_data(call_data: Dict[str, Any], transcript: List[Dict[str, An
                 })
                 logger.info(f"Applied 'Occupancy Analytics (Tenant)' tag - matched domain '{domain}' to '{oa_matched_domain}'")
             
-            owner_match, owner_matched_domain = fuzzy_match_domain(domain, domain_lists["owner_offering"])
+            owner_match, owner_matched_domain = fuzzy_match_domain(domain, domain_lists["owner_offering"], debug_domain_matches)
             if owner_match:
                 call_data["products"].append("Owner Offering")
                 call_data["domain_matches"].append({
@@ -354,6 +629,9 @@ def normalize_call_data(call_data: Dict[str, Any], transcript: List[Dict[str, An
                     "product_tag": "Owner Offering"
                 })
                 logger.info(f"Applied 'Owner Offering' tag - matched domain '{domain}' to '{owner_matched_domain}'")
+        
+        # Deduplicate products list
+        call_data["products"] = list(set(call_data["products"]))
         
         return call_data
     except Exception as e:
@@ -373,8 +651,8 @@ def format_duration(seconds):
     except (ValueError, TypeError):
         return "N/A"
 
-def prepare_call_tables(calls: List[Dict[str, Any]], selected_products: List[str]) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    """Prepare DataFrames for included and excluded calls based on product filtering."""
+def prepare_call_tables(calls: List[Dict[str, Any]], selected_products: List[str], high_quality_call_ids: Set[str]) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """Prepare DataFrames for included and excluded calls based on product filtering and high-quality utterances."""
     included_data = []
     excluded_data = []
     
@@ -384,7 +662,7 @@ def prepare_call_tables(calls: List[Dict[str, Any]], selected_products: List[str
         try:
             call_id = str(call.get("metaData", {}).get("id", ""))
             if not call_id:
-                logger.error(f"Call ID missing in metaData: {call.get('metaData', {})}")
+                logger.error(f"Call ID missing or empty in metaData: {call.get('metaData', {})}")
                 continue
             call_title = call.get("metaData", {}).get("title", "N/A")
             call_date = "N/A"
@@ -401,8 +679,47 @@ def prepare_call_tables(calls: List[Dict[str, Any]], selected_products: List[str
             key_points = "; ".join(call.get("content", {}).get("keyPoints", [])) if call.get("content", {}).get("keyPoints", []) else "N/A"
             
             # Product filtering logic
+            product_reason = ""
+            quality_reason = ""
             if not selected_products or "Select All" in selected_products:
-                reason = "No product filter applied"
+                product_reason = "No product filter applied"
+            else:
+                matched_products = [p for p in products if p in selected_products]
+                if matched_products:
+                    product_reason = f"Matched products: {('|'.join(matched_products))}"
+                elif not products:  # Calls with no products are included by design
+                    product_reason = "No product tags (included by design)"
+                else:
+                    product_reason = "No matching products"
+            
+            if call_id in high_quality_call_ids:
+                quality_reason = ""
+            else:
+                quality_reason = "No high-quality utterances"
+            
+            if product_reason == "No matching products":
+                excluded_data.append({
+                    "call_id": call_id,
+                    "call_title": call_title,
+                    "call_date": call_date,
+                    "account_name": account_name,
+                    "products": products_str,
+                    "brief": brief,
+                    "keyPoints": key_points,
+                    "reason": product_reason
+                })
+            elif quality_reason:
+                excluded_data.append({
+                    "call_id": call_id,
+                    "call_title": call_title,
+                    "call_date": call_date,
+                    "account_name": account_name,
+                    "products": products_str,
+                    "brief": brief,
+                    "keyPoints": key_points,
+                    "reason": f"{product_reason} but excluded due to {quality_reason.lower()}"
+                })
+            else:
                 included_data.append({
                     "call_id": call_id,
                     "call_title": call_title,
@@ -411,34 +728,8 @@ def prepare_call_tables(calls: List[Dict[str, Any]], selected_products: List[str
                     "products": products_str,
                     "brief": brief,
                     "keyPoints": key_points,
-                    "reason": reason
+                    "reason": product_reason
                 })
-            else:
-                matched_products = [p for p in products if p in selected_products]
-                if matched_products or not products:  # Include None calls per inclusion-by-design
-                    reason = f"Matched products: {('|'.join(matched_products) or 'None')}"
-                    included_data.append({
-                        "call_id": call_id,
-                        "call_title": call_title,
-                        "call_date": call_date,
-                        "account_name": account_name,
-                        "products": products_str,
-                        "brief": brief,
-                        "keyPoints": key_points,
-                        "reason": reason
-                    })
-                else:
-                    reason = "No matching products"
-                    excluded_data.append({
-                        "call_id": call_id,
-                        "call_title": call_title,
-                        "call_date": call_date,
-                        "account_name": account_name,
-                        "products": products_str,
-                        "brief": brief,
-                        "keyPoints": key_points,
-                        "reason": reason
-                    })
         except Exception as e:
             logger.error(f"Call table prep error for call {call_id}: {str(e)}")
             import traceback
@@ -458,7 +749,7 @@ def prepare_utterances_df(calls: List[Dict[str, Any]]) -> pd.DataFrame:
         try:
             call_id = str(call.get("metaData", {}).get("id", ""))
             if not call_id:
-                logger.error(f"Call ID missing in metaData: {call.get('metaData', {})}")
+                logger.error(f"Call ID missing or empty in metaData: {call.get('metaData', {})}")
                 continue
             call_title = call.get("metaData", {}).get("title", "N/A")
             call_date = "N/A"
@@ -467,6 +758,11 @@ def prepare_utterances_df(calls: List[Dict[str, Any]]) -> pd.DataFrame:
                 call_date = datetime.fromisoformat(started.replace("Z", "+00:00")).strftime("%Y-%m-%d")
             except (ValueError, TypeError) as e:
                 logger.warning(f"Invalid timestamp in call {call_id}: {str(e)}")
+            
+            # Validate required fields
+            if "parties" not in call:
+                logger.error(f"Call {call_id} missing parties")
+                continue
             
             account_id = call.get("account_id", "N/A")
             account_name = call.get("account_name", "N/A")
@@ -507,7 +803,7 @@ def prepare_utterances_df(calls: List[Dict[str, Any]]) -> pd.DataFrame:
                         if "speaker" in sentence and "name" in sentence["speaker"]:
                             speaker_name_in_utterance = sentence["speaker"]["name"]
                             break
-                    if speaker_name_in_utterance:
+                    if speaker_name_in_utterance:  # Validate before using
                         matched = next((p for p in parties if p.get("name") == speaker_name_in_utterance or p.get("emailAddress") == speaker_name_in_utterance), None)
                         if matched:
                             speaker = {
@@ -519,7 +815,7 @@ def prepare_utterances_df(calls: List[Dict[str, Any]]) -> pd.DataFrame:
                     # If still no match, default to External
                     if not speaker:
                         speaker = {
-                            "name": speaker_name_in_utterance or "Unknown",
+                            "name": speaker_name_in_utterance if speaker_name_in_utterance else "Unknown",
                             "title": "",
                             "affiliation": "External"
                         }
@@ -587,6 +883,104 @@ def download_json(data: Any, filename: str, label: str):
     json_data = json.dumps(data, indent=4, ensure_ascii=False, default=str)
     st.download_button(label, data=json_data, file_name=filename, mime="application/json")
 
+def run_test_harness(selected_products: List[str], debug_mode: bool = False):
+    """Run the test harness with synthetic data and display the results."""
+    st.subheader("Running Test Harness with Synthetic Data")
+    
+    # Use synthetic domain lists for testing
+    domain_lists = TEST_DOMAIN_LISTS
+    debug_domain_matches = []  # For debug output of domain matching
+    
+    # Combine synthetic calls and edge cases
+    all_synthetic_calls = SYNTHETIC_CALLS + SYNTHETIC_EDGE_CALLS
+    all_synthetic_transcripts = SYNTHETIC_TRANSCRIPTS.copy()
+    all_synthetic_transcripts.update(SYNTHETIC_EDGE_TRANSCRIPTS)
+    
+    # Process synthetic calls and transcripts
+    full_data = []
+    dropped_calls_count = 0
+    for call in all_synthetic_calls:
+        call_id = call.get("metaData", {}).get("id", "")
+        if not call_id:
+            dropped_calls_count += 1
+            continue
+        call_transcript = all_synthetic_transcripts.get(call_id, [])
+        normalized_data = normalize_call_data(call, call_transcript, domain_lists, debug_domain_matches)
+        if normalized_data and normalized_data.get("metaData"):
+            full_data.append(normalized_data)
+        else:
+            dropped_calls_count += 1
+            logger.warning(f"Dropped synthetic call {call_id} due to normalization failure")
+
+    if not full_data:
+        st.error("No synthetic call details processed.")
+        return
+
+    utterances_df = prepare_utterances_df(full_data)
+    high_quality_call_ids = set(utterances_df[utterances_df["quality"] == "high"]["call_id"])
+    included_calls_df, excluded_calls_df = prepare_call_tables(full_data, selected_products, high_quality_call_ids)
+    utterances_filtered_df = utterances_df[utterances_df["quality"] == "high"]
+    # Filter utterances_filtered_df to only include calls from included_calls_df
+    utterances_filtered_df = utterances_filtered_df[utterances_filtered_df["call_id"].isin(set(included_calls_df["call_id"]))]
+
+    # Cache the computed data in session state
+    st.session_state.utterances_df = utterances_df
+    st.session_state.utterances_filtered_df = utterances_filtered_df
+    st.session_state.included_calls_df = included_calls_df
+    st.session_state.excluded_calls_df = excluded_calls_df
+    st.session_state.full_data = full_data
+    st.session_state.debug_domain_matches = debug_domain_matches
+    st.session_state.dropped_calls_count = dropped_calls_count
+
+    # Display test harness results
+    st.subheader("Test Harness Results")
+    st.write("**Full Data (Normalized Calls):**")
+    st.json(full_data)
+    st.write("**Utterances DataFrame:**")
+    st.dataframe(utterances_df)
+    st.write("**Utterances Filtered DataFrame:**")
+    st.dataframe(utterances_filtered_df)
+    st.write("**Included Calls DataFrame:**")
+    st.dataframe(included_calls_df)
+    st.write("**Excluded Calls DataFrame:**")
+    st.dataframe(excluded_calls_df)
+
+    if dropped_calls_count > 0:
+        st.warning(f"⚠️ {dropped_calls_count} synthetic calls were dropped due to normalization failures. Check logs for details.")
+        if debug_mode:
+            st.write(f"Debug: Dropped {dropped_calls_count} synthetic calls due to normalization issues.")
+
+    if debug_mode:
+        st.subheader("Debug: Quality Distribution")
+        quality_counts = utterances_df["quality"].value_counts()
+        quality_dist = {q: f"{count} ({count/len(utterances_df)*100:.2f}%)" for q, count in quality_counts.items()}
+        st.json(quality_dist)
+        
+        st.subheader("Debug: Internal Speaker Breakdown")
+        internal_utterances = utterances_df[utterances_df["quality"] == "internal"]
+        internal_speaker_counts = internal_utterances.groupby("speaker_name").size().sort_values(ascending=False).head(10)
+        internal_speaker_dist = {name: f"{count} ({count/len(internal_utterances)*100:.2f}%)" for name, count in internal_speaker_counts.items()}
+        st.json(internal_speaker_dist)
+        
+        st.subheader("Debug: Product Tagging")
+        tag_counts = pd.Series([tag for call in full_data for tag in call.get("products", ["None"])]).value_counts()
+        tag_dist = {tag: f"{count} ({count/len(full_data)*100:.2f}%)" for tag, count in tag_counts.items()}
+        st.json(tag_dist)
+        
+        st.subheader("Debug: Tracker Matches")
+        tracker_samples = [call["tracker_matches"][:3] for call in full_data if call.get("tracker_matches", [])][:3]
+        st.json(tracker_samples)
+        
+        st.subheader("Debug: Domain Matches")
+        st.json(debug_domain_matches[:3])  # Show first 3 for brevity
+        
+        st.subheader("Debug: Sample Calls")
+        sample_calls = [{k: call.get(k, "N/A") for k in ["call_id", "account_name", "domain", "products", "partial_data"]} for call in full_data[:3]]
+        st.json(sample_calls)
+        
+        st.subheader("Debug: Speaker Matching Info")
+        st.json(st.session_state.debug_speaker_info[:10])  # Show first 10 for brevity
+
 def main():
     st.title("📞 Gong Wizard")
 
@@ -625,10 +1019,16 @@ def main():
             selected_products = st.multiselect("Product", ALL_PRODUCT_TAGS, default=[])
         
         debug_mode = st.checkbox("Debug Mode", value=False)
+        run_test = st.checkbox("Run Test Harness", value=False)
         
         submit = st.button("Submit")
 
     domain_lists = load_domain_lists()
+    debug_domain_matches = []  # For debug output of domain matching
+
+    if run_test:
+        run_test_harness(selected_products, debug_mode)
+        return
 
     if submit:
         if not access_key or not secret_key:
@@ -640,7 +1040,8 @@ def main():
             return
 
         # Check if data is already computed and cached in session state
-        if "utterances_df" not in st.session_state:
+        required_keys = ["utterances_df", "utterances_filtered_df", "included_calls_df", "excluded_calls_df", "full_data"]
+        if not all(k in st.session_state for k in required_keys):
             with st.spinner("Fetching calls..."):
                 session = requests.Session()
                 headers = create_auth_header(access_key, secret_key)
@@ -651,6 +1052,7 @@ def main():
                     return
 
                 full_data = []
+                dropped_calls_count = 0  # Track dropped calls
                 batch_size = 50
                 for i in range(0, len(call_ids), batch_size):
                     batch = call_ids[i:i + batch_size]
@@ -671,9 +1073,12 @@ def main():
                     for call in details:
                         call_id = str(call.get("metaData", {}).get("id", ""))
                         call_transcript = transcripts.get(call_id, [])
-                        normalized_data = normalize_call_data(call, call_transcript, domain_lists)
-                        if normalized_data:
+                        normalized_data = normalize_call_data(call, call_transcript, domain_lists, debug_domain_matches)
+                        if normalized_data and normalized_data.get("metaData"):
                             full_data.append(normalized_data)
+                        else:
+                            dropped_calls_count += 1
+                            logger.warning(f"Dropped call {call_id} due to normalization failure")
 
                 if not full_data:
                     st.error("No call details fetched.")
@@ -681,8 +1086,10 @@ def main():
 
                 utterances_df = prepare_utterances_df(full_data)
                 high_quality_call_ids = set(utterances_df[utterances_df["quality"] == "high"]["call_id"])
-                included_calls_df, excluded_calls_df = prepare_call_tables(full_data, selected_products)
+                included_calls_df, excluded_calls_df = prepare_call_tables(full_data, selected_products, high_quality_call_ids)
                 utterances_filtered_df = utterances_df[utterances_df["quality"] == "high"]
+                # Filter utterances_filtered_df to only include calls from included_calls_df
+                utterances_filtered_df = utterances_filtered_df[utterances_filtered_df["call_id"].isin(set(included_calls_df["call_id"]))]
 
                 # Cache the computed data in session state
                 st.session_state.utterances_df = utterances_df
@@ -690,19 +1097,68 @@ def main():
                 st.session_state.included_calls_df = included_calls_df
                 st.session_state.excluded_calls_df = excluded_calls_df
                 st.session_state.full_data = full_data
+                st.session_state.debug_domain_matches = debug_domain_matches
+                st.session_state.dropped_calls_count = dropped_calls_count
 
-        # Use cached data for display and downloads
+        # Use cached data for display
         utterances_df = st.session_state.utterances_df
         utterances_filtered_df = st.session_state.utterances_filtered_df
         included_calls_df = st.session_state.included_calls_df
         excluded_calls_df = st.session_state.excluded_calls_df
         full_data = st.session_state.full_data
+        debug_domain_matches = st.session_state.debug_domain_matches
+        dropped_calls_count = st.session_state.dropped_calls_count
+
+        # Display dropped calls count
+        if dropped_calls_count > 0:
+            st.warning(f"⚠️ {dropped_calls_count} calls were dropped due to normalization failures. Check logs for details.")
+            if debug_mode:
+                st.write(f"Debug: Dropped {dropped_calls_count} calls due to normalization issues.")
+
+        # === 🔍 Auto QA Checks ===
+        st.subheader("🔍 Auto QA Checks")
+
+        # 1. No overlap between included and excluded
+        included_ids = set(included_calls_df["call_id"])
+        excluded_ids = set(excluded_calls_df["call_id"])
+        overlap_ids = included_ids.intersection(excluded_ids)
+        if overlap_ids:
+            st.error(f"❌ ERROR: {len(overlap_ids)} call(s) appear in both included and excluded summary!")
+            st.write(overlap_ids)
+        else:
+            st.success("✅ No overlap between included and excluded summary CSVs.")
+
+        # 2. All included calls must have ≥1 high-quality utterance
+        included_high_utterance_ids = set(utterances_filtered_df["call_id"])
+        included_but_missing_utterance_ids = included_ids - included_high_utterance_ids
+        if included_but_missing_utterance_ids:
+            st.error(f"❌ ERROR: {len(included_but_missing_utterance_ids)} included calls have no high-quality utterances!")
+            st.write(included_but_missing_utterance_ids)
+        else:
+            st.success("✅ All included calls have at least one high-quality utterance.")
+
+        # 3. All excluded calls with products but no utterances must say so
+        excluded_check = excluded_calls_df[
+            (excluded_calls_df["products"] != "None") &
+            (~excluded_calls_df["reason"].str.contains("no high-quality utterances", case=False))
+        ]
+        if not excluded_check.empty:
+            st.error(f"❌ ERROR: {len(excluded_check)} excluded calls with product tags are mislabeled.")
+            st.dataframe(excluded_check)
+        else:
+            st.success("✅ Excluded calls with product tags correctly labeled if missing high-quality utterances.")
 
         if debug_mode:
             st.subheader("Debug: Quality Distribution")
             quality_counts = utterances_df["quality"].value_counts()
             quality_dist = {q: f"{count} ({count/len(utterances_df)*100:.2f}%)" for q, count in quality_counts.items()}
             st.json(quality_dist)
+            
+            st.subheader("Debug: Internal Speaker Breakdown")
+            internal_utterances = utterances_df[utterances_df["quality"] == "internal"]
+            internal_speaker_counts = internal_utterances.groupby("speaker_name").size().sort_values(ascending=False).head(10)
+            internal_speaker_dist = {name: f"{count} ({count/len(internal_utterances)*100:.2f}%)" for name, count in internal_speaker_counts.items()}
+            st.json(internal_speaker_dist)
             
             st.subheader("Debug: Product Tagging")
             tag_counts = pd.Series([tag for call in full_data for tag in call.get("products", ["None"])]).value_counts()
@@ -714,8 +1170,7 @@ def main():
             st.json(tracker_samples)
             
             st.subheader("Debug: Domain Matches")
-            domain_samples = [call["domain_matches"][:3] for call in full_data if call.get("domain_matches", [])][:3]
-            st.json(domain_samples)
+            st.json(debug_domain_matches[:3])  # Show first 3 for brevity
             
             st.subheader("Debug: Sample Calls")
             sample_calls = [{k: call.get(k, "N/A") for k in ["call_id", "account_name", "domain", "products", "partial_data"]} for call in full_data[:3]]
@@ -725,7 +1180,7 @@ def main():
             st.json(st.session_state.debug_speaker_info[:10])  # Show first 10 for brevity
 
         st.subheader("INCLUDED CALLS (Product Filter)")
-        st.write("Note: Calls in 'Included Calls' are based on product filtering.")
+        st.write("Note: Calls in 'Included Calls' are based on product filtering and have at least one high-quality utterance. Calls with no product tags are included by design.")
         st.dataframe(included_calls_df)
 
         st.subheader("EXCLUDED CALLS (Product Filter)")
@@ -743,18 +1198,18 @@ def main():
             pct = (count / total_utterances * 100) if total_utterances > 0 else 0
             st.write(f"- {reason}: {count} ({pct:.2f}%)")
 
-        start_date_str = st.session_state.start_date.strftime("%d%b%y").lower()
-        end_date_str = st.session_state.end_date.strftime("%d%b%y").lower()
-
-        st.subheader("Download Options")
-        col1, col2 = st.columns(2)
-        with col1:
-            download_csv(st.session_state.utterances_df, f"utterances_full_gong_{start_date_str}_to_{end_date_str}.csv", "Utterances - Full CSV")
-            download_csv(st.session_state.utterances_filtered_df, f"utterances_filtered_gong_{start_date_str}_to_{end_date_str}.csv", "Utterances - Filtered CSV")
-            download_csv(st.session_state.included_calls_df, f"summary_included_gong_{start_date_str}_to_{end_date_str}.csv", "Summary - Included CSV")
-        with col2:
-            download_csv(st.session_state.excluded_calls_df, f"summary_excluded_gong_{start_date_str}_to_{end_date_str}.csv", "Summary - Excluded CSV")
-            download_json(st.session_state.full_data, f"calls_full_gong_{start_date_str}_to_{end_date_str}.json", "Calls - Full JSON")
+        # Isolate download buttons in an expander to prevent rerunning main logic
+        with st.expander("Download Options"):
+            start_date_str = st.session_state.start_date.strftime("%d%b%y").lower()
+            end_date_str = st.session_state.end_date.strftime("%d%b%y").lower()
+            col1, col2 = st.columns(2)
+            with col1:
+                download_csv(st.session_state.utterances_df, f"utterances_full_gong_{start_date_str}_to_{end_date_str}.csv", "Utterances - Full CSV")
+                download_csv(st.session_state.utterances_filtered_df, f"utterances_filtered_gong_{start_date_str}_to_{end_date_str}.csv", "Utterances - Filtered CSV")
+                download_csv(st.session_state.included_calls_df, f"summary_included_gong_{start_date_str}_to_{end_date_str}.csv", "Summary - Included CSV")
+            with col2:
+                download_csv(st.session_state.excluded_calls_df, f"summary_excluded_gong_{start_date_str}_to_{end_date_str}.csv", "Summary - Excluded CSV")
+                download_json(st.session_state.full_data, f"calls_full_gong_{start_date_str}_to_{end_date_str}.json", "Calls - Full JSON")
 
 if __name__ == "__main__":
     main()
