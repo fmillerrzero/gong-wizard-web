@@ -4,18 +4,29 @@ import requests
 import base64
 import json
 import time
+import re
+from urllib.parse import urlparse
 from datetime import datetime, timedelta
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Set, Tuple
 import logging
+from difflib import SequenceMatcher
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Gong API base URL
-GONG_API_BASE = "https://us-11211.api.gong.io"
+GONG_API_BASE = "https://us-11211.api.gong.io/v2"
 
-# Tracker renaming dictionary
+# Tracker names to product tags mapping
+PRODUCT_TAG_TRACKERS = {
+    "ODCV": "ODCV",
+    "Filter": "Filter",
+    "air quality": "air quality",
+    "Connect": "Connect"
+}
+
+# Tracker renaming dictionary (for display in UI/CSV)
 TRACKER_RENAMES = {
     "Competition": "General Competitors",
     "Differentiation": "Differentiation",
@@ -28,37 +39,99 @@ TRACKER_RENAMES = {
     "Negative Impact (by Gong)": "Deal Blocker"
 }
 
-# Load CSV data with caching
-@st.cache_data
-def load_csv_data():
-    try:
-        products = pd.read_csv("products_by_account.csv")
-        return products
-    except Exception as e:
-        st.error(f"Cannot find products CSV: {str(e)}.")
-        logger.error(f"CSV load error: {str(e)}")
-        return None
+# All possible product tags for UI filtering
+ALL_PRODUCT_TAGS = [
+    "ODCV",
+    "Filter",
+    "air quality",
+    "Connect",
+    "Occupancy Analytics (Tenant)",
+    "Owner Offering"
+]
 
-# Helper functions
+# Fuzzy matching threshold
+FUZZY_MATCH_THRESHOLD = 85
+
+# Load domain lists for product tagging
+@st.cache_data
+def load_domain_lists():
+    """Load domain lists from CSVs for Occupancy Analytics and Owner Offering."""
+    try:
+        occupancy_df = pd.read_csv("Occupancy Analytics Tenant Customers Gong Bot Sheet3.csv", header=None, names=["domain"])
+        owner_df = pd.read_csv("Owner Orgs Gong Bot Sheet3.csv", header=None, names=["domain"])
+        occupancy_domains = set(occupancy_df["domain"].str.lower().dropna().tolist())
+        owner_domains = set(owner_df["domain"].str.lower().dropna().tolist())
+        logger.info(f"Loaded {len(occupancy_domains)} Occupancy Analytics domains and {len(owner_domains)} Owner Offering domains")
+        return {
+            "occupancy_analytics": occupancy_domains,
+            "owner_offering": owner_domains
+        }
+    except Exception as e:
+        st.error(f"Error loading domain lists: {str(e)}")
+        logger.error(f"Domain list load error: {str(e)}")
+        return {
+            "occupancy_analytics": set(),
+            "owner_offering": set()
+        }
+
+# Extract domain from URL
+def extract_domain(url: str) -> str:
+    """Extract and normalize domain from a URL."""
+    if not url or url in ["Unknown", "N/A"]:
+        return ""
+    if not url.startswith(('http://', 'https://')):
+        url = 'https://' + url
+    try:
+        parsed_url = urlparse(url)
+        domain = parsed_url.netloc
+        domain = re.sub(r'^www\.', '', domain)
+        return domain.lower()
+    except Exception as e:
+        logger.warning(f"Error extracting domain from {url}: {str(e)}")
+        return ""
+
+# Fuzzy domain matching
+def fuzzy_match_domain(domain: str, domain_list: Set[str]) -> Tuple[bool, str]:
+    """Check if domain matches any in domain_list using fuzzy matching."""
+    if not domain:
+        return False, ""
+    if domain in domain_list:
+        return True, domain
+    best_match = None
+    best_ratio = 0
+    for list_domain in domain_list:
+        ratio = SequenceMatcher(None, domain, list_domain).ratio() * 100
+        if ratio > best_ratio and ratio >= FUZZY_MATCH_THRESHOLD:
+            best_ratio = ratio
+            best_match = list_domain
+    if best_match:
+        logger.info(f"Fuzzy matched domain {domain} to {best_match} with ratio {best_ratio:.2f}")
+        return True, best_match
+    return False, ""
+
+# Helper functions for Gong API
 def create_auth_header(access_key: str, secret_key: str) -> Dict[str, str]:
+    """Create Basic Auth header for Gong API."""
     credentials = base64.b64encode(f"{access_key}:{secret_key}".encode()).decode()
     return {"Authorization": f"Basic {credentials}"}
 
 def fetch_call_list(session: requests.Session, from_date: str, to_date: str, max_attempts: int = 3) -> List[str]:
-    url = f"{GONG_API_BASE}/v2/calls"
+    """Fetch call IDs from Gong API within date range."""
+    url = f"{GONG_API_BASE}/calls"
     params = {"fromDateTime": from_date, "toDateTime": to_date}
     call_ids = []
     for attempt in range(max_attempts):
         try:
+            page_params = dict(params)
             while True:
-                response = session.get(url, params=params, timeout=30)
+                response = session.get(url, params=page_params, timeout=30)
                 if response.status_code == 200:
                     data = response.json()
                     call_ids.extend(call["id"] for call in data.get("calls", []))
                     cursor = data.get("records", {}).get("cursor")
                     if not cursor:
                         break
-                    params["cursor"] = cursor
+                    page_params["cursor"] = cursor
                     time.sleep(1)
                 elif response.status_code == 429:
                     wait_time = int(response.headers.get("Retry-After", (2 ** attempt) * 1))
@@ -66,6 +139,7 @@ def fetch_call_list(session: requests.Session, from_date: str, to_date: str, max
                     continue
                 else:
                     st.error(f"Failed to fetch calls: {response.status_code} - {response.text}")
+                    logger.error(f"Call list fetch failed: {response.status_code} - {response.text}")
                     return call_ids
             break
         except Exception as e:
@@ -77,106 +151,188 @@ def fetch_call_list(session: requests.Session, from_date: str, to_date: str, max
     return call_ids
 
 def fetch_call_details(session: requests.Session, call_ids: List[str], max_attempts: int = 3) -> List[Dict[str, Any]]:
-    url = f"{GONG_API_BASE}/v2/calls/extensive"
-    request_body = {
-        "filter": {"callIds": call_ids},
-        "contentSelector": {
-            "context": "Extended",
-            "exposedFields": {
-                "parties": True,
-                "content": {"structure": True, "topics": True, "trackers": True, "brief": True, "keyPoints": True, "callOutcome": True},
-                "interaction": {"speakers": True, "personInteractionStats": True, "questions": True, "video": True},
-                "collaboration": {"publicComments": True},
-                "media": True
+    """Fetch detailed call info from Gong API."""
+    url = f"{GONG_API_BASE}/calls/extensive"
+    call_details = []
+    cursor = None
+    while True:
+        request_body = {
+            "filter": {"callIds": call_ids},
+            "contentSelector": {
+                "context": "Extended",
+                "exposedFields": {
+                    "parties": True,
+                    "content": {"structure": True, "topics": True, "trackers": True, "trackerOccurrences": True, "brief": True, "keyPoints": True, "callOutcome": True},
+                    "interaction": {"speakers": True, "personInteractionStats": True, "questions": True, "video": True},
+                    "collaboration": {"publicComments": True},
+                    "media": True
+                }
             }
         }
-    }
-    for attempt in range(max_attempts):
-        try:
-            response = session.post(url, json=request_body, timeout=60)
-            if response.status_code == 200:
-                return response.json().get("calls", [])
-            elif response.status_code == 429:
-                wait_time = int(response.headers.get("Retry-After", (2 ** attempt) * 1))
-                time.sleep(wait_time)
-            else:
-                logger.warning(f"Call details fetch failed: {response.status_code} - {response.text}")
-                break
-        except Exception as e:
-            if attempt < max_attempts - 1:
-                time.sleep((2 ** attempt) * 1)
-            else:
-                logger.warning(f"Error fetching call details: {str(e)}")
-                break
-    return []
+        if cursor:
+            request_body["cursor"] = cursor
+        for attempt in range(max_attempts):
+            try:
+                response = session.post(url, json=request_body, timeout=60)
+                if response.status_code == 200:
+                    data = response.json()
+                    call_details.extend(data.get("calls", []))
+                    cursor = data.get("records", {}).get("cursor")
+                    if not cursor:
+                        return call_details
+                    break
+                elif response.status_code == 429:
+                    wait_time = int(response.headers.get("Retry-After", (2 ** attempt) * 1))
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    logger.warning(f"Call details fetch failed: {response.status_code} - {response.text}")
+                    return call_details
+            except Exception as e:
+                if attempt < max_attempts - 1:
+                    time.sleep((2 ** attempt) * 1)
+                else:
+                    logger.warning(f"Error fetching call details: {str(e)}")
+                    return call_details
+        if not cursor:
+            break
+    return call_details
 
 def fetch_transcript(session: requests.Session, call_ids: List[str], max_attempts: int = 3) -> Dict[str, List[Dict[str, Any]]]:
-    url = f"{GONG_API_BASE}/v2/calls/transcript"
-    request_body = {"filter": {"callIds": call_ids}}
-    for attempt in range(max_attempts):
-        try:
-            response = session.post(url, json=request_body, timeout=60)
-            if response.status_code == 200:
-                transcripts = response.json().get("callTranscripts", [])
-                return {t["callId"]: t.get("transcript", []) for t in transcripts}
-            elif response.status_code == 429:
-                wait_time = int(response.headers.get("Retry-After", (2 ** attempt) * 1))
-                time.sleep(wait_time)
-            else:
-                logger.warning(f"Transcript fetch failed: {response.status_code} - {response.text}")
-                break
-        except Exception as e:
-            if attempt < max_attempts - 1:
-                time.sleep((2 ** attempt) * 1)
-            else:
-                logger.warning(f"Error fetching transcripts: {str(e)}")
-                break
-    return {call_id: [] for call_id in call_ids}
+    """Fetch call transcripts from Gong API."""
+    url = f"{GONG_API_BASE}/calls/transcript"
+    result = {}
+    cursor = None
+    while True:
+        request_body = {"filter": {"callIds": call_ids}}
+        if cursor:
+            request_body["cursor"] = cursor
+        for attempt in range(max_attempts):
+            try:
+                response = session.post(url, json=request_body, timeout=60)
+                if response.status_code == 200:
+                    data = response.json()
+                    transcripts = data.get("callTranscripts", [])
+                    for t in transcripts:
+                        if t.get("callId"):
+                            result[t["callId"]] = t.get("transcript", [])
+                    cursor = data.get("records", {}).get("cursor")
+                    if not cursor:
+                        return result
+                    break
+                elif response.status_code == 429:
+                    wait_time = int(response.headers.get("Retry-After", (2 ** attempt) * 1))
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    logger.warning(f"Transcript fetch failed: {response.status_code} - {response.text}")
+                    return {call_id: [] for call_id in call_ids}
+            except Exception as e:
+                if attempt < max_attempts - 1:
+                    time.sleep((2 ** attempt) * 1)
+                else:
+                    logger.warning(f"Error fetching transcripts: {str(e)}")
+                    return {call_id: [] for call_id in call_ids}
+        if not cursor:
+            break
+    return result
 
-def normalize_call_data(call_data: Dict[str, Any], transcript: List[Dict[str, Any]], account_products: Dict[str, List[str]]) -> Dict[str, Any]:
+def normalize_call_data(call_data: Dict[str, Any], transcript: List[Dict[str, Any]], domain_lists: Dict[str, Set[str]]) -> Dict[str, Any]:
+    """Process call data and apply product tags based on trackers and domain matching."""
     if not call_data:
         return {}
+    call_data["partial_data"] = False
     try:
-        account_context = next((ctx for ctx in call_data.get("context", []) if any(obj.get("objectType") == "Account" for obj in ctx.get("objects", []))), {})
-        account_name = next((field.get("value", "Unknown") for obj in account_context.get("objects", []) for field in obj.get("fields", []) if field.get("name") == "Name"), "Unknown")
-        account_id = next((obj.get("objectId", "Unknown") for obj in account_context.get("objects", []) if obj.get("objectType") == "Account"), "Unknown")
-        account_website = next((field.get("value", "Unknown") for obj in account_context.get("objects", []) for field in obj.get("fields", []) if field.get("name") == "Website"), "Unknown")
+        account_context = {}
+        for ctx in call_data.get("context", []):
+            if any(obj.get("objectType") == "Account" for obj in ctx.get("objects", [])):
+                account_context = ctx
+                break
+        
+        account_name = "Unknown"
+        account_id = "Unknown"
+        account_website = "Unknown"
+        try:
+            objects = account_context.get("objects", [])
+            for obj in objects:
+                if obj.get("objectType") == "Account":
+                    account_id = obj.get("objectId", "Unknown")
+                    for field in obj.get("fields", []):
+                        if field.get("name") == "Name":
+                            account_name = field.get("value", "Unknown")
+                        if field.get("name") == "Website":
+                            account_website = field.get("value", "Unknown")
+        except Exception as e:
+            logger.warning(f"Error extracting account info: {str(e)}")
+            call_data["partial_data"] = True
+        
         call_data["account_name"] = account_name
         call_data["account_id"] = account_id
         call_data["account_website"] = account_website
         call_data["utterances"] = transcript
         
-        # Debug log the account ID
-        logger.info(f"Normalizing call for Account ID from API: {account_id}")
+        # Extract domain
+        domain = extract_domain(account_website)
+        call_data["domain"] = domain
         
-        # Get products with EXACT MATCHING ONLY for Salesforce IDs
+        # Initialize product tags and debug info
         products = []
-        matched_key = None
+        domain_matches = []
+        tracker_matches = []
         
-        if account_id and account_id != "Unknown":
-            # Clean up the ID
-            clean_id = str(account_id).strip('"')
+        # Process trackers
+        trackers = call_data.get("content", {}).get("trackers", [])
+        for tracker in trackers:
+            tracker_name = tracker.get("name", "")
+            count = tracker.get("count", 0)
+            if count > 0 and tracker_name in PRODUCT_TAG_TRACKERS:
+                product_tag = PRODUCT_TAG_TRACKERS[tracker_name]
+                products.append(product_tag)
+                tracker_matches.append({
+                    "tracker_name": tracker_name,
+                    "count": count,
+                    "product_tag": product_tag
+                })
+                logger.info(f"Applied product tag '{product_tag}' based on tracker '{tracker_name}' with count {count}")
+        
+        # Domain matching
+        if domain:
+            oa_match, oa_matched_domain = fuzzy_match_domain(domain, domain_lists["occupancy_analytics"])
+            if oa_match:
+                products.append("Occupancy Analytics (Tenant)")
+                domain_matches.append({
+                    "domain": domain,
+                    "matched_domain": oa_matched_domain,
+                    "list": "occupancy_analytics",
+                    "product_tag": "Occupancy Analytics (Tenant)"
+                })
+                logger.info(f"Applied 'Occupancy Analytics (Tenant)' tag - matched domain '{domain}' to '{oa_matched_domain}'")
             
-            # Try direct match ONLY
-            if clean_id in account_products:
-                products = account_products[clean_id]
-                matched_key = clean_id
-                logger.info(f"Direct match found: {clean_id}")
-            else:
-                # No match found, log for QA
-                logger.warning(f"No product mapping found for account ID: {account_id}")
+            owner_match, owner_matched_domain = fuzzy_match_domain(domain, domain_lists["owner_offering"])
+            if owner_match:
+                products.append("Owner Offering")
+                domain_matches.append({
+                    "domain": domain,
+                    "matched_domain": owner_matched_domain,
+                    "list": "owner_offering",
+                    "product_tag": "Owner Offering"
+                })
+                logger.info(f"Applied 'Owner Offering' tag - matched domain '{domain}' to '{owner_matched_domain}'")
         
         call_data["products"] = products
-        call_data["matched_account_id"] = matched_key  # Store the matched key for debugging
+        call_data["domain_matches"] = domain_matches
+        call_data["tracker_matches"] = tracker_matches
         
         return call_data
     except Exception as e:
         logger.error(f"Normalization error: {str(e)}")
         import traceback
         logger.error(traceback.format_exc())
+        call_data["partial_data"] = True
         return call_data
 
 def format_duration(seconds):
+    """Format duration in seconds to 'X min Y sec'."""
     try:
         seconds = int(seconds)
         minutes = seconds // 60
@@ -185,29 +341,29 @@ def format_duration(seconds):
     except (ValueError, TypeError):
         return "N/A"
 
-def prepare_summary_df(calls: List[Dict[str, Any]]) -> pd.DataFrame:
+def prepare_summary_df(calls: List[Dict[str, Any]], high_quality_call_ids: Set[str]) -> pd.DataFrame:
+    """Prepare summary DataFrame for calls with high-quality utterances."""
     summary_data = []
     for call in calls:
         if not call:
+            continue
+        call_id = str(call.get("metaData", {}).get("id", ""))
+        if call_id not in high_quality_call_ids:
             continue
         try:
             meta = call.get("metaData", {})
             parties = call.get("parties", [])
             
-            # Simplified speaker handling - just collect those who spoke
             internal_speakers = []
             external_speakers = []
             unknown_speakers = []
             
-            # Process all parties (people on the call)
             for party in parties:
                 name = party.get("name", "")
                 if name and name != "N/A":
                     title = party.get("title", "")
                     affiliation = party.get("affiliation", "Unknown")
-                    
                     speaker_str = f"{name}" + (f", {title}" if title else "")
-                    
                     if affiliation == "Internal":
                         internal_speakers.append(speaker_str)
                     elif affiliation == "External":
@@ -215,15 +371,10 @@ def prepare_summary_df(calls: List[Dict[str, Any]]) -> pd.DataFrame:
                     else:
                         unknown_speakers.append(speaker_str)
             
-            # Default to "None" if no speakers in group
-            if not internal_speakers:
-                internal_speakers = ["None"]
-            if not external_speakers:
-                external_speakers = ["None"]
-            if not unknown_speakers:
-                unknown_speakers = ["None"]
+            internal_speakers = internal_speakers or ["None"]
+            external_speakers = external_speakers or ["None"]
+            unknown_speakers = unknown_speakers or ["None"]
             
-            # Process trackers
             trackers = call.get("content", {}).get("trackers", [])
             tracker_list = []
             for tracker in trackers:
@@ -234,24 +385,26 @@ def prepare_summary_df(calls: List[Dict[str, Any]]) -> pd.DataFrame:
             tracker_list.sort(key=lambda x: x[1], reverse=True)
             tracker_str = "|".join(f"{name}:{count}" for name, count in tracker_list if name != "Unknown")
             
-            # Get products
             products = call.get("products", [])
-            products_str = "|".join(products) if products else "Unmapped"
+            products_str = "|".join(products) if products else "None"
             
-            # Raw account ID for debugging
-            raw_account_id = call.get("account_id", "N/A")
-            matched_account_id = call.get("matched_account_id", "None")
+            call_date = "N/A"
+            try:
+                started = meta.get("started", "1970-01-01T00:00:00Z")
+                call_date = datetime.fromisoformat(started.replace("Z", "+00:00")).strftime("%Y-%m-%d")
+            except (ValueError, TypeError) as e:
+                logger.warning(f"Invalid timestamp in call {call_id}: {str(e)}")
             
             summary_data.append({
-                "call_id": f'"{meta.get("id", "N/A")}"',
+                "call_id": call_id,
                 "call_title": meta.get("title", "N/A"),
-                "call_date": datetime.fromisoformat(meta.get("started", "1970-01-01T00:00:00Z").replace("Z", "+00:00")).strftime("%Y-%m-%d") if meta.get("started") else "N/A",
+                "call_date": call_date,
                 "duration": format_duration(meta.get("duration", 0)),
                 "meeting_url": meta.get("meetingUrl", "N/A"),
-                "account_id": raw_account_id,
-                "matched_account_id": matched_account_id,
+                "account_id": call.get("account_id", "N/A"),
                 "account_name": call.get("account_name", "N/A"),
                 "account_website": call.get("account_website", "N/A"),
+                "domain": call.get("domain", "N/A"),
                 "products": products_str,
                 "trackers": tracker_str,
                 "internal_speakers": "|".join(internal_speakers),
@@ -259,12 +412,101 @@ def prepare_summary_df(calls: List[Dict[str, Any]]) -> pd.DataFrame:
                 "unknown_speakers": "|".join(unknown_speakers)
             })
         except Exception as e:
-            logger.error(f"Summary prep error: {str(e)}")
+            logger.error(f"Summary prep error for call {call_id}: {str(e)}")
             import traceback
             logger.error(traceback.format_exc())
+            summary_data.append({
+                "call_id": call_id,
+                "call_title": "N/A",
+                "call_date": "N/A",
+                "duration": "N/A",
+                "meeting_url": "N/A",
+                "account_id": "N/A",
+                "account_name": "N/A",
+                "account_website": "N/A",
+                "domain": "N/A",
+                "products": "None",
+                "trackers": "",
+                "internal_speakers": "None",
+                "external_speakers": "None",
+                "unknown_speakers": "None"
+            })
     return pd.DataFrame(summary_data)
 
+def prepare_call_tables(calls: List[Dict[str, Any]], selected_products: List[str]) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """Prepare DataFrames for included and excluded calls based on product filtering."""
+    included_data = []
+    excluded_data = []
+    
+    for call in calls:
+        if not call:
+            continue
+        try:
+            call_id = str(call.get("metaData", {}).get("id", ""))
+            call_title = call.get("metaData", {}).get("title", "N/A")
+            call_date = "N/A"
+            try:
+                started = call.get("metaData", {}).get("started", "1970-01-01T00:00:00Z")
+                call_date = datetime.fromisoformat(started.replace("Z", "+00:00")).strftime("%Y-%m-%d")
+            except (ValueError, TypeError) as e:
+                logger.warning(f"Invalid timestamp in call {call_id}: {str(e)}")
+            
+            account_name = call.get("account_name", "N/A")
+            products = call.get("products", [])
+            products_str = "|".join(products) if products else "None"
+            brief = call.get("content", {}).get("brief", "N/A")
+            key_points = "; ".join(call.get("content", {}).get("keyPoints", [])) if call.get("content", {}).get("keyPoints", []) else "N/A"
+            
+            # Product filtering logic
+            if not selected_products or "Select All" in selected_products:
+                reason = "No product filter applied"
+                included_data.append({
+                    "call_id": call_id,
+                    "call_title": call_title,
+                    "call_date": call_date,
+                    "account_name": account_name,
+                    "products": products_str,
+                    "brief": brief,
+                    "keyPoints": key_points,
+                    "reason": reason
+                })
+            else:
+                matched_products = [p for p in products if p in selected_products]
+                if matched_products or not products:  # Include None calls per inclusion-by-design
+                    reason = f"Matched products: {('|'.join(matched_products) or 'None')}"
+                    included_data.append({
+                        "call_id": call_id,
+                        "call_title": call_title,
+                        "call_date": call_date,
+                        "account_name": account_name,
+                        "products": products_str,
+                        "brief": brief,
+                        "keyPoints": key_points,
+                        "reason": reason
+                    })
+                else:
+                    reason = "No matching products"
+                    excluded_data.append({
+                        "call_id": call_id,
+                        "call_title": call_title,
+                        "call_date": call_date,
+                        "account_name": account_name,
+                        "products": products_str,
+                        "brief": brief,
+                        "keyPoints": key_points,
+                        "reason": reason
+                    })
+        except Exception as e:
+            logger.error(f"Call table prep error for call {call_id}: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
+    
+    included_df = pd.DataFrame(included_data)
+    excluded_df = pd.DataFrame(excluded_data)
+    return included_df, excluded_df
+
 def prepare_utterances_df(calls: List[Dict[str, Any]]) -> pd.DataFrame:
+    """Prepare utterances DataFrame with quality labels."""
     utterances_data = []
     for call in calls:
         if not call:
@@ -272,15 +514,22 @@ def prepare_utterances_df(calls: List[Dict[str, Any]]) -> pd.DataFrame:
         try:
             call_id = str(call.get("metaData", {}).get("id", ""))
             call_title = call.get("metaData", {}).get("title", "N/A")
-            call_date = datetime.fromisoformat(call.get("metaData", {}).get("started", "1970-01-01T00:00:00Z").replace("Z", "+00:00")).strftime("%Y-%m-%d") if call.get("metaData", {}).get("started") else "N/A"
+            call_date = "N/A"
+            try:
+                started = call.get("metaData", {}).get("started", "1970-01-01T00:00:00Z")
+                call_date = datetime.fromisoformat(started.replace("Z", "+00:00")).strftime("%Y-%m-%d")
+            except (ValueError, TypeError) as e:
+                logger.warning(f"Invalid timestamp in call {call_id}: {str(e)}")
+            
             account_id = call.get("account_id", "N/A")
             account_name = call.get("account_name", "N/A")
             account_website = call.get("account_website", "N/A")
+            domain = call.get("domain", "N/A")
             products = call.get("products", [])
-            products_str = "|".join(products) if products else "Unmapped"
+            products_str = "|".join(products) if products else "None"
             parties = call.get("parties", [])
+            partial_data = call.get("partial_data", False)
             
-            # Create speaker info dictionary with fallback to "Unknown" for missing values
             speaker_info = {}
             for party in parties:
                 speaker_id = party.get("speakerId", "")
@@ -300,120 +549,70 @@ def prepare_utterances_df(calls: List[Dict[str, Any]]) -> pd.DataFrame:
                 topic = utterance.get("topic", "N/A")
                 speaker_id = utterance.get("speakerId", "")
                 
-                # Use fallback for missing speaker information
                 speaker = speaker_info.get(speaker_id, {"name": "Unknown", "title": "", "affiliation": "Unknown"})
                 
-                if speaker["affiliation"] == "Internal" or word_count < 8 or topic in ["Call Setup", "Small Talk", "Wrap-up"]:
-                    continue
+                quality = "high"
+                if partial_data:
+                    quality = "partial_data"
+                elif speaker_id not in speaker_info:
+                    quality = "unknown_speaker"
+                elif speaker["affiliation"] == "Internal":
+                    quality = "internal"
+                elif topic in ["Call Setup", "Small Talk", "Wrap-up"]:
+                    quality = "low_quality_topic"
+                elif word_count < 8 and speaker["affiliation"] == "External":
+                    quality = "short"
+                
                 start_time = sentences[0].get("start", 0)
                 end_time = sentences[-1].get("end", 0)
                 duration = format_duration(end_time - start_time) if end_time and start_time else "N/A"
                 utterances_data.append({
-                    "call_id": f'"{call_id}"',
+                    "call_id": call_id,
                     "call_title": call_title,
                     "call_date": call_date,
                     "account_id": account_id,
                     "account_name": account_name,
                     "account_website": account_website,
+                    "domain": domain,
                     "products": products_str,
                     "speaker_name": speaker["name"],
                     "speaker_job_title": speaker["title"] if speaker["title"] else "",
                     "speaker_affiliation": speaker["affiliation"],
                     "utterance_duration": duration,
                     "utterance_text": text,
-                    "topic": topic
+                    "topic": topic,
+                    "quality": quality
                 })
         except Exception as e:
-            logger.error(f"Utterance prep error: {str(e)}")
+            logger.error(f"Utterance prep error for call {call_id}: {str(e)}")
             import traceback
             logger.error(traceback.format_exc())
     return pd.DataFrame(utterances_data)
 
-def apply_filters(df: pd.DataFrame, selected_products: List[str], account_products: Dict[str, set]) -> pd.DataFrame:
-    if not selected_products or "Select All" in selected_products:
-        return df.copy()
-    try:
-        # Create a filtered DataFrame
-        filtered_df = df.copy()
-        
-        # Only filter out accounts if we're 100% sure they don't match any selected product
-        known_accounts = set(account_products.keys())
-        
-        # Mark rows where account_id is in our known list but doesn't have any of the selected products
-        exclude_account_ids = {aid for aid in known_accounts 
-                               if aid in account_products 
-                               and not any(p in selected_products for p in account_products[aid])}
-        
-        # Apply the filter:
-        # 1. Keep rows where matched_account_id is not None
-        # 2. AND matched_account_id is not in the exclude list
-        if "matched_account_id" in df.columns:
-            # First, convert None/NaN values to "None" string for consistent filtering
-            filtered_df["matched_account_id"] = filtered_df["matched_account_id"].fillna("None")
-            # Keep only rows with valid matched account IDs not in the exclude list
-            filtered_df = filtered_df[
-                (filtered_df["matched_account_id"] != "None") & 
-                (~filtered_df["matched_account_id"].isin(exclude_account_ids))
-            ]
-        else:
-            # Fallback to using account_id if matched_account_id column doesn't exist
-            filtered_df = filtered_df[~filtered_df["account_id"].isin(exclude_account_ids)]
-        
-        return filtered_df
-    except Exception as e:
-        st.error(f"Filtering error: {str(e)}")
-        logger.error(f"Filtering error: {str(e)}")
-        return df.copy()
-
 def download_csv(df: pd.DataFrame, filename: str, label: str):
+    """Generate download button for CSV."""
     csv = df.to_csv(index=False, encoding='utf-8-sig')
     st.download_button(label, data=csv, file_name=filename, mime="text/csv")
 
 def download_json(data: Any, filename: str, label: str):
+    """Generate download button for JSON."""
     json_data = json.dumps(data, indent=4, ensure_ascii=False, default=str)
     st.download_button(label, data=json_data, file_name=filename, mime="application/json")
 
-# Main app
 def main():
     st.title("📞 Gong Wizard")
-
-    # Load CSVs
-    products_df = load_csv_data()
-    if products_df is None:
-        return
-
-    # Debug the products data
-    logger.info(f"Product data loaded: {len(products_df)} rows")
-    if len(products_df) > 0:
-        logger.info(f"Sample account IDs: {products_df['Account ID'].head(5).tolist()}")
-        logger.info(f"Sample products: {products_df['Product'].head(5).tolist()}")
-    
-    # Create account to products mapping (an account may have multiple products across different rows)
-    account_products = {}
-    for _, row in products_df.iterrows():
-        account_id = str(row['Account ID'])
-        product = row['Product']
-        if account_id not in account_products:
-            account_products[account_id] = []
-        if product not in account_products[account_id]:
-            account_products[account_id].append(product)
-    
-    # Debug the mapping
-    logger.info(f"Account to product mapping created: {len(account_products)} accounts")
-    if account_products:
-        sample_keys = list(account_products.keys())[:3]
-        for key in sample_keys:
-            logger.info(f"Sample mapping - Account {key}: Products {account_products[key]}")
-    
-    unique_products = sorted(products_df["Product"].unique())
-    logger.info(f"Unique products: {unique_products}")
 
     # Sidebar
     with st.sidebar:
         st.header("Configuration")
         access_key = st.text_input("Gong Access Key", type="password")
         secret_key = st.text_input("Gong Secret Key", type="password")
-        headers = create_auth_header(access_key, secret_key) if access_key and secret_key else {}
+        
+        if not access_key or not secret_key:
+            st.error("Please provide both Gong Access Key and Secret Key.")
+            st.stop()
+        
+        headers = create_auth_header(access_key, secret_key)
         
         today = datetime.today().date()
         if "start_date" not in st.session_state:
@@ -436,126 +635,119 @@ def main():
                 st.session_state.end_date = today
                 st.rerun()
 
-        selected_products = st.multiselect("Product", ["Select All"] + unique_products, default=["Select All"])
+        select_all = st.checkbox("Select All Products", value=True)
+        if select_all:
+            selected_products = ALL_PRODUCT_TAGS
+            st.multiselect("Product", ["Select All"] + ALL_PRODUCT_TAGS, default=["Select All"], disabled=True, help="Deselect 'Select All Products' to choose specific products.")
+        else:
+            selected_products = st.multiselect("Product", ALL_PRODUCT_TAGS, default=[])
         
-        # Add debug mode option
         debug_mode = st.checkbox("Debug Mode", value=False)
+        
+        submit = st.button("Submit")
 
-    # Validate headers
-    if not headers:
-        st.warning("Please provide your Gong Access Key and Secret Key.")
-        return
+    domain_lists = load_domain_lists()
 
-    # Normalize selections
-    if "Select All" in selected_products:
-        selected_products = unique_products
-
-    # Fetch calls and display results
-    with st.spinner("Fetching calls..."):
-        session = requests.Session()
-        session.headers.update(headers)
-        call_ids = fetch_call_list(session, st.session_state.start_date.isoformat() + "T00:00:00Z", st.session_state.end_date.isoformat() + "T23:59:59Z")
-        if not call_ids:
-            st.error("No calls found.")
+    if submit:
+        if st.session_state.start_date > st.session_state.end_date:
+            st.error("Start date must be before or equal to end date.")
             return
+        with st.spinner("Fetching calls..."):
+            session = requests.Session()
+            session.headers.update(headers)
+            call_ids = fetch_call_list(session, st.session_state.start_date.isoformat() + "T00:00:00Z", st.session_state.end_date.isoformat() + "T23:59:59Z")
+            if not call_ids:
+                st.error("No calls found.")
+                return
 
-        full_data = []
-        batch_size = 50
-        for i in range(0, len(call_ids), batch_size):
-            batch = call_ids[i:i + batch_size]
-            details = fetch_call_details(session, batch)
-            transcripts = fetch_transcript(session, batch)
-            
-            # Add enhanced debug mode display
-            if debug_mode and i == 0 and details:
-                st.subheader("Debug Information")
-                if call_ids:
+            full_data = []
+            batch_size = 50
+            for i in range(0, len(call_ids), batch_size):
+                batch = call_ids[i:i + batch_size]
+                details = fetch_call_details(session, batch)
+                transcripts = fetch_transcript(session, batch)
+                
+                if debug_mode and i == 0 and details:
+                    st.subheader("Debug Information")
                     st.write(f"Number of calls found: {len(call_ids)}")
-                
-                # Display the first call's raw API data if available
-                if details and len(details) > 0:
-                    st.subheader("First Call Raw Data")
-                    # Display account ID from API
-                    account_context = next((ctx for ctx in details[0].get("context", []) if any(obj.get("objectType") == "Account" for obj in ctx.get("objects", []))), {})
-                    account_id = next((obj.get("objectId", "Unknown") for obj in account_context.get("objects", []) if obj.get("objectType") == "Account"), "Unknown")
-                    st.write(f"Account ID from API: {account_id}")
-                    
-                    # Display parties (speakers) data separately for easier debugging
-                    parties = details[0].get("parties", [])
-                    if parties:
+                    if details:
+                        st.subheader("First Call Raw Data")
+                        account_context = next((ctx for ctx in details[0].get("context", []) if any(obj.get("objectType") == "Account" for obj in ctx.get("objects", []))), {})
+                        account_id = next((obj.get("objectId", "Unknown") for obj in account_context.get("objects", []) if obj.get("objectType") == "Account"), "Unknown")
+                        st.write(f"Account ID from API: {account_id}")
                         st.subheader("Parties/Speakers Data")
-                        st.json(parties)
-            
-            for call in details:
-                call_id = str(call.get("metaData", {}).get("id", ""))
-                call_transcript = transcripts.get(call_id, [])
-                normalized_data = normalize_call_data(call, call_transcript, account_products)
-                if normalized_data:
-                    full_data.append(normalized_data)
-
-        if not full_data:
-            st.error("No call details fetched.")
-            return
-
-        summary_df = prepare_summary_df(full_data)
-        utterances_df = prepare_utterances_df(full_data)
-
-        filtered_summary_df = apply_filters(summary_df, selected_products, account_products)
-        filtered_utterances_df = utterances_df[utterances_df["call_id"].isin(filtered_summary_df["call_id"])]
-        
-        # Improved matching for filtered JSON
-        call_id_set = set(id.strip('"') for id in filtered_summary_df["call_id"])
-        filtered_json = [call for call in full_data if call.get("metaData", {}).get("id", "N/A") in call_id_set]
-
-    st.subheader("Filtered Calls")
-    st.dataframe(filtered_summary_df)
-    
-    if debug_mode:
-        st.subheader("Debug: Product Mapping")
-        # Show a sample of the account_products mapping
-        sample_mapping = {k: v for i, (k, v) in enumerate(account_products.items()) if i < 5}
-        st.json(sample_mapping)
-        
-        # Show data from the first few rows of the filtered summary
-        st.subheader("Debug: First 5 rows of filtered summary")
-        st.write(filtered_summary_df[["account_id", "matched_account_id", "products"]].head(5))
-        
-        # Show how many accounts are mapped vs unmapped
-        if len(filtered_summary_df) > 0:
-            mapped = filtered_summary_df[filtered_summary_df["products"] != "Unmapped"].shape[0]
-            unmapped = filtered_summary_df[filtered_summary_df["products"] == "Unmapped"].shape[0]
-            st.write(f"Mapped accounts: {mapped}, Unmapped accounts: {unmapped}")
-            
-            # Show account IDs that are unmapped
-            if unmapped > 0:
-                unmapped_accounts = filtered_summary_df[filtered_summary_df["products"] == "Unmapped"]["account_id"].unique()
-                st.write(f"Sample unmapped account IDs: {list(unmapped_accounts)[:5]}")
+                        st.json(details[0].get("parties", [])[:3])
                 
-            # Test direct matching on unmapped accounts
-                st.subheader("Testing direct matching on unmapped accounts")
-                for acc_id in list(unmapped_accounts)[:5]:
-                    acc_id_str = str(acc_id).strip('"')
-                    direct_match = acc_id_str in account_products
-                    st.write(f"Account ID: {acc_id_str}")
-                    st.write(f"Direct match exists: {direct_match}")
-                    if direct_match:
-                        st.write(f"Products for match: {account_products[acc_id_str]}")
+                for call in details:
+                    call_id = str(call.get("metaData", {}).get("id", ""))
+                    call_transcript = transcripts.get(call_id, [])
+                    normalized_data = normalize_call_data(call, call_transcript, domain_lists)
+                    if normalized_data:
+                        full_data.append(normalized_data)
 
-    start_date_str = st.session_state.start_date.strftime("%d%b%y").lower()
-    end_date_str = st.session_state.end_date.strftime("%Y-%m-%d")
+            if not full_data:
+                st.error("No call details fetched.")
+                return
 
-    st.subheader("Download Options")
-    col1, col2 = st.columns(2)
-    with col1:
-        st.markdown("**Unfiltered Data**")
-        download_csv(summary_df, f"unfiltered_summary_gong_{start_date_str}_to_{end_date_str}.csv", "Download Unfiltered Calls CSV")
-        download_csv(utterances_df, f"unfiltered_utterances_gong_{start_date_str}_to_{end_date_str}.csv", "Download Unfiltered Utterances CSV")
-        download_json(full_data, f"unfiltered_json_gong_{start_date_str}_to_{end_date_str}.json", "Download Unfiltered JSON")
-    with col2:
-        st.markdown("**Filtered Data**")
-        download_csv(filtered_summary_df, f"filtered_summary_gong_{start_date_str}_to_{end_date_str}.csv", "Download Filtered Calls CSV")
-        download_csv(filtered_utterances_df, f"filtered_utterances_gong_{start_date_str}_to_{end_date_str}.csv", "Download Filtered Utterances CSV")
-        download_json(filtered_json, f"filtered_json_gong_{start_date_str}_to_{end_date_str}.json", "Download Filtered JSON")
+            utterances_df = prepare_utterances_df(full_data)
+            high_quality_call_ids = set(utterances_df[utterances_df["quality"] == "high"]["call_id"])
+            summary_df = prepare_summary_df(full_data, high_quality_call_ids)
+            utterances_filtered_df = utterances_df[utterances_df["quality"] == "high"]
+
+            included_calls_df, excluded_calls_df = prepare_call_tables(full_data, selected_products)
+
+            if debug_mode:
+                st.subheader("Debug: Quality Distribution")
+                quality_counts = utterances_df["quality"].value_counts()
+                quality_dist = {q: f"{count} ({count/len(utterances_df)*100:.2f}%)" for q, count in quality_counts.items()}
+                st.json(quality_dist)
+                
+                st.subheader("Debug: Product Tagging")
+                tag_counts = pd.Series([tag for call in full_data for tag in call.get("products", ["None"])]).value_counts()
+                tag_dist = {tag: f"{count} ({count/len(full_data)*100:.2f}%)" for tag, count in tag_counts.items()}
+                st.json(tag_dist)
+                
+                st.subheader("Debug: Tracker Matches")
+                tracker_samples = [call["tracker_matches"][:3] for call in full_data if call.get("tracker_matches", [])][:3]
+                st.json(tracker_samples)
+                
+                st.subheader("Debug: Domain Matches")
+                domain_samples = [call["domain_matches"][:3] for call in full_data if call.get("domain_matches", [])][:3]
+                st.json(domain_samples)
+                
+                st.subheader("Debug: Sample Calls")
+                sample_calls = [{k: call.get(k, "N/A") for k in ["call_id", "account_name", "domain", "products", "partial_data"]} for call in full_data[:3]]
+                st.json(sample_calls)
+
+            st.subheader("INCLUDED CALLS (Product Filter)")
+            st.dataframe(included_calls_df)
+
+            st.subheader("EXCLUDED CALLS (Product Filter)")
+            st.dataframe(excluded_calls_df)
+
+            st.subheader("Utterance Processing Stats")
+            total_utterances = len(utterances_df)
+            excluded_utterances = len(utterances_df[utterances_df["quality"] != "high"])
+            excluded_pct = (excluded_utterances / total_utterances * 100) if total_utterances > 0 else 0
+            st.write(f"Total Utterances Processed: {total_utterances}")
+            st.write(f"Excluded from Filtered CSV: {excluded_utterances} ({excluded_pct:.2f}%)")
+            st.write("Exclusions by Reason:")
+            for reason in ["partial_data", "unknown_speaker", "internal", "low_quality_topic", "short"]:
+                count = len(utterances_df[utterances_df["quality"] == reason])
+                pct = (count / total_utterances * 100) if total_utterances > 0 else 0
+                st.write(f"- {reason}: {count} ({pct:.2f}%)")
+
+            start_date_str = st.session_state.start_date.strftime("%d%b%y").lower()
+            end_date_str = st.session_state.end_date.strftime("%d%b%y").lower()
+
+            st.subheader("Download Options")
+            col1, col2 = st.columns(2)
+            with col1:
+                download_csv(utterances_df, f"utterances_full_gong_{start_date_str}_to_{end_date_str}.csv", "Download Utterances Full CSV")
+                download_csv(utterances_filtered_df, f"utterances_filtered_gong_{start_date_str}_to_{end_date_str}.csv", "Download Utterances Filtered CSV")
+            with col2:
+                download_csv(summary_df, f"summary_gong_{start_date_str}_to_{end_date_str}.csv", "Download Summary CSV")
+                download_json(full_data, f"calls_full_gong_{start_date_str}_to_{end_date_str}.json", "Download Calls Full JSON")
 
 if __name__ == "__main__":
     main()
