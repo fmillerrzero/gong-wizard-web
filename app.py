@@ -149,35 +149,25 @@ def normalize_call_data(call_data: Dict[str, Any], transcript: List[Dict[str, An
         # Debug log the account ID
         logger.info(f"Normalizing call for Account ID from API: {account_id}")
         
-        # Get products with flexible matching for Salesforce IDs
+        # Get products with EXACT MATCHING ONLY for Salesforce IDs
         products = []
-        
-        # The API returns IDs like "0018a00001rEelCAAS" but the CSV has IDs like "001Pr000008IK8X"
-        # Both are Salesforce IDs, where the first 3 characters (001) are the object prefix
-        # We'll try to match based on those first 3 characters
+        matched_key = None
         
         if account_id and account_id != "Unknown":
             # Clean up the ID
             clean_id = str(account_id).strip('"')
             
-            # Try direct match first
+            # Try direct match ONLY
             if clean_id in account_products:
                 products = account_products[clean_id]
+                matched_key = clean_id
                 logger.info(f"Direct match found: {clean_id}")
             else:
-                # Get just the prefix (first 3 chars)
-                prefix = clean_id[:3] if len(clean_id) >= 3 else ""
-                
-                # Check for any keys in account_products that have the same prefix
-                matching_keys = [key for key in account_products.keys() 
-                                if key.startswith(prefix) and len(key) >= 3]
-                
-                if matching_keys:
-                    # Use the first matching key
-                    products = account_products[matching_keys[0]]
-                    logger.info(f"Prefix match found: {matching_keys[0]} for {clean_id}")
+                # No match found, log for QA
+                logger.warning(f"No product mapping found for account ID: {account_id}")
         
         call_data["products"] = products
+        call_data["matched_account_id"] = matched_key  # Store the matched key for debugging
         
         return call_data
     except Exception as e:
@@ -194,45 +184,6 @@ def format_duration(seconds):
         return f"{minutes} min {remaining_seconds} sec"
     except (ValueError, TypeError):
         return "N/A"
-
-def get_speaker_talk_time(call: Dict[str, Any]) -> Dict[str, float]:
-    talk_times = {}
-    try:
-        # Get parties and speakers from their respective locations in the API response
-        parties = call.get("parties", [])
-        speakers = call.get("interaction", {}).get("speakers", [])
-        
-        # Map speakerIds to party info for reference
-        speaker_info = {}
-        for party in parties:
-            speaker_id = party.get("speakerId")
-            if speaker_id:
-                speaker_info[speaker_id] = {
-                    "name": party.get("name", "N/A"),
-                    "title": party.get("title", ""),
-                    "affiliation": party.get("affiliation", "Unknown")
-                }
-        
-        # Get talk time for each speaker
-        # FIXED: speaker.id IS the speakerId - no mapping needed
-        speaker_talk_times = {}
-        for speaker in speakers:
-            speaker_id = speaker.get("id")  # This is already the speakerId
-            talk_time = speaker.get("talkTime", 0)
-            if speaker_id and talk_time > 0:
-                speaker_talk_times[speaker_id] = talk_time
-        
-        # Calculate percentages
-        if speaker_talk_times:
-            total_duration = sum(speaker_talk_times.values())
-            if total_duration > 0:
-                for speaker_id, talk_time in speaker_talk_times.items():
-                    talk_times[speaker_id] = (talk_time / total_duration) * 100
-                
-        return talk_times
-    except Exception as e:
-        logger.error(f"Error calculating talk time: {str(e)}")
-        return {}
 
 def prepare_summary_df(calls: List[Dict[str, Any]]) -> pd.DataFrame:
     summary_data = []
@@ -289,6 +240,7 @@ def prepare_summary_df(calls: List[Dict[str, Any]]) -> pd.DataFrame:
             
             # Raw account ID for debugging
             raw_account_id = call.get("account_id", "N/A")
+            matched_account_id = call.get("matched_account_id", "None")
             
             summary_data.append({
                 "call_id": f'"{meta.get("id", "N/A")}"',
@@ -297,6 +249,7 @@ def prepare_summary_df(calls: List[Dict[str, Any]]) -> pd.DataFrame:
                 "duration": format_duration(meta.get("duration", 0)),
                 "meeting_url": meta.get("meetingUrl", "N/A"),
                 "account_id": raw_account_id,
+                "matched_account_id": matched_account_id,
                 "account_name": call.get("account_name", "N/A"),
                 "account_website": call.get("account_website", "N/A"),
                 "products": products_str,
@@ -326,7 +279,18 @@ def prepare_utterances_df(calls: List[Dict[str, Any]]) -> pd.DataFrame:
             products = call.get("products", [])
             products_str = "|".join(products) if products else "Unmapped"
             parties = call.get("parties", [])
-            speaker_info = {p.get("speakerId", ""): {"name": p.get("name", "N/A"), "title": p.get("title", ""), "affiliation": p.get("affiliation", "Unknown")} for p in parties}
+            
+            # Create speaker info dictionary with fallback to "Unknown" for missing values
+            speaker_info = {}
+            for party in parties:
+                speaker_id = party.get("speakerId", "")
+                if speaker_id:
+                    speaker_info[speaker_id] = {
+                        "name": party.get("name", "Unknown"),
+                        "title": party.get("title", ""),
+                        "affiliation": party.get("affiliation", "Unknown")
+                    }
+            
             for utterance in call.get("utterances", []):
                 sentences = utterance.get("sentences", [])
                 if not sentences:
@@ -334,8 +298,11 @@ def prepare_utterances_df(calls: List[Dict[str, Any]]) -> pd.DataFrame:
                 text = " ".join(s.get("text", "N/A") for s in sentences)
                 word_count = len(text.split())
                 topic = utterance.get("topic", "N/A")
-                speaker_id = utterance.get("speakerId", "N/A")
-                speaker = speaker_info.get(speaker_id, {"name": "N/A", "title": "", "affiliation": "Unknown"})
+                speaker_id = utterance.get("speakerId", "")
+                
+                # Use fallback for missing speaker information
+                speaker = speaker_info.get(speaker_id, {"name": "Unknown", "title": "", "affiliation": "Unknown"})
+                
                 if speaker["affiliation"] == "Internal" or word_count < 8 or topic in ["Call Setup", "Small Talk", "Wrap-up"]:
                     continue
                 start_time = sentences[0].get("start", 0)
@@ -377,9 +344,22 @@ def apply_filters(df: pd.DataFrame, selected_products: List[str], account_produc
                                if aid in account_products 
                                and not any(p in selected_products for p in account_products[aid])}
         
-        # Apply the filter - keep all rows where account_id isn't in the exclude list
-        # This way, we keep unknown accounts and only exclude accounts we're sure about
-        return filtered_df[~filtered_df["account_id"].isin(exclude_account_ids)]
+        # Apply the filter:
+        # 1. Keep rows where matched_account_id is not None
+        # 2. AND matched_account_id is not in the exclude list
+        if "matched_account_id" in df.columns:
+            # First, convert None/NaN values to "None" string for consistent filtering
+            filtered_df["matched_account_id"] = filtered_df["matched_account_id"].fillna("None")
+            # Keep only rows with valid matched account IDs not in the exclude list
+            filtered_df = filtered_df[
+                (filtered_df["matched_account_id"] != "None") & 
+                (~filtered_df["matched_account_id"].isin(exclude_account_ids))
+            ]
+        else:
+            # Fallback to using account_id if matched_account_id column doesn't exist
+            filtered_df = filtered_df[~filtered_df["account_id"].isin(exclude_account_ids)]
+        
+        return filtered_df
     except Exception as e:
         st.error(f"Filtering error: {str(e)}")
         logger.error(f"Filtering error: {str(e)}")
@@ -408,10 +388,15 @@ def main():
         logger.info(f"Sample account IDs: {products_df['Account ID'].head(5).tolist()}")
         logger.info(f"Sample products: {products_df['Product'].head(5).tolist()}")
     
-    # Initialize mappings
-    # FIXED: Ensure account IDs are strings in the mapping
-    account_products = products_df.groupby("Account ID")["Product"].apply(list).to_dict()
-    account_products = {str(k): v for k, v in account_products.items()}
+    # Create account to products mapping (an account may have multiple products across different rows)
+    account_products = {}
+    for _, row in products_df.iterrows():
+        account_id = str(row['Account ID'])
+        product = row['Product']
+        if account_id not in account_products:
+            account_products[account_id] = []
+        if product not in account_products[account_id]:
+            account_products[account_id].append(product)
     
     # Debug the mapping
     logger.info(f"Account to product mapping created: {len(account_products)} accounts")
@@ -490,17 +475,16 @@ def main():
                 # Display the first call's raw API data if available
                 if details and len(details) > 0:
                     st.subheader("First Call Raw Data")
+                    # Display account ID from API
+                    account_context = next((ctx for ctx in details[0].get("context", []) if any(obj.get("objectType") == "Account" for obj in ctx.get("objects", []))), {})
+                    account_id = next((obj.get("objectId", "Unknown") for obj in account_context.get("objects", []) if obj.get("objectType") == "Account"), "Unknown")
+                    st.write(f"Account ID from API: {account_id}")
+                    
                     # Display parties (speakers) data separately for easier debugging
                     parties = details[0].get("parties", [])
                     if parties:
                         st.subheader("Parties/Speakers Data")
                         st.json(parties)
-                    
-                    # Display talk time data if available
-                    interaction = details[0].get("interaction", {})
-                    if interaction:
-                        st.subheader("Interaction Data")
-                        st.json(interaction)
             
             for call in details:
                 call_id = str(call.get("metaData", {}).get("id", ""))
@@ -534,7 +518,7 @@ def main():
         
         # Show data from the first few rows of the filtered summary
         st.subheader("Debug: First 5 rows of filtered summary")
-        st.write(filtered_summary_df.head(5))
+        st.write(filtered_summary_df[["account_id", "matched_account_id", "products"]].head(5))
         
         # Show how many accounts are mapped vs unmapped
         if len(filtered_summary_df) > 0:
@@ -547,11 +531,15 @@ def main():
                 unmapped_accounts = filtered_summary_df[filtered_summary_df["products"] == "Unmapped"]["account_id"].unique()
                 st.write(f"Sample unmapped account IDs: {list(unmapped_accounts)[:5]}")
                 
-                # Check if these IDs exist in the product mapping
+            # Test direct matching on unmapped accounts
+                st.subheader("Testing direct matching on unmapped accounts")
                 for acc_id in list(unmapped_accounts)[:5]:
                     acc_id_str = str(acc_id).strip('"')
-                    in_mapping = acc_id_str in account_products
-                    st.write(f"Account ID {acc_id_str} exists in mapping: {in_mapping}")
+                    direct_match = acc_id_str in account_products
+                    st.write(f"Account ID: {acc_id_str}")
+                    st.write(f"Direct match exists: {direct_match}")
+                    if direct_match:
+                        st.write(f"Products for match: {account_products[acc_id_str]}")
 
     start_date_str = st.session_state.start_date.strftime("%d%b%y").lower()
     end_date_str = st.session_state.end_date.strftime("%Y-%m-%d")
