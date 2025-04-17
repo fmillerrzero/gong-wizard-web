@@ -166,14 +166,11 @@ def get_speaker_talk_time(call: Dict[str, Any]) -> Dict[str, float]:
         parties = call.get("parties", [])
         speakers = call.get("interaction", {}).get("speakers", [])
         
-        # Map party IDs to speakerIds and collect speaker info
-        party_to_speaker_map = {}
+        # Map speakerIds to party info for reference
         speaker_info = {}
         for party in parties:
-            party_id = party.get("id")
             speaker_id = party.get("speakerId")
-            if party_id and speaker_id:
-                party_to_speaker_map[party_id] = speaker_id
+            if speaker_id:
                 speaker_info[speaker_id] = {
                     "name": party.get("name", "N/A"),
                     "title": party.get("title", ""),
@@ -181,14 +178,13 @@ def get_speaker_talk_time(call: Dict[str, Any]) -> Dict[str, float]:
                 }
         
         # Get talk time for each speaker
+        # FIXED: speaker.id IS the speakerId - no mapping needed
         speaker_talk_times = {}
         for speaker in speakers:
-            party_id = speaker.get("id")
+            speaker_id = speaker.get("id")  # This is already the speakerId
             talk_time = speaker.get("talkTime", 0)
-            if party_id and talk_time > 0:
-                speaker_id = party_to_speaker_map.get(party_id)
-                if speaker_id:
-                    speaker_talk_times[speaker_id] = talk_time
+            if speaker_id and talk_time > 0:
+                speaker_talk_times[speaker_id] = talk_time
         
         # Calculate percentages
         if speaker_talk_times:
