@@ -4,7 +4,6 @@ import requests
 import base64
 import json
 import time
-import os
 from urllib.parse import urlparse
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Set, Tuple
@@ -53,88 +52,36 @@ ALL_PRODUCT_TAGS = [
 # Fuzzy matching threshold
 FUZZY_MATCH_THRESHOLD = 85
 
-# Load domain lists for product tagging
+# Load domain lists from Google Sheets
 @st.cache_data
-def load_domain_lists():
-    """Load domain lists from CSVs for Occupancy Analytics and Owner Offering."""
-    domain_lists = {
-        "occupancy_analytics": set(),
-        "owner_offering": set()
-    }
-    
-    # Log file existence check
-    occupancy_file = "Occupancy Analytics Tenant Customers Gong Bot Sheet3.csv"
-    owner_file = "Owner Orgs Gong Bot Sheet3.csv"
-    
-    logger.info(f"Current directory: {os.getcwd()}")
-    logger.info(f"Files in directory: {os.listdir('.')}")
-    logger.info(f"Checking for file existence - Occupancy: {os.path.exists(occupancy_file)}, Owner: {os.path.exists(owner_file)}")
-    
+def load_domain_lists_from_google():
+    """Load domain lists from public Google Sheets for Occupancy Analytics and Owner Offering."""
+    occupancy_url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRgjrS2yEcDiMT7BccNI_m350CwQbbxf9oGPCxQonkDZdbNKI4pZ6A1RWWCSZJvqkGIuHATQlW-B5w-/pub?output=csv"
+    owner_url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ-yH1SaRYyeFCJEO0kBScYpDr7p3NdkjG7d-PE3jSktMrvVKW70Znq1vtEGBtc7oMA1B2o84790duZ/pub?output=csv"
+
     try:
-        if os.path.exists(occupancy_file):
-            logger.info(f"Reading occupancy file: {occupancy_file}")
-            try:
-                with open(occupancy_file, 'r', encoding='utf-8') as f:
-                    first_lines = [next(f) for _ in range(5) if _ < 5]
-                    logger.info(f"First lines of occupancy file: {first_lines}")
-            except Exception as e:
-                logger.warning(f"Could not read occupancy file directly: {str(e)}")
-            
-            try:
-                occupancy_df = pd.read_csv(occupancy_file, header=None, names=["domain"], encoding='utf-8')
-                logger.info(f"Occupancy DataFrame shape: {occupancy_df.shape}")
-                logger.info(f"Occupancy DataFrame head: {occupancy_df.head().to_dict()}")
-                
-                if "domain" in occupancy_df.columns:
-                    occupancy_domains = set(occupancy_df["domain"].str.lower().dropna().apply(extract_domain).tolist())
-                    domain_lists["occupancy_analytics"] = occupancy_domains
-                    logger.info(f"Loaded {len(domain_lists['occupancy_analytics'])} Occupancy Analytics domains")
-                else:
-                    logger.warning(f"Columns in occupancy DF: {occupancy_df.columns.tolist()}")
-            except Exception as e:
-                logger.error(f"Error processing occupancy file: {str(e)}")
-                st.sidebar.error(f"Error processing occupancy file: {str(e)}")
-        else:
-            logger.warning(f"Occupancy file not found: {occupancy_file}")
-            st.sidebar.warning(f"Occupancy file not found: {occupancy_file}")
+        occupancy_df = pd.read_csv(occupancy_url, header=None, names=["domain"])
+        owner_df = pd.read_csv(owner_url, header=None, names=["domain"])
         
-        if os.path.exists(owner_file):
-            logger.info(f"Reading owner file: {owner_file}")
-            try:
-                with open(owner_file, 'r', encoding='utf-8') as f:
-                    first_lines = [next(f) for _ in range(5) if _ < 5]
-                    logger.info(f"First lines of owner file: {first_lines}")
-            except Exception as e:
-                logger.warning(f"Could not read owner file directly: {str(e)}")
-            
-            try:
-                owner_df = pd.read_csv(owner_file, header=None, names=["domain"], encoding='utf-8')
-                logger.info(f"Owner DataFrame shape: {owner_df.shape}")
-                logger.info(f"Owner DataFrame head: {owner_df.head().to_dict()}")
-                
-                if "domain" in owner_df.columns:
-                    owner_domains = set(owner_df["domain"].str.lower().dropna().apply(extract_domain).tolist())
-                    domain_lists["owner_offering"] = owner_domains
-                    logger.info(f"Loaded {len(domain_lists['owner_offering'])} Owner Offering domains")
-                else:
-                    logger.warning(f"Columns in owner DF: {owner_df.columns.tolist()}")
-            except Exception as e:
-                logger.error(f"Error processing owner file: {str(e)}")
-                st.sidebar.error(f"Error processing owner file: {str(e)}")
-        else:
-            logger.warning(f"Owner file not found: {owner_file}")
-            st.sidebar.warning(f"Owner file not found: {owner_file}")
+        domain_lists = {
+            "occupancy_analytics": set(occupancy_df["domain"].str.lower().dropna().apply(extract_domain).tolist()),
+            "owner_offering": set(owner_df["domain"].str.lower().dropna().apply(extract_domain).tolist())
+        }
+        
+        logger.info(f"Loaded {len(domain_lists['occupancy_analytics'])} Occupancy Analytics domains")
+        logger.info(f"Loaded {len(domain_lists['owner_offering'])} Owner Offering domains")
         
         # Check for overlaps
         overlaps = domain_lists["occupancy_analytics"].intersection(domain_lists["owner_offering"])
         if overlaps:
             logger.warning(f"Domain overlaps detected: {overlaps}. Calls may be tagged with both products.")
             st.sidebar.warning(f"Domain overlaps detected. Calls may be tagged with both products.")
+        
+        return domain_lists
     except Exception as e:
-        logger.error(f"Domain list load error: {str(e)}", exc_info=True)
-        st.sidebar.error(f"Domain list load error: {str(e)}")
-    
-    return domain_lists
+        logger.error(f"Error loading domain lists from Google Sheets: {str(e)}")
+        st.sidebar.error(f"Error loading domain lists: {str(e)}")
+        return {"occupancy_analytics": set(), "owner_offering": set()}
 
 def extract_domain(url: str) -> str:
     """Extract and normalize domain from a URL using tldextract."""
@@ -620,34 +567,9 @@ def main():
             st.write(f"Python version: {os.sys.version}")
             st.write(f"Working directory: {os.getcwd()}")
             
-            st.subheader("2. File System Check")
-            files = os.listdir('.')
-            st.write(f"Files in directory: {files}")
-            
-            csv_files = [f for f in files if f.endswith('.csv')]
-            st.write(f"CSV files found: {csv_files}")
-            
-            for csv_file in csv_files:
-                st.write(f"Details for {csv_file}:")
-                try:
-                    stat_info = os.stat(csv_file)
-                    st.write(f"- Size: {stat_info.st_size} bytes")
-                    st.write(f"- Last modified: {datetime.fromtimestamp(stat_info.st_mtime)}")
-                    
-                    try:
-                        with open(csv_file, 'r', encoding='utf-8') as f:
-                            first_lines = [next(f) for _ in range(5) if _ < 5]
-                            st.write("- First lines:")
-                            for i, line in enumerate(first_lines):
-                                st.code(f"Line {i+1}: {line.strip()}")
-                    except Exception as e:
-                        st.write(f"- Could not read file content: {str(e)}")
-                except Exception as e:
-                    st.write(f"- Error getting file stats: {str(e)}")
-            
-            st.subheader("3. Domain List Loading Test")
+            st.subheader("2. Domain List Loading Test")
             try:
-                domain_lists = load_domain_lists()
+                domain_lists = load_domain_lists_from_google()
                 st.write(f"Domain lists loaded: {domain_lists.keys()}")
                 st.write(f"Occupancy Analytics domains: {len(domain_lists['occupancy_analytics'])}")
                 st.write(f"Owner Offering domains: {len(domain_lists['owner_offering'])}")
@@ -701,7 +623,7 @@ def main():
             debug_mode = st.checkbox("Debug Mode", value=False)
             submit = st.button("Submit")
         
-        domain_lists = load_domain_lists()
+        domain_lists = load_domain_lists_from_google()
         debug_domain_matches = []
         
         if not submit:
@@ -773,7 +695,7 @@ def main():
                 included_calls_df, excluded_calls_df = prepare_call_tables(full_data, selected_products, high_quality_call_ids)
                 
                 utterances_filtered_df = pd.DataFrame(columns=utterances_df.columns) if included_calls_df.empty else (
-                    utterances_df[utterances_df["quality"] == "high"][utterances_df["call_id"].isin(set(included_calls_df["call_id"]))] if "call_id" in included_calls_df.columns else pd.DataFrame(columns=utterances_df.columns)
+                    utterancesACE_df[utterances_df["quality"] == "high"][utterances_df["call_id"].isin(set(included_calls_df["call_id"]))] if "call_id" in included_calls_df.columns else pd.DataFrame(columns=utterances_df.columns)
                 )
                 
                 st.session_state.utterances_df = utterances_df
