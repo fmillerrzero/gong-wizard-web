@@ -53,13 +53,9 @@ ALL_PRODUCT_TAGS = [
 # Fuzzy matching threshold
 FUZZY_MATCH_THRESHOLD = 85
 
-# Load domain lists from Google Sheets
 @st.cache_data
-def load_domain_lists_from_google():
-    """Load domain lists from public Google Sheets for Occupancy Analytics and Owner Offering."""
-    occupancy_url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRgjrS2yEcDiMT7BccNI_m350CwQbbxf9oGPCxQonkDZdbNKI4pZ6A1RWWCSZJvqkGIuHATQlW-B5w-/pub?output=csv"
-    owner_url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ-yH1SaRYyeFCJEO0kBScYpDr7p3NdkjG7d-PE3jSktMrvVKW70Znq1vtEGBtc7oMA1B2o84790duZ/pub?output=csv"
-
+def load_domain_lists_from_google(occupancy_url: str, owner_url: str):
+    """Load domain lists from provided Google Sheets URLs for Occupancy Analytics and Owner Offering."""
     try:
         occupancy_df = pd.read_csv(occupancy_url, header=None, names=["domain"])
         owner_df = pd.read_csv(owner_url, header=None, names=["domain"])
@@ -551,9 +547,30 @@ def download_json(data: Any, filename: str, label: str):
         logger.error(f"JSON download error for {filename}: {str(e)}")
 
 def main():
-    st.title("📞 Gong Wizard")
-    st.write("✅ App started. Waiting for input...")
-    st.info("If you're seeing this, `main()` is rendering correctly.")
+    logger.info("Starting main() function")
+    try:
+        st.title("📞 Gong Wizard")
+        st.write("✅ App started. Waiting for input...")
+        st.info("If you're seeing this, `main()` is rendering correctly.")
+        logger.info("Initial UI rendered successfully")
+    except Exception as e:
+        logger.error(f"Error rendering initial UI: {str(e)}", exc_info=True)
+        st.error(f"Initial UI error: {str(e)}")
+        return
+
+    # CSV URL inputs with defaults
+    occupancy_url = st.text_input(
+        "Paste Occupancy CSV URL",
+        value="https://docs.google.com/spreadsheets/d/e/2PACX-1vRgjrS2yEcDiMT7BccNI_m350CwQbbxf9oGPCxQonkDZdbNKI4pZ6A1RWWCSZJvqkGIuHATQlW-B5w-/pub?output=csv"
+    )
+    owner_url = st.text_input(
+        "Paste Owner CSV URL",
+        value="https://docs.google.com/spreadsheets/d/e/2PACX-1vQ-yH1SaRYyeFCJEO0kBScYpDr7p3NdkjG7d-PE3jSktMrvVKW70Znq1vtEGBtc7oMA1B2o84790duZ/pub?output=csv"
+    )
+
+    if not occupancy_url or not owner_url:
+        st.warning("⬅️ Please enter both CSV URLs to proceed.")
+        st.stop()
 
     try:
         if "main_entered" not in st.session_state:
@@ -600,7 +617,7 @@ def main():
             st.write(f"Python version: {os.sys.version}")
             st.write(f"Working directory: {os.getcwd()}")
             try:
-                domain_lists = load_domain_lists_from_google()
+                domain_lists = load_domain_lists_from_google(occupancy_url, owner_url)
                 st.write(f"Domain lists loaded: {domain_lists.keys()}")
                 st.write(f"Occupancy Analytics domains: {len(domain_lists['occupancy_analytics'])}")
                 st.write(f"Owner Offering domains: {len(domain_lists['owner_offering'])}")
@@ -615,7 +632,7 @@ def main():
             st.success("Startup diagnostic completed")
             return
         
-        domain_lists = load_domain_lists_from_google()
+        domain_lists = load_domain_lists_from_google(occupancy_url, owner_url)
         debug_domain_matches = []
         
         if not submit:
@@ -785,7 +802,7 @@ def main():
             with col1:
                 download_csv(st.session_state.utterances_df, f"utterances_full_gong_{start_date_str}_to_{end_date_str}.csv", "Utterances - Full CSV")
                 download_csv(st.session_state.utterances_filtered_df, f"utterances_filtered_gong_{start_date_str}_to_{end_date_str}.csv", "Utterances - Filtered CSV")
-            with col2:
+            with col六:
                 download_csv(st.session_state.included_calls_df, f"summary_included_gong_{start_date_str}_to_{end_date_str}.csv", "Summary - Included CSV")
                 download_csv(st.session_state.excluded_calls_df, f"summary_excluded_gong_{start_date_str}_to_{end_date_str}.csv", "Summary - Excluded CSV")
                 download_json(st.session_state.full_data, f"calls_full_gong_{start_date_str}_to_{end_date_str}.json", "Calls - Full JSON")
