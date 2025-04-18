@@ -554,11 +554,6 @@ def main():
     st.write("✅ App started. Waiting for input...")
     st.info("If you're seeing this, `main()` is rendering correctly.")
 
-    # Early exit to confirm app is alive
-    if st.sidebar.checkbox("Startup Test Mode", value=True):
-        st.success("✅ Startup Test Mode active — skipping Gong API and rendering UI early.")
-        return
-
     try:
         if "main_entered" not in st.session_state:
             logger.info("💡 Entered main()")
@@ -595,8 +590,29 @@ def main():
             if select_all:
                 st.multiselect("Product", ["Select All"] + ALL_PRODUCT_TAGS, default=["Select All"], disabled=True, help="Deselect 'Select All Products' to choose specific products.")
             
+            startup_test = st.checkbox("Startup Test Mode", value=False)
             debug_mode = st.checkbox("Debug Mode", value=False)
             submit = st.button("Submit")
+        
+        if startup_test:
+            st.success("✅ Startup Test Mode active — running diagnostic checks.")
+            st.write(f"Python version: {os.sys.version}")
+            st.write(f"Working directory: {os.getcwd()}")
+            try:
+                domain_lists = load_domain_lists_from_google()
+                st.write(f"Domain lists loaded: {domain_lists.keys()}")
+                st.write(f"Occupancy Analytics domains: {len(domain_lists['occupancy_analytics'])}")
+                st.write(f"Owner Offering domains: {len(domain_lists['owner_offering'])}")
+                if domain_lists['occupancy_analytics']:
+                    st.write("Sample Occupancy Analytics domains:")
+                    st.write(list(domain_lists['occupancy_analytics'])[:5])
+                if domain_lists['owner_offering']:
+                    st.write("Sample Owner Offering domains:")
+                    st.write(list(domain_lists['owner_offering'])[:5])
+            except Exception as e:
+                st.error(f"Error loading domain lists: {str(e)}")
+            st.success("Startup diagnostic completed")
+            return
         
         domain_lists = load_domain_lists_from_google()
         debug_domain_matches = []
