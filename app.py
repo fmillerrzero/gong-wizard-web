@@ -53,92 +53,6 @@ ALL_PRODUCT_TAGS = [
 # Fuzzy matching threshold
 FUZZY_MATCH_THRESHOLD = 85
 
-# Synthetic domain lists for testing
-TEST_DOMAIN_LISTS = {
-    "occupancy_analytics": {"example0.com", "example1.com"},
-    "owner_offering": {"example2.com", "example3.com"}
-}
-
-# Synthetic call and transcript data (abridged for brevity)
-SYNTHETIC_CALLS = [
-    {
-        "metaData": {"id": "call_0", "title": "Test Call 0", "started": "2025-04-17T15:45:36.540364Z"},
-        "context": [{
-            "objects": [{
-                "objectType": "Account",
-                "objectId": "acc_0",
-                "fields": [
-                    {"name": "Name", "value": "Account 0"},
-                    {"name": "Website", "value": "https://www.example0.com"}
-                ]
-            }]
-        }],
-        "content": {
-            "trackers": [{"name": "ODCV", "count": 2}, {"name": "Filter", "count": 1}],
-            "topics": ["Call Setup", "Business Value", "Wrap-up"],
-            "brief": "Brief summary",
-            "keyPoints": ["Key point 0"],
-            "callOutcome": "Advanced"
-        },
-        "parties": [
-            {"speakerId": "speaker_ext_0", "name": "External User 0", "title": "VP of Operations", "affiliation": "External"},
-            {"speakerId": "speaker_int_0", "name": "Internal Rep 0", "title": "AE", "affiliation": "Internal"}
-        ]
-    }
-]
-
-SYNTHETIC_TRANSCRIPTS = {
-    "call_0": [
-        {
-            "speakerId": "speaker_ext_0",
-            "topic": "Business Value",
-            "sentences": [{"text": "This is a high-quality external utterance.", "start": 0, "end": 10}]
-        },
-        {
-            "speakerId": "speaker_int_0",
-            "topic": "Call Setup",
-            "sentences": [{"text": "Internal speaker saying hello.", "start": 10, "end": 20}]
-        }
-    ]
-}
-
-# Synthetic edge cases (abridged)
-SYNTHETIC_EDGE_CALLS = [
-    {
-        "metaData": {"id": "call_1", "title": "Test Call 1", "started": "2025-04-17T15:45:36.540364Z"},
-        "context": [{
-            "objects": [{
-                "objectType": "Account",
-                "objectId": "acc_1",
-                "fields": [
-                    {"name": "Name", "value": "Account 1"},
-                    {"name": "Website", "value": "https://www.example1.com"}
-                ]
-            }]
-        }],
-        "content": {
-            "trackers": [{"name": "ODCV", "count": 1}],
-            "topics": ["Business Value"],
-            "brief": "Brief summary",
-            "keyPoints": ["Key point 1"],
-            "callOutcome": "Advanced"
-        },
-        "parties": [
-            {"speakerId": "speaker_ext_1", "name": "External User 1", "title": "Manager", "affiliation": "External"}
-        ]
-    }
-]
-
-SYNTHETIC_EDGE_TRANSCRIPTS = {
-    "call_2": [
-        {
-            "speakerId": "speaker_ext_2",
-            "topic": "Business Value",
-            "sentences": [{"text": "This is another high-quality external utterance.", "start": 0, "end": 10}]
-        }
-    ]
-}
-
 # Load domain lists for product tagging
 @st.cache_data
 def load_domain_lists():
@@ -159,7 +73,6 @@ def load_domain_lists():
     try:
         if os.path.exists(occupancy_file):
             logger.info(f"Reading occupancy file: {occupancy_file}")
-            # Try to read the first few lines to debug
             try:
                 with open(occupancy_file, 'r', encoding='utf-8') as f:
                     first_lines = [next(f) for _ in range(5) if _ < 5]
@@ -218,12 +131,8 @@ def load_domain_lists():
             logger.warning(f"Domain overlaps detected: {overlaps}. Calls may be tagged with both products.")
             st.sidebar.warning(f"Domain overlaps detected. Calls may be tagged with both products.")
     except Exception as e:
-        logger.error(f"Domain list load error: {str(e)}", exc_info=True)  # Include full traceback
+        logger.error(f"Domain list load error: {str(e)}", exc_info=True)
         st.sidebar.error(f"Domain list load error: {str(e)}")
-    
-    if not domain_lists["occupancy_analytics"] and not domain_lists["owner_offering"]:
-        st.sidebar.warning("Domain lists are empty. Using test data for domain-based product tagging.")
-        return TEST_DOMAIN_LISTS
     
     return domain_lists
 
@@ -693,113 +602,20 @@ def download_json(data: Any, filename: str, label: str):
         st.error(f"Error creating JSON download: {str(e)}")
         logger.error(f"JSON download error for {filename}: {str(e)}")
 
-def run_test_harness(selected_products: List[str], debug_mode: bool = False):
-    """Run test harness with synthetic data."""
-    st.subheader("Running Test Harness with Synthetic Data")
-    
-    domain_lists = TEST_DOMAIN_LISTS
-    debug_domain_matches = []
-    
-    all_synthetic_calls = SYNTHETIC_CALLS + SYNTHETIC_EDGE_CALLS
-    all_synthetic_transcripts = SYNTHETIC_TRANSCRIPTS.copy()
-    all_synthetic_transcripts.update(SYNTHETIC_EDGE_TRANSCRIPTS)
-    
-    full_data = []
-    dropped_calls_count = 0
-    for call in all_synthetic_calls:
-        call_id = call.get("metaData", {}).get("id", "")
-        if not call_id:
-            dropped_calls_count += 1
-            continue
-        call_transcript = all_synthetic_transcripts.get(call_id, [])
-        normalized_data = normalize_call_data(call, call_transcript, domain_lists, debug_domain_matches)
-        if normalized_data and normalized_data.get("metaData"):
-            full_data.append(normalized_data)
-        else:
-            dropped_calls_count += 1
-            logger.warning(f"Dropped synthetic call {call_id} due to normalization failure")
-    
-    if not full_data:
-        st.error("No synthetic call details processed.")
-        return
-    
-    utterances_df = prepare_utterances_df(full_data)
-    high_quality_call_ids = set(utterances_df[utterances_df["quality"] == "high"]["call_id"])
-    included_calls_df, excluded_calls_df = prepare_call_tables(full_data, selected_products, high_quality_call_ids)
-    
-    utterances_filtered_df = pd.DataFrame(columns=utterances_df.columns) if included_calls_df.empty else (
-        utterances_df[utterances_df["quality"] == "high"][utterances_df["call_id"].isin(set(included_calls_df["call_id"]))] if "call_id" in included_calls_df.columns else pd.DataFrame(columns=utterances_df.columns)
-    )
-    
-    st.subheader("Test Harness Results")
-    st.write("**Full Data (Normalized Calls):**")
-    st.json(full_data[:3])
-    st.write("**Utterances DataFrame:**")
-    st.dataframe(utterances_df)
-    st.write("**Utterances Filtered DataFrame:**")
-    st.dataframe(utterances_filtered_df)
-    st.write("**Included Calls DataFrame:**")
-    st.dataframe(included_calls_df)
-    st.write("**Excluded Calls DataFrame:**")
-    st.dataframe(excluded_calls_df)
-    
-    if dropped_calls_count > 0:
-        st.warning(f"⚠️ {dropped_calls_count} synthetic calls were dropped due to normalization failures.")
-    
-    if debug_mode:
-        st.subheader("Debug: Quality Distribution")
-        if not utterances_df.empty:
-            quality_counts = utterances_df["quality"].value_counts()
-            st.json({q: f"{count} ({count/len(utterances_df)*100:.2f}%)" for q, count in quality_counts.items()})
-        else:
-            st.write("No utterances to analyze.")
-        
-        st.subheader("Debug: Internal Speaker Breakdown")
-        internal_utterances = utterances_df[utterances_df["quality"] == "internal"]
-        if not internal_utterances.empty:
-            internal_speaker_counts = internal_utterances.groupby("speaker_name").size().sort_values(ascending=False).head(10)
-            st.json({name: f"{count} ({count/len(internal_utterances)*100:.2f}%)" for name, count in internal_speaker_counts.items()})
-        else:
-            st.write("No internal utterances found.")
-        
-        st.subheader("Debug: Product Tagging")
-        if full_data:
-            tag_counts = pd.Series([tag for call in full_data for tag in call.get("products", ["None"])]).value_counts()
-            st.json({tag: f"{count} ({count/len(full_data)*100:.2f}%)" for tag, count in tag_counts.items()})
-        else:
-            st.write("No call data to analyze.")
-        
-        st.subheader("Debug: Tracker Matches")
-        st.json([call["tracker_matches"][:3] for call in full_data if call.get("tracker_matches", [])][:3])
-        
-        st.subheader("Debug: Domain Matches")
-        st.json(debug_domain_matches[:3])
-        
-        st.subheader("Debug: Sample Calls")
-        st.json([{k: call.get(k, "N/A") for k in ["call_id", "account_name", "domain", "products", "partial_data"]} for call in full_data[:3]])
-        
-        if "debug_speaker_info" in st.session_state:
-            st.subheader("Debug: Speaker Matching Info")
-            st.json(st.session_state.debug_speaker_info[:10])
-
 def main():
     try:
-        logger.info("💡 Entered main()")
-        st.write("✅ App started")  # Early UI test
-        
-        # Add more debug output at the very beginning
-        st.write("📊 Debug Info")
-        st.write(f"Current directory: {os.getcwd()}")
-        st.write(f"Files in directory: {os.listdir('.')}")
+        if "main_entered" not in st.session_state:
+            logger.info("💡 Entered main()")
+            st.session_state.main_entered = True
+        st.write("✅ App started")
         
         # Startup test mode option
-        startup_test = st.sidebar.checkbox("Startup Test Mode", value=True)
+        startup_test = st.sidebar.checkbox("Startup Test Mode", value=False)
         
         if startup_test:
             st.title("📞 Gong Wizard - Startup Diagnostic")
             st.write("Running in startup test mode to diagnose issues")
             
-            # Test individual components
             st.subheader("1. Environment Check")
             st.write(f"Python version: {os.sys.version}")
             st.write(f"Working directory: {os.getcwd()}")
@@ -808,7 +624,6 @@ def main():
             files = os.listdir('.')
             st.write(f"Files in directory: {files}")
             
-            # Check CSV files specifically
             csv_files = [f for f in files if f.endswith('.csv')]
             st.write(f"CSV files found: {csv_files}")
             
@@ -819,7 +634,6 @@ def main():
                     st.write(f"- Size: {stat_info.st_size} bytes")
                     st.write(f"- Last modified: {datetime.fromtimestamp(stat_info.st_mtime)}")
                     
-                    # Try to read first few lines
                     try:
                         with open(csv_file, 'r', encoding='utf-8') as f:
                             first_lines = [next(f) for _ in range(5) if _ < 5]
@@ -831,7 +645,6 @@ def main():
                 except Exception as e:
                     st.write(f"- Error getting file stats: {str(e)}")
             
-            # Try to load domain lists
             st.subheader("3. Domain List Loading Test")
             try:
                 domain_lists = load_domain_lists()
@@ -839,7 +652,6 @@ def main():
                 st.write(f"Occupancy Analytics domains: {len(domain_lists['occupancy_analytics'])}")
                 st.write(f"Owner Offering domains: {len(domain_lists['owner_offering'])}")
                 
-                # Show sample domains
                 if domain_lists['occupancy_analytics']:
                     st.write("Sample Occupancy Analytics domains:")
                     st.write(list(domain_lists['occupancy_analytics'])[:5])
@@ -850,17 +662,6 @@ def main():
             except Exception as e:
                 st.error(f"Error loading domain lists: {str(e)}")
             
-            # Test synthetic data
-            st.subheader("4. Synthetic Data Test")
-            st.write("Testing with synthetic data...")
-            try:
-                test_harness_btn = st.button("Run Synthetic Data Test")
-                if test_harness_btn:
-                    run_test_harness(ALL_PRODUCT_TAGS, True)
-            except Exception as e:
-                st.error(f"Error in test harness: {str(e)}")
-            
-            # End of test mode
             st.success("Startup diagnostic completed")
             return
         
@@ -898,15 +699,10 @@ def main():
                 st.multiselect("Product", ["Select All"] + ALL_PRODUCT_TAGS, default=["Select All"], disabled=True, help="Deselect 'Select All Products' to choose specific products.")
             
             debug_mode = st.checkbox("Debug Mode", value=False)
-            run_test = st.checkbox("Run Test Harness", value=False)
             submit = st.button("Submit")
         
         domain_lists = load_domain_lists()
         debug_domain_matches = []
-        
-        if run_test:
-            run_test_harness(selected_products, debug_mode)
-            return
         
         if not submit:
             st.info("Configure settings and click Submit to process Gong data.")

@@ -1,2 +1,4 @@
+cat > /Users/forrestmiller/Desktop/gong-wizard-web/packages.txt << 'EOF'
 zlib1g-dev
 libjpeg-dev
+EOF
