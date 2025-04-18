@@ -1,6 +1,6 @@
 requests==2.31.0
-streamlit==1.25.0
+streamlit==1.24.0
 pandas==2.0.3
 tldextract==3.4.4
 rapidfuzz==3.6.1
-pillow==10.0.0
+pillow==9.5.0
