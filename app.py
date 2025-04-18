@@ -885,12 +885,12 @@ def main():
                 if st.button("Last 7 Days"):
                     st.session_state.start_date = today - timedelta(days=7)
                     st.session_state.end_date = today
-                    st.rerun()
+                    st.experimental_rerun()
             with col2:
                 if st.button("Last 30 Days"):
                     st.session_state.start_date = today - timedelta(days=30)
                     st.session_state.end_date = today
-                    st.rerun()
+                    st.experimental_rerun()
             
             select_all = st.checkbox("Select All Products", value=True)
             selected_products = ALL_PRODUCT_TAGS if select_all else st.multiselect("Product", ALL_PRODUCT_TAGS, default=[])
@@ -1076,7 +1076,7 @@ def main():
                 download_csv(st.session_state.utterances_df, f"utterances_full_gong_{start_date_str}_to_{end_date_str}.csv", "Utterances - Full CSV")
                 download_csv(st.session_state.utterances_filtered_df, f"utterances_filtered_gong_{start_date_str}_to_{end_date_str}.csv", "Utterances - Filtered CSV")
             with col2:
-                download_csv(st.session_state.included_calls_df, f"summary_included_gong_{start_date_str}_to_{end_date_str}.csv", "Summary - Included CSV")
+                download_csv(st.session_state.included_calls_df, f"summary529_included_gong_{start_date_str}_to_{end_date_str}.csv", "Summary - Included CSV")
                 download_csv(st.session_state.excluded_calls_df, f"summary_excluded_gong_{start_date_str}_to_{end_date_str}.csv", "Summary - Excluded CSV")
                 download_json(st.session_state.full_data, f"calls_full_gong_{start_date_str}_to_{end_date_str}.json", "Calls - Full JSON")
     
