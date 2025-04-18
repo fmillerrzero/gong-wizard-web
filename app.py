@@ -550,44 +550,19 @@ def download_json(data: Any, filename: str, label: str):
         logger.error(f"JSON download error for {filename}: {str(e)}")
 
 def main():
+    st.title("📞 Gong Wizard")
+    st.write("✅ App started. Waiting for input...")
+    st.info("If you're seeing this, `main()` is rendering correctly.")
+
+    # Early exit to confirm app is alive
+    if st.sidebar.checkbox("Startup Test Mode", value=True):
+        st.success("✅ Startup Test Mode active — skipping Gong API and rendering UI early.")
+        return
+
     try:
         if "main_entered" not in st.session_state:
             logger.info("💡 Entered main()")
             st.session_state.main_entered = True
-        st.write("✅ App started")
-        
-        # Startup test mode option
-        startup_test = st.sidebar.checkbox("Startup Test Mode", value=False)
-        
-        if startup_test:
-            st.title("📞 Gong Wizard - Startup Diagnostic")
-            st.write("Running in startup test mode to diagnose issues")
-            
-            st.subheader("1. Environment Check")
-            st.write(f"Python version: {os.sys.version}")
-            st.write(f"Working directory: {os.getcwd()}")
-            
-            st.subheader("2. Domain List Loading Test")
-            try:
-                domain_lists = load_domain_lists_from_google()
-                st.write(f"Domain lists loaded: {domain_lists.keys()}")
-                st.write(f"Occupancy Analytics domains: {len(domain_lists['occupancy_analytics'])}")
-                st.write(f"Owner Offering domains: {len(domain_lists['owner_offering'])}")
-                
-                if domain_lists['occupancy_analytics']:
-                    st.write("Sample Occupancy Analytics domains:")
-                    st.write(list(domain_lists['occupancy_analytics'])[:5])
-                
-                if domain_lists['owner_offering']:
-                    st.write("Sample Owner Offering domains:")
-                    st.write(list(domain_lists['owner_offering'])[:5])
-            except Exception as e:
-                st.error(f"Error loading domain lists: {str(e)}")
-            
-            st.success("Startup diagnostic completed")
-            return
-        
-        st.title("📞 Gong Wizard")
         
         with st.sidebar:
             st.header("Configuration")
@@ -695,7 +670,7 @@ def main():
                 included_calls_df, excluded_calls_df = prepare_call_tables(full_data, selected_products, high_quality_call_ids)
                 
                 utterances_filtered_df = pd.DataFrame(columns=utterances_df.columns) if included_calls_df.empty else (
-                    utterancesACE_df[utterances_df["quality"] == "high"][utterances_df["call_id"].isin(set(included_calls_df["call_id"]))] if "call_id" in included_calls_df.columns else pd.DataFrame(columns=utterances_df.columns)
+                    utterances_df[utterances_df["quality"] == "high"][utterances_df["call_id"].isin(set(included_calls_df["call_id"]))] if "call_id" in included_calls_df.columns else pd.DataFrame(columns=utterances_df.columns)
                 )
                 
                 st.session_state.utterances_df = utterances_df
