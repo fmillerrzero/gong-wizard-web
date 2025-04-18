@@ -4,6 +4,7 @@ import requests
 import base64
 import json
 import time
+import os
 from urllib.parse import urlparse
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Set, Tuple
@@ -104,6 +105,7 @@ SYNTHETIC_TRANSCRIPTS = {
 # Synthetic edge cases (abridged)
 SYNTHETIC_EDGE_CALLS = [
     {
+        "metaData": {"id": "call_1", "title": "Test Call 1", "started": "2025-04-17T15:45:36.540364Z"},
         "context": [{
             "objects": [{
                 "objectType": "Account",
@@ -145,41 +147,83 @@ def load_domain_lists():
         "occupancy_analytics": set(),
         "owner_offering": set()
     }
+    
+    # Log file existence check
+    occupancy_file = "Occupancy Analytics Tenant Customers Gong Bot Sheet3.csv"
+    owner_file = "Owner Orgs Gong Bot Sheet3.csv"
+    
+    logger.info(f"Current directory: {os.getcwd()}")
+    logger.info(f"Files in directory: {os.listdir('.')}")
+    logger.info(f"Checking for file existence - Occupancy: {os.path.exists(occupancy_file)}, Owner: {os.path.exists(owner_file)}")
+    
     try:
-        occupancy_df = pd.read_csv("Occupancy Analytics Tenant Customers Gong Bot Sheet3.csv", header=None, names=["domain"])
-        if "domain" not in occupancy_df.columns:
-            raise ValueError("Occupancy Analytics CSV missing 'domain' column")
-        occupancy_domains = set(occupancy_df["domain"].str.lower().dropna().apply(extract_domain).tolist())
-        domain_lists["occupancy_analytics"] = occupancy_domains
+        if os.path.exists(occupancy_file):
+            logger.info(f"Reading occupancy file: {occupancy_file}")
+            # Try to read the first few lines to debug
+            try:
+                with open(occupancy_file, 'r', encoding='utf-8') as f:
+                    first_lines = [next(f) for _ in range(5) if _ < 5]
+                    logger.info(f"First lines of occupancy file: {first_lines}")
+            except Exception as e:
+                logger.warning(f"Could not read occupancy file directly: {str(e)}")
+            
+            try:
+                occupancy_df = pd.read_csv(occupancy_file, header=None, names=["domain"], encoding='utf-8')
+                logger.info(f"Occupancy DataFrame shape: {occupancy_df.shape}")
+                logger.info(f"Occupancy DataFrame head: {occupancy_df.head().to_dict()}")
+                
+                if "domain" in occupancy_df.columns:
+                    occupancy_domains = set(occupancy_df["domain"].str.lower().dropna().apply(extract_domain).tolist())
+                    domain_lists["occupancy_analytics"] = occupancy_domains
+                    logger.info(f"Loaded {len(domain_lists['occupancy_analytics'])} Occupancy Analytics domains")
+                else:
+                    logger.warning(f"Columns in occupancy DF: {occupancy_df.columns.tolist()}")
+            except Exception as e:
+                logger.error(f"Error processing occupancy file: {str(e)}")
+                st.sidebar.error(f"Error processing occupancy file: {str(e)}")
+        else:
+            logger.warning(f"Occupancy file not found: {occupancy_file}")
+            st.sidebar.warning(f"Occupancy file not found: {occupancy_file}")
         
-        owner_df = pd.read_csv("Owner Orgs Gong Bot Sheet3.csv", header=None, names=["domain"])
-        if "domain" not in owner_df.columns:
-            raise ValueError("Owner Orgs CSV missing 'domain' column")
-        owner_domains = set(owner_df["domain"].str.lower().dropna().apply(extract_domain).tolist())
-        domain_lists["owner_offering"] = owner_domains
-        
-        logger.info(f"Loaded {len(domain_lists['occupancy_analytics'])} Occupancy Analytics domains and {len(domain_lists['owner_offering'])} Owner Offering domains")
+        if os.path.exists(owner_file):
+            logger.info(f"Reading owner file: {owner_file}")
+            try:
+                with open(owner_file, 'r', encoding='utf-8') as f:
+                    first_lines = [next(f) for _ in range(5) if _ < 5]
+                    logger.info(f"First lines of owner file: {first_lines}")
+            except Exception as e:
+                logger.warning(f"Could not read owner file directly: {str(e)}")
+            
+            try:
+                owner_df = pd.read_csv(owner_file, header=None, names=["domain"], encoding='utf-8')
+                logger.info(f"Owner DataFrame shape: {owner_df.shape}")
+                logger.info(f"Owner DataFrame head: {owner_df.head().to_dict()}")
+                
+                if "domain" in owner_df.columns:
+                    owner_domains = set(owner_df["domain"].str.lower().dropna().apply(extract_domain).tolist())
+                    domain_lists["owner_offering"] = owner_domains
+                    logger.info(f"Loaded {len(domain_lists['owner_offering'])} Owner Offering domains")
+                else:
+                    logger.warning(f"Columns in owner DF: {owner_df.columns.tolist()}")
+            except Exception as e:
+                logger.error(f"Error processing owner file: {str(e)}")
+                st.sidebar.error(f"Error processing owner file: {str(e)}")
+        else:
+            logger.warning(f"Owner file not found: {owner_file}")
+            st.sidebar.warning(f"Owner file not found: {owner_file}")
         
         # Check for overlaps
-        overlaps = occupancy_domains.intersection(owner_domains)
+        overlaps = domain_lists["occupancy_analytics"].intersection(domain_lists["owner_offering"])
         if overlaps:
-            st.warning(f"Domain overlaps detected: {overlaps}. Calls may be tagged with both products.")
-    except FileNotFoundError as e:
-        st.sidebar.error(f"Domain list file not found: {str(e)}. Using empty domain lists.")
-        logger.error(f"Domain list file not found: {str(e)}")
-    except ValueError as e:
-        st.sidebar.error(f"Domain list file error: {str(e)}. Using empty domain lists.")
-        logger.error(f"Domain list file error: {str(e)}")
+            logger.warning(f"Domain overlaps detected: {overlaps}. Calls may be tagged with both products.")
+            st.sidebar.warning(f"Domain overlaps detected. Calls may be tagged with both products.")
     except Exception as e:
-        st.sidebar.error(f"Error loading domain lists: {str(e)}. Using empty domain lists.")
-        logger.error(f"Domain list load error: {str(e)}")
+        logger.error(f"Domain list load error: {str(e)}", exc_info=True)  # Include full traceback
+        st.sidebar.error(f"Domain list load error: {str(e)}")
     
     if not domain_lists["occupancy_analytics"] and not domain_lists["owner_offering"]:
-        st.error("Domain lists are empty. Domain-based product tagging will not function.")
-    elif not domain_lists["occupancy_analytics"]:
-        st.warning("Occupancy Analytics domain list is empty.")
-    elif not domain_lists["owner_offering"]:
-        st.warning("Owner Offering domain list is empty.")
+        st.sidebar.warning("Domain lists are empty. Using test data for domain-based product tagging.")
+        return TEST_DOMAIN_LISTS
     
     return domain_lists
 
@@ -738,227 +782,308 @@ def run_test_harness(selected_products: List[str], debug_mode: bool = False):
             st.subheader("Debug: Speaker Matching Info")
             st.json(st.session_state.debug_speaker_info[:10])
 
-import logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
 def main():
-    logger.info("💡 Entered main()")
-    st.write("✅ App started")  # Early UI test
-    st.title("📞 Gong Wizard")
-    
-    with st.sidebar:
-        st.header("Configuration")
-        access_key = st.text_input("Gong Access Key", type="password")
-        secret_key = st.text_input("Gong Secret Key", type="password")
+    try:
+        logger.info("💡 Entered main()")
+        st.write("✅ App started")  # Early UI test
         
-        today = datetime.today().date()
-        if "start_date" not in st.session_state:
-            st.session_state.start_date = today - timedelta(days=7)
-        if "end_date" not in st.session_state:
-            st.session_state.end_date = today
+        # Add more debug output at the very beginning
+        st.write("📊 Debug Info")
+        st.write(f"Current directory: {os.getcwd()}")
+        st.write(f"Files in directory: {os.listdir('.')}")
         
-        st.session_state.start_date = st.date_input("From Date", value=st.session_state.start_date)
-        st.session_state.end_date = st.date_input("To Date", value=st.session_state.end_date)
+        # Startup test mode option
+        startup_test = st.sidebar.checkbox("Startup Test Mode", value=True)
         
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("Last 7 Days"):
-                st.session_state.start_date = today - timedelta(days=7)
-                st.session_state.end_date = today
-                st.rerun()
-        with col2:
-            if st.button("Last 30 Days"):
-                st.session_state.start_date = today - timedelta(days=30)
-                st.session_state.end_date = today
-                st.rerun()
-        
-        select_all = st.checkbox("Select All Products", value=True)
-        selected_products = ALL_PRODUCT_TAGS if select_all else st.multiselect("Product", ALL_PRODUCT_TAGS, default=[])
-        if select_all:
-            st.multiselect("Product", ["Select All"] + ALL_PRODUCT_TAGS, default=["Select All"], disabled=True, help="Deselect 'Select All Products' to choose specific products.")
-        
-        debug_mode = st.checkbox("Debug Mode", value=False)
-        run_test = st.checkbox("Run Test Harness", value=False)
-        submit = st.button("Submit")
-    
-    domain_lists = load_domain_lists()
-    debug_domain_matches = []
-    
-    if run_test:
-        run_test_harness(selected_products, debug_mode)
-        return
-    
-    if not submit:
-        st.info("Configure settings and click Submit to process Gong data.")
-        return
-    
-    if not access_key or not secret_key:
-        st.error("Please provide both Gong Access Key and Secret Key.")
-        return
-    
-    if st.session_state.start_date > st.session_state.end_date:
-        st.error("Start date must be before or equal to end date.")
-        return
-    
-    required_keys = ["utterances_df", "utterances_filtered_df", "included_calls_df", "excluded_calls_df", "full_data"]
-    if not all(k in st.session_state for k in required_keys):
-        with st.spinner("Fetching calls..."):
-            session = requests.Session()
-            headers = create_auth_header(access_key, secret_key)
-            session.headers.update(headers)
-            try:
-                call_ids = fetch_call_list(session, st.session_state.start_date.isoformat() + "T00:00:00Z", st.session_state.end_date.isoformat() + "T23:59:59Z")
-                if not call_ids:
-                    st.error("No calls found in the selected date range.")
-                    return
-            except Exception as e:
-                st.error(f"Failed to fetch call list: {str(e)}")
-                return
+        if startup_test:
+            st.title("📞 Gong Wizard - Startup Diagnostic")
+            st.write("Running in startup test mode to diagnose issues")
             
-            full_data = []
-            dropped_calls_count = 0
-            batch_size = 50
-            for i in range(0, len(call_ids), batch_size):
-                batch = call_ids[i:i + batch_size]
+            # Test individual components
+            st.subheader("1. Environment Check")
+            st.write(f"Python version: {os.sys.version}")
+            st.write(f"Working directory: {os.getcwd()}")
+            
+            st.subheader("2. File System Check")
+            files = os.listdir('.')
+            st.write(f"Files in directory: {files}")
+            
+            # Check CSV files specifically
+            csv_files = [f for f in files if f.endswith('.csv')]
+            st.write(f"CSV files found: {csv_files}")
+            
+            for csv_file in csv_files:
+                st.write(f"Details for {csv_file}:")
                 try:
-                    details = fetch_call_details(session, batch)
-                    transcripts = fetch_transcript(session, batch)
+                    stat_info = os.stat(csv_file)
+                    st.write(f"- Size: {stat_info.st_size} bytes")
+                    st.write(f"- Last modified: {datetime.fromtimestamp(stat_info.st_mtime)}")
                     
-                    if debug_mode and i == 0 and details:
-                        st.subheader("Debug Information")
-                        st.write(f"Number of calls found: {len(call_ids)}")
-                        if details:
-                            st.subheader("First Call Raw Data")
-                            account_context = next((ctx for ctx in details[0].get("context", []) if any(obj.get("objectType") == "Account" for obj in ctx.get("objects", []))), {})
-                            account_id = next((obj.get("objectId", "Unknown") for obj in account_context.get("objects", []) if obj.get("objectType") == "Account"), "Unknown")
-                            st.write(f"Account ID from API: {account_id}")
-                            st.subheader("Parties/Speakers Data")
-                            st.json(details[0].get("parties", [])[:3])
-                    
-                    for call in details:
-                        call_id = call.get("metaData", {}).get("id", "")
-                        call_transcript = transcripts.get(call_id, [])
-                        normalized_data = normalize_call_data(call, call_transcript, domain_lists, debug_domain_matches)
-                        if normalized_data and normalized_data.get("metaData"):
-                            full_data.append(normalized_data)
-                        else:
-                            dropped_calls_count += 1
-                            logger.warning(f"Dropped call {call_id} due to normalization failure")
+                    # Try to read first few lines
+                    try:
+                        with open(csv_file, 'r', encoding='utf-8') as f:
+                            first_lines = [next(f) for _ in range(5) if _ < 5]
+                            st.write("- First lines:")
+                            for i, line in enumerate(first_lines):
+                                st.code(f"Line {i+1}: {line.strip()}")
+                    except Exception as e:
+                        st.write(f"- Could not read file content: {str(e)}")
                 except Exception as e:
-                    st.error(f"Error processing batch starting with call ID {batch[0]}: {str(e)}")
-                    continue
+                    st.write(f"- Error getting file stats: {str(e)}")
             
-            if not full_data:
-                st.error("No call details processed. Check API credentials and try again.")
-                return
+            # Try to load domain lists
+            st.subheader("3. Domain List Loading Test")
+            try:
+                domain_lists = load_domain_lists()
+                st.write(f"Domain lists loaded: {domain_lists.keys()}")
+                st.write(f"Occupancy Analytics domains: {len(domain_lists['occupancy_analytics'])}")
+                st.write(f"Owner Offering domains: {len(domain_lists['owner_offering'])}")
+                
+                # Show sample domains
+                if domain_lists['occupancy_analytics']:
+                    st.write("Sample Occupancy Analytics domains:")
+                    st.write(list(domain_lists['occupancy_analytics'])[:5])
+                
+                if domain_lists['owner_offering']:
+                    st.write("Sample Owner Offering domains:")
+                    st.write(list(domain_lists['owner_offering'])[:5])
+            except Exception as e:
+                st.error(f"Error loading domain lists: {str(e)}")
             
-            utterances_df = prepare_utterances_df(full_data)
-            high_quality_call_ids = set(utterances_df[utterances_df["quality"] == "high"]["call_id"])
-            included_calls_df, excluded_calls_df = prepare_call_tables(full_data, selected_products, high_quality_call_ids)
+            # Test synthetic data
+            st.subheader("4. Synthetic Data Test")
+            st.write("Testing with synthetic data...")
+            try:
+                test_harness_btn = st.button("Run Synthetic Data Test")
+                if test_harness_btn:
+                    run_test_harness(ALL_PRODUCT_TAGS, True)
+            except Exception as e:
+                st.error(f"Error in test harness: {str(e)}")
             
-            utterances_filtered_df = pd.DataFrame(columns=utterances_df.columns) if included_calls_df.empty else (
-                utterances_df[utterances_df["quality"] == "high"][utterances_df["call_id"].isin(set(included_calls_df["call_id"]))] if "call_id" in included_calls_df.columns else pd.DataFrame(columns=utterances_df.columns)
-            )
+            # End of test mode
+            st.success("Startup diagnostic completed")
+            return
+        
+        st.title("📞 Gong Wizard")
+        
+        with st.sidebar:
+            st.header("Configuration")
+            access_key = st.text_input("Gong Access Key", type="password")
+            secret_key = st.text_input("Gong Secret Key", type="password")
             
-            st.session_state.utterances_df = utterances_df
-            st.session_state.utterances_filtered_df = utterances_filtered_df
-            st.session_state.included_calls_df = included_calls_df
-            st.session_state.excluded_calls_df = excluded_calls_df
-            st.session_state.full_data = full_data
-            st.session_state.debug_domain_matches = debug_domain_matches
-            st.session_state.dropped_calls_count = dropped_calls_count
-    
-    utterances_df = st.session_state.utterances_df
-    utterances_filtered_df = st.session_state.utterances_filtered_df
-    included_calls_df = st.session_state.included_calls_df
-    excluded_calls_df = st.session_state.excluded_calls_df
-    full_data = st.session_state.full_data
-    debug_domain_matches = st.session_state.debug_domain_matches
-    dropped_calls_count = st.session_state.dropped_calls_count
-    
-    if dropped_calls_count > 0:
-        st.warning(f"⚠️ {dropped_calls_count} calls were dropped due to normalization failures.")
-    
-    st.subheader("🔍 Auto QA Checks")
-    if "call_id" not in included_calls_df.columns or "call_id" not in excluded_calls_df.columns:
-        st.error("❌ ERROR: One or both DataFrames are missing the 'call_id' column.")
-    else:
-        included_ids = set(included_calls_df["call_id"])
-        excluded_ids = set(excluded_calls_df["call_id"])
-        overlap_ids = included_ids.intersection(excluded_ids)
-        st.success("✅ No overlap between included and excluded summary CSVs.") if not overlap_ids else st.error(f"❌ ERROR: {len(overlap_ids)} call(s) in both included and excluded summary!")
+            today = datetime.today().date()
+            if "start_date" not in st.session_state:
+                st.session_state.start_date = today - timedelta(days=7)
+            if "end_date" not in st.session_state:
+                st.session_state.end_date = today
+            
+            st.session_state.start_date = st.date_input("From Date", value=st.session_state.start_date)
+            st.session_state.end_date = st.date_input("To Date", value=st.session_state.end_date)
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("Last 7 Days"):
+                    st.session_state.start_date = today - timedelta(days=7)
+                    st.session_state.end_date = today
+                    st.rerun()
+            with col2:
+                if st.button("Last 30 Days"):
+                    st.session_state.start_date = today - timedelta(days=30)
+                    st.session_state.end_date = today
+                    st.rerun()
+            
+            select_all = st.checkbox("Select All Products", value=True)
+            selected_products = ALL_PRODUCT_TAGS if select_all else st.multiselect("Product", ALL_PRODUCT_TAGS, default=[])
+            if select_all:
+                st.multiselect("Product", ["Select All"] + ALL_PRODUCT_TAGS, default=["Select All"], disabled=True, help="Deselect 'Select All Products' to choose specific products.")
+            
+            debug_mode = st.checkbox("Debug Mode", value=False)
+            run_test = st.checkbox("Run Test Harness", value=False)
+            submit = st.button("Submit")
         
-        included_high_utterance_ids = set(utterances_filtered_df["call_id"]) if "call_id" in utterances_filtered_df.columns else set()
-        included_but_missing_utterance_ids = included_ids - included_high_utterance_ids
-        st.success("✅ All included calls have at least one high-quality utterance.") if not included_but_missing_utterance_ids else st.error(f"❌ ERROR: {len(included_but_missing_utterance_ids)} included calls have no high-quality utterances!")
+        domain_lists = load_domain_lists()
+        debug_domain_matches = []
         
-        excluded_check = excluded_calls_df[
-            (excluded_calls_df["products"] != "None") &
-            (~excluded_calls_df["reason"].str.contains("no high-quality utterances", case=False))
-        ]
-        st.success("✅ Excluded calls with product tags correctly labeled.") if excluded_check.empty else st.error(f"❌ ERROR: {len(excluded_check)} excluded calls with product tags are mislabeled.")
+        if run_test:
+            run_test_harness(selected_products, debug_mode)
+            return
+        
+        if not submit:
+            st.info("Configure settings and click Submit to process Gong data.")
+            return
+        
+        if not access_key or not secret_key:
+            st.error("Please provide both Gong Access Key and Secret Key.")
+            return
+        
+        if st.session_state.start_date > st.session_state.end_date:
+            st.error("Start date must be before or equal to end date.")
+            return
+        
+        required_keys = ["utterances_df", "utterances_filtered_df", "included_calls_df", "excluded_calls_df", "full_data"]
+        if not all(k in st.session_state for k in required_keys):
+            with st.spinner("Fetching calls..."):
+                session = requests.Session()
+                headers = create_auth_header(access_key, secret_key)
+                session.headers.update(headers)
+                try:
+                    call_ids = fetch_call_list(session, st.session_state.start_date.isoformat() + "T00:00:00Z", st.session_state.end_date.isoformat() + "T23:59:59Z")
+                    if not call_ids:
+                        st.error("No calls found in the selected date range.")
+                        return
+                except Exception as e:
+                    st.error(f"Failed to fetch call list: {str(e)}")
+                    return
+                
+                full_data = []
+                dropped_calls_count = 0
+                batch_size = 50
+                for i in range(0, len(call_ids), batch_size):
+                    batch = call_ids[i:i + batch_size]
+                    try:
+                        details = fetch_call_details(session, batch)
+                        transcripts = fetch_transcript(session, batch)
+                        
+                        if debug_mode and i == 0 and details:
+                            st.subheader("Debug Information")
+                            st.write(f"Number of calls found: {len(call_ids)}")
+                            if details:
+                                st.subheader("First Call Raw Data")
+                                account_context = next((ctx for ctx in details[0].get("context", []) if any(obj.get("objectType") == "Account" for obj in ctx.get("objects", []))), {})
+                                account_id = next((obj.get("objectId", "Unknown") for obj in account_context.get("objects", []) if obj.get("objectType") == "Account"), "Unknown")
+                                st.write(f"Account ID from API: {account_id}")
+                                st.subheader("Parties/Speakers Data")
+                                st.json(details[0].get("parties", [])[:3])
+                        
+                        for call in details:
+                            call_id = call.get("metaData", {}).get("id", "")
+                            call_transcript = transcripts.get(call_id, [])
+                            normalized_data = normalize_call_data(call, call_transcript, domain_lists, debug_domain_matches)
+                            if normalized_data and normalized_data.get("metaData"):
+                                full_data.append(normalized_data)
+                            else:
+                                dropped_calls_count += 1
+                                logger.warning(f"Dropped call {call_id} due to normalization failure")
+                    except Exception as e:
+                        st.error(f"Error processing batch starting with call ID {batch[0]}: {str(e)}")
+                        continue
+                
+                if not full_data:
+                    st.error("No call details processed. Check API credentials and try again.")
+                    return
+                
+                utterances_df = prepare_utterances_df(full_data)
+                high_quality_call_ids = set(utterances_df[utterances_df["quality"] == "high"]["call_id"])
+                included_calls_df, excluded_calls_df = prepare_call_tables(full_data, selected_products, high_quality_call_ids)
+                
+                utterances_filtered_df = pd.DataFrame(columns=utterances_df.columns) if included_calls_df.empty else (
+                    utterances_df[utterances_df["quality"] == "high"][utterances_df["call_id"].isin(set(included_calls_df["call_id"]))] if "call_id" in included_calls_df.columns else pd.DataFrame(columns=utterances_df.columns)
+                )
+                
+                st.session_state.utterances_df = utterances_df
+                st.session_state.utterances_filtered_df = utterances_filtered_df
+                st.session_state.included_calls_df = included_calls_df
+                st.session_state.excluded_calls_df = excluded_calls_df
+                st.session_state.full_data = full_data
+                st.session_state.debug_domain_matches = debug_domain_matches
+                st.session_state.dropped_calls_count = dropped_calls_count
+        
+        utterances_df = st.session_state.utterances_df
+        utterances_filtered_df = st.session_state.utterances_filtered_df
+        included_calls_df = st.session_state.included_calls_df
+        excluded_calls_df = st.session_state.excluded_calls_df
+        full_data = st.session_state.full_data
+        debug_domain_matches = st.session_state.debug_domain_matches
+        dropped_calls_count = st.session_state.dropped_calls_count
+        
+        if dropped_calls_count > 0:
+            st.warning(f"⚠️ {dropped_calls_count} calls were dropped due to normalization failures.")
+        
+        st.subheader("🔍 Auto QA Checks")
+        if "call_id" not in included_calls_df.columns or "call_id" not in excluded_calls_df.columns:
+            st.error("❌ ERROR: One or both DataFrames are missing the 'call_id' column.")
+        else:
+            included_ids = set(included_calls_df["call_id"])
+            excluded_ids = set(excluded_calls_df["call_id"])
+            overlap_ids = included_ids.intersection(excluded_ids)
+            st.success("✅ No overlap between included and excluded summary CSVs.") if not overlap_ids else st.error(f"❌ ERROR: {len(overlap_ids)} call(s) in both included and excluded summary!")
+            
+            included_high_utterance_ids = set(utterances_filtered_df["call_id"]) if "call_id" in utterances_filtered_df.columns else set()
+            included_but_missing_utterance_ids = included_ids - included_high_utterance_ids
+            st.success("✅ All included calls have at least one high-quality utterance.") if not included_but_missing_utterance_ids else st.error(f"❌ ERROR: {len(included_but_missing_utterance_ids)} included calls have no high-quality utterances!")
+            
+            excluded_check = excluded_calls_df[
+                (excluded_calls_df["products"] != "None") &
+                (~excluded_calls_df["reason"].str.contains("no high-quality utterances", case=False))
+            ]
+            st.success("✅ Excluded calls with product tags correctly labeled.") if excluded_check.empty else st.error(f"❌ ERROR: {len(excluded_check)} excluded calls with product tags are mislabeled.")
+        
+        if debug_mode:
+            st.subheader("Debug: Quality Distribution")
+            if not utterances_df.empty:
+                quality_counts = utterances_df["quality"].value_counts()
+                st.json({q: f"{count} ({count/len(utterances_df)*100:.2f}%)" for q, count in quality_counts.items()})
+            
+            st.subheader("Debug: Internal Speaker Breakdown")
+            internal_utterances = utterances_df[utterances_df["quality"] == "internal"]
+            if not internal_utterances.empty:
+                internal_speaker_counts = internal_utterances.groupby("speaker_name").size().sort_values(ascending=False).head(10)
+                st.json({name: f"{count} ({count/len(internal_utterances)*100:.2f}%)" for name, count in internal_speaker_counts.items()})
+            
+            st.subheader("Debug: Product Tagging")
+            if full_data:
+                tag_counts = pd.Series([tag for call in full_data for tag in call.get("products", ["None"])]).value_counts()
+                st.json({tag: f"{count} ({count/len(full_data)*100:.2f}%)" for tag, count in tag_counts.items()})
+            
+            st.subheader("Debug: Tracker Matches")
+            st.json([call["tracker_matches"][:3] for call in full_data if call.get("tracker_matches", [])][:3])
+            
+            st.subheader("Debug: Domain Matches")
+            st.json(debug_domain_matches[:3])
+            
+            st.subheader("Debug: Sample Calls")
+            st.json([{k: call.get(k, "N/A") for k in ["call_id", "account_name", "domain", "products", "partial_data"]} for call in full_data[:3]])
+            
+            if "debug_speaker_info" in st.session_state:
+                st.subheader("Debug: Speaker Matching Info")
+                st.json(st.session_state.debug_speaker_info[:10])
+        
+        st.subheader("INCLUDED CALLS (Product Filter)")
+        st.write("Calls with no product tags are included by design.")
+        st.dataframe(included_calls_df)
+        
+        st.subheader("EXCLUDED CALLS (Product Filter)")
+        st.dataframe(excluded_calls_df)
+        
+        st.subheader("Utterance Processing Stats")
+        total_utterances = len(utterances_df)
+        if total_utterances > 0:
+            excluded_utterances = len(utterances_df[utterances_df["quality"] != "high"])
+            excluded_pct = excluded_utterances / total_utterances * 100
+            st.write(f"Total Utterances Processed: {total_utterances}")
+            st.write(f"Excluded from Filtered CSV: {excluded_utterances} ({excluded_pct:.2f}%)")
+            st.write("Exclusions by Reason:")
+            for reason in ["partial_data", "unknown_speaker", "internal", "low_quality_topic", "short"]:
+                count = len(utterances_df[utterances_df["quality"] == reason])
+                pct = count / total_utterances * 100
+                st.write(f"- {reason}: {count} ({pct:.2f}%)")
+        
+        with st.expander("Download Options"):
+            start_date_str = st.session_state.start_date.strftime("%d%b%y").lower()
+            end_date_str = st.session_state.end_date.strftime("%d%b%y").lower()
+            col1, col2 = st.columns(2)
+            with col1:
+                download_csv(st.session_state.utterances_df, f"utterances_full_gong_{start_date_str}_to_{end_date_str}.csv", "Utterances - Full CSV")
+                download_csv(st.session_state.utterances_filtered_df, f"utterances_filtered_gong_{start_date_str}_to_{end_date_str}.csv", "Utterances - Filtered CSV")
+            with col2:
+                download_csv(st.session_state.included_calls_df, f"summary_included_gong_{start_date_str}_to_{end_date_str}.csv", "Summary - Included CSV")
+                download_csv(st.session_state.excluded_calls_df, f"summary_excluded_gong_{start_date_str}_to_{end_date_str}.csv", "Summary - Excluded CSV")
+                download_json(st.session_state.full_data, f"calls_full_gong_{start_date_str}_to_{end_date_str}.json", "Calls - Full JSON")
     
-    if debug_mode:
-        st.subheader("Debug: Quality Distribution")
-        if not utterances_df.empty:
-            quality_counts = utterances_df["quality"].value_counts()
-            st.json({q: f"{count} ({count/len(utterances_df)*100:.2f}%)" for q, count in quality_counts.items()})
-        
-        st.subheader("Debug: Internal Speaker Breakdown")
-        internal_utterances = utterances_df[utterances_df["quality"] == "internal"]
-        if not internal_utterances.empty:
-            internal_speaker_counts = internal_utterances.groupby("speaker_name").size().sort_values(ascending=False).head(10)
-            st.json({name: f"{count} ({count/len(internal_utterances)*100:.2f}%)" for name, count in internal_speaker_counts.items()})
-        
-        st.subheader("Debug: Product Tagging")
-        if full_data:
-            tag_counts = pd.Series([tag for call in full_data for tag in call.get("products", ["None"])]).value_counts()
-            st.json({tag: f"{count} ({count/len(full_data)*100:.2f}%)" for tag, count in tag_counts.items()})
-        
-        st.subheader("Debug: Tracker Matches")
-        st.json([call["tracker_matches"][:3] for call in full_data if call.get("tracker_matches", [])][:3])
-        
-        st.subheader("Debug: Domain Matches")
-        st.json(debug_domain_matches[:3])
-        
-        st.subheader("Debug: Sample Calls")
-        st.json([{k: call.get(k, "N/A") for k in ["call_id", "account_name", "domain", "products", "partial_data"]} for call in full_data[:3]])
-        
-        if "debug_speaker_info" in st.session_state:
-            st.subheader("Debug: Speaker Matching Info")
-            st.json(st.session_state.debug_speaker_info[:10])
-    
-    st.subheader("INCLUDED CALLS (Product Filter)")
-    st.write("Calls with no product tags are included by design.")
-    st.dataframe(included_calls_df)
-    
-    st.subheader("EXCLUDED CALLS (Product Filter)")
-    st.dataframe(excluded_calls_df)
-    
-    st.subheader("Utterance Processing Stats")
-    total_utterances = len(utterances_df)
-    if total_utterances > 0:
-        excluded_utterances = len(utterances_df[utterances_df["quality"] != "high"])
-        excluded_pct = excluded_utterances / total_utterances * 100
-        st.write(f"Total Utterances Processed: {total_utterances}")
-        st.write(f"Excluded from Filtered CSV: {excluded_utterances} ({excluded_pct:.2f}%)")
-        st.write("Exclusions by Reason:")
-        for reason in ["partial_data", "unknown_speaker", "internal", "low_quality_topic", "short"]:
-            count = len(utterances_df[utterances_df["quality"] == reason])
-            pct = count / total_utterances * 100
-            st.write(f"- {reason}: {count} ({pct:.2f}%)")
-    
-    with st.expander("Download Options"):
-        start_date_str = st.session_state.start_date.strftime("%d%b%y").lower()
-        end_date_str = st.session_state.end_date.strftime("%d%b%y").lower()
-        col1, col2 = st.columns(2)
-        with col1:
-            download_csv(st.session_state.utterances_df, f"utterances_full_gong_{start_date_str}_to_{end_date_str}.csv", "Utterances - Full CSV")
-            download_csv(st.session_state.utterances_filtered_df, f"utterances_filtered_gong_{start_date_str}_to_{end_date_str}.csv", "Utterances - Filtered CSV")
-        with col2:
-            download_csv(st.session_state.included_calls_df, f"summary_included_gong_{start_date_str}_to_{end_date_str}.csv", "Summary - Included CSV")
-            download_csv(st.session_state.excluded_calls_df, f"summary_excluded_gong_{start_date_str}_to_{end_date_str}.csv", "Summary - Excluded CSV")
-            download_json(st.session_state.full_data, f"calls_full_gong_{start_date_str}_to_{end_date_str}.json", "Calls - Full JSON")
+    except Exception as e:
+        logger.error(f"Critical error in main: {str(e)}", exc_info=True)
+        st.error(f"Application error: {str(e)}")
+        st.write("Please check the logs for more details and contact support.")
 
-main()
+if __name__ == "__main__":
+    main()
