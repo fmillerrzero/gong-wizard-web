@@ -738,7 +738,13 @@ def run_test_harness(selected_products: List[str], debug_mode: bool = False):
             st.subheader("Debug: Speaker Matching Info")
             st.json(st.session_state.debug_speaker_info[:10])
 
+import logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 def main():
+    logger.info("💡 Entered main()")
+    st.write("✅ App started")  # Early UI test
     st.title("📞 Gong Wizard")
     
     with st.sidebar:
