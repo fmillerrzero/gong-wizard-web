@@ -278,16 +278,19 @@ def normalize_call_data(call_data: Dict[str, Any], transcript: List[Dict[str, An
     for obj in opportunity_context.get("objects", []):
         if obj.get("objectType") == "Opportunity":
             for field in obj.get("fields", []):
-                if field.get("name") == "Name":
-                    processed_data["opportunity_name"] = field.get("value", "")
+                if field.get("name") == "Name" and field.get("value"):
+                    processed_data["opportunity_name"] = field.get("value")
+                    break
+            if processed_data["opportunity_name"]:
+                break
 
     processed_data["account_name"] = account_name
     processed_data["account_id"] = account_id
     processed_data["account_website"] = account_website
 
     # Apply product tags
-    trackers = processed_data["content"].get("trackers", [])
-    tracker_counts = {t.get("name", ""): t.get("count", 0) for t in trackers}
+    trackers = processed_data.get("content", {}).get("trackers", [])
+    tracker_counts = {t.get("name", ""): t.get("count", 0) for t in trackers if isinstance(t, dict)}
     for product, trackers_or_patterns in PRODUCT_MAPPINGS.items():
         if product == "Occupancy Analytics":
             if apply_occupancy_analytics_tags(call_data):
@@ -659,7 +662,7 @@ def main():
                     "Download JSON Data"
                 )
 
-        except GongAPIError as e:
+        except KongAPIError as e:
             st.error(f"API Error: {e.message}")
         except Exception as e:
             st.error(f"Unexpected error: {str(e)}")
