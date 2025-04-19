@@ -662,7 +662,7 @@ def main():
                     "Download JSON Data"
                 )
 
-        except KongAPIError as e:
+        except GongAPIError as e:
             st.error(f"API Error: {e.message}")
         except Exception as e:
             st.error(f"Unexpected error: {str(e)}")
