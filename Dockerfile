@@ -7,14 +7,20 @@ WORKDIR /app
 # Copy requirements file
 COPY requirements.txt .
 
-# Install dependencies
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Install system dependencies (from your previous packages.txt)
+# Install build dependencies for pandas and other packages
 RUN apt-get update && apt-get install -y \
+    build-essential \
+    python3-dev \
+    libatlas-base-dev \
     zlib1g-dev \
     libjpeg-dev \
     && rm -rf /var/lib/apt/lists/*
+
+# Install dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Verify gunicorn is installed
+RUN which gunicorn || echo "gunicorn not found" >&2
 
 # Copy the application code
 COPY . .
