@@ -2,3 +2,7 @@ __pycache__/
 *.pyc
 *.log
 .DS_Store
+.streamlit/
+venv/
+env/
+*.env
