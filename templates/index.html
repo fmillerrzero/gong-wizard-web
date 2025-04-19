@@ -9,14 +9,16 @@
         .container { max-width: 600px; margin: auto; }
         .form-group { margin-bottom: 15px; }
         label { display: block; margin-bottom: 5px; }
-        input, select, button { width: 100%; padding: 8px; margin-bottom: 10px; box-sizing: border-box; }
-        select[multiple] { height: 150px; }
+        input, button { width: 100%; padding: 8px; margin-bottom: 10px; box-sizing: border-box; }
         button { background-color: #007bff; color: white; border: none; cursor: pointer; }
         button:hover { background-color: #0056b3; }
         .download-links { margin-top: 20px; }
         .download-links a { display: block; margin: 5px 0; color: #007bff; text-decoration: none; }
         .download-links a:hover { text-decoration: underline; }
         .message { color: #333; margin-top: 10px; }
+        .product-checkboxes { max-height: 150px; overflow-y: auto; padding: 5px; border: 1px solid #ccc; }
+        .product-checkboxes label { display: block; width: auto; padding: 2px 0; }
+        .product-checkboxes input { width: auto; margin-right: 5px; }
     </style>
 </head>
 <body>
@@ -49,14 +51,14 @@
                 <input type="date" id="end_date" name="end_date" value="{{ end_date }}">
             </div>
             <div class="form-group">
-                <label for="products">Products</label>
-                <select id="products" name="products" multiple>
-                    <option value="Select All" {% if 'Select All' in products %}selected{% endif %}>Select All</option>
-                    <option value="IAQ Monitoring" {% if 'IAQ Monitoring' in products %}selected{% endif %}>IAQ Monitoring</option>
-                    <option value="ODCV" {% if 'ODCV' in products %}selected{% endif %}>ODCV</option>
-                    <option value="Secure Air" {% if 'Secure Air' in products %}selected{% endif %}>Secure Air</option>
-                    <option value="Occupancy Analytics" {% if 'Occupancy Analytics' in products %}selected{% endif %}>Occupancy Analytics</option>
-                </select>
+                <label>Products</label>
+                <div class="product-checkboxes">
+                    <label><input type="checkbox" name="products" value="Select All" {% if 'Select All' in products %}checked{% endif %}> Select All</label>
+                    <label><input type="checkbox" name="products" value="IAQ Monitoring" {% if 'IAQ Monitoring' in products %}checked{% endif %}> IAQ Monitoring</label>
+                    <label><input type="checkbox" name="products" value="ODCV" {% if 'ODCV' in products %}checked{% endif %}> ODCV</label>
+                    <label><input type="checkbox" name="products" value="Secure Air" {% if 'Secure Air' in products %}checked{% endif %}> Secure Air</label>
+                    <label><input type="checkbox" name="products" value="Occupancy Analytics" {% if 'Occupancy Analytics' in products %}checked{% endif %}> Occupancy Analytics</label>
+                </div>
             </div>
             <button type="submit">Submit</button>
         </form>
