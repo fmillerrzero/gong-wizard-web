@@ -4,7 +4,7 @@ import requests
 import base64
 import json
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import logging
 from typing import Dict, List, Optional, Tuple, Any
 import pytz
@@ -52,6 +52,7 @@ class GongAPIError(Exception):
         self.message = message
         super().__init__(f"Gong API Error {status_code}: {message}")
 
+ GK
 def create_auth_header(access_key: str, secret_key: str) -> Dict[str, str]:
     """Create Basic Auth header for Gong API."""
     if not access_key or not secret_key:
@@ -534,13 +535,19 @@ def download_json(data: Dict[str, Any], filename: str, label: str):
         st.warning(f"No data available for {filename}")
 
 def main():
-    st.title("📞 Gong Data Processor")
+    st.set_page_config(page_title="Gong Wizard", layout="wide")
 
-    # Initialize session state
-    if "start_date" not in st.session_state:
-        st.session_state.start_date = datetime.today().date() - timedelta(days=7)
-    if "end_date" not in st.session_state:
-        st.session_state.end_date = datetime.today().date()
+    # Safe Session State Initialization (fixes silent crash)
+    defaults = {
+        "start_date": date.today() - timedelta(days=7),
+        "end_date": date.today(),
+        "selected_products": []
+    }
+    for key, value in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
+
+    st.title("📞 Gong Data Processor")
 
     with st.sidebar:
         st.header("Configuration")
@@ -550,18 +557,18 @@ def main():
         col1, col2, col3 = st.columns(3)
         with col1:
             if st.button("Last 7 Days"):
-                st.session_state.start_date = datetime.today().date() - timedelta(days=7)
-                st.session_state.end_date = datetime.today().date()
+                st.session_state.start_date = date.today() - timedelta(days=7)
+                st.session_state.end_date = date.today()
                 st.rerun()
         with col2:
             if st.button("Last 30 Days"):
-                st.session_state.start_date = datetime.today().date() - timedelta(days=30)
-                st.session_state.end_date = datetime.today().date()
+                st.session_state.start_date = date.today() - timedelta(days=30)
+                st.session_state.end_date = date.today()
                 st.rerun()
         with col3:
             if st.button("Last 90 Days"):
-                st.session_state.start_date = datetime.today().date() - timedelta(days=90)
-                st.session_state.end_date = datetime.today().date()
+                st.session_state.start_date = date.today() - timedelta(days=90)
+                st.session_state.end_date = date.today()
                 st.rerun()
 
         st.session_state.start_date = st.date_input("From Date", value=st.session_state.start_date)
@@ -569,11 +576,11 @@ def main():
 
         select_all = st.checkbox("Select All Products", value=True)
         if select_all:
-            selected_products = ["Select All"]
+            st.session_state.selected_products = ["Select All"]
             st.multiselect("Products", ["Select All"] + ALL_PRODUCT_TAGS, default=["Select All"], disabled=True)
         else:
             st.info("Calls with no product tags are included by default.")
-            selected_products = st.multiselect("Products", ALL_PRODUCT_TAGS, default=[])
+            st.session_state.selected_products = st.multiselect("Products", ALL_PRODUCT_TAGS, default=[])
 
         submit = st.button("Submit")
 
@@ -634,9 +641,9 @@ def main():
                 st.error("No valid call data retrieved.")
                 return
 
-            utterances_df = prepare_utterances_df(full_data, selected_products)
-            call_summary_df = prepare_call_summary_df(full_data, selected_products)
-            json_data = prepare_json_output(full_data, selected_products)
+            utterances_df = prepare_utterances_df(full_data, st.session_state.selected_products)
+            call_summary_df = prepare_call_summary_df(full_data, st.session_state.selected_products)
+            json_data = prepare_json_output(full_data, st.session_state.selected_products)
 
             start_date_str = st.session_state.start_date.strftime("%d%b%y").lower()
             end_date_str = st.session_state.end_date.strftime("%d%b%y").lower()
