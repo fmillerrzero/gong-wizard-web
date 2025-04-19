@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gong Wizard</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .container { max-width: 600px; margin: auto; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; }
+        input, select, button { width: 100%; padding: 8px; margin-bottom: 10px; }
+        button { background-color: #007bff; color: white; border: none; cursor: pointer; }
+        button:hover { background-color: #0056b3; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📞 Gong Data Processor</h1>
+        <form action="/process" method="post">
+            <div class="form-group">
+                <label for="access_key">Gong Access Key</label>
+                <input type="password" id="access_key" name="access_key" required>
+            </div>
+            <div class="form-group">
+                <label for="secret_key">Gong Secret Key</label>
+                <input type="password" id="secret_key" name="secret_key" required>
+            </div>
+            <div class="form-group">
+                <label>Time Range</label>
+                <input type="radio" id="last7" name="time_range" value="last7" onclick="toggleDateInputs()">
+                <label for="last7">Last 7 Days</label>
+                <input type="radio" id="last30" name="time_range" value="last30" onclick="toggleDateInputs()">
+                <label for="last30">Last 30 Days</label>
+                <input type="radio" id="last90" name="time_range" value="last90" onclick="toggleDateInputs()">
+                <label for="last90">Last 90 Days</label>
+                <input type="radio" id="custom" name="time_range" value="custom" onclick="toggleDateInputs()" checked>
+                <label for="custom">Custom</label>
+            </div>
+            <div class="form-group" id="custom_dates">
+                <label for="start_date">From Date</label>
+                <input type="date" id="start_date" name="start_date" value="{{ start_date }}">
+                <label for="end_date">To Date</label>
+                <input type="date" id="end_date" name="end_date" value="{{ end_date }}">
+            </div>
+            <div class="form-group">
+                <label for="products">Products</label>
+                <select id="products" name="products" multiple>
+                    <option value="Select All" selected>Select All</option>
+                    <option value="IAQ Monitoring">IAQ Monitoring</option>
+                    <option value="ODCV">ODCV</option>
+                    <option value="Secure Air">Secure Air</option>
+                    <option value="Occupancy Analytics">Occupancy Analytics</option>
+                </select>
+            </div>
+            <button type="submit">Submit</button>
+        </form>
+        {% if message %}
+        <p>{{ message }}</p>
+        {% endif %}
+    </div>
+    <script>
+        function toggleDateInputs() {
+            const customDates = document.getElementById('custom_dates');
+            const customRadio = document.getElementById('custom');
+            customDates.style.display = customRadio.checked ? 'block' : 'none';
+        }
+        toggleDateInputs();
+    </script>
+</body>
+</html>
