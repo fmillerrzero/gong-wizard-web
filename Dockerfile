@@ -10,16 +10,15 @@ RUN apt-get update && apt-get install -y \
     libjpeg-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Pre-install pandas to avoid build delays
-RUN pip install --no-cache-dir pandas==2.0.3
+# Pre-install numpy and pandas to avoid build delays and binary mismatches
+RUN pip install --no-cache-dir numpy==1.24.3 pandas==2.0.3
 
 # Now copy the app
 WORKDIR /app
 COPY . .
 
-# Install remaining dependencies (excluding pandas, already installed)
+# Install remaining dependencies (excluding numpy + pandas, already installed)
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Verify Gunicorn is installed and run the app
-RUN which gunicorn || echo "gunicorn not found" >&2
+# Run with Gunicorn
 CMD ["gunicorn", "--bind", "0.0.0.0:8000", "app:app"]

@@ -1,5 +1,8 @@
+flask==2.2.5
+gunicorn==21.2.0
 requests==2.31.0
-pandas==2.0.3
-pytz==2023.3
-flask==3.0.3
-gunicorn==22.0.0
+streamlit==1.32.2
+python-dotenv==1.0.1
+fuzzywuzzy==0.18.0
+python-Levenshtein==0.23.0
+tldextract==5.1.1
