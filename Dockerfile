@@ -20,5 +20,6 @@ COPY . .
 # Install remaining dependencies (excluding pandas, already installed)
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Run the app (change if not using Streamlit)
-CMD ["streamlit", "run", "app.py", "--server.port=8000", "--server.address=0.0.0.0"]
+# Verify Gunicorn is installed and run the app
+RUN which gunicorn || echo "gunicorn not found" >&2
+CMD ["gunicorn", "--bind", "0.0.0.0:8000", "app:app"]
