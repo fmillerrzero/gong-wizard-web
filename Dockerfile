@@ -1,13 +1,7 @@
-# Use an official Python runtime as the base image
-FROM python:3.12-slim
+# Use Python base image
+FROM python:3.11-slim
 
-# Set working directory
-WORKDIR /app
-
-# Copy requirements file
-COPY requirements.txt .
-
-# Install build dependencies for pandas and other packages
+# Install build essentials for compiling anything needed
 RUN apt-get update && apt-get install -y \
     build-essential \
     python3-dev \
@@ -16,17 +10,15 @@ RUN apt-get update && apt-get install -y \
     libjpeg-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Pre-install pandas to avoid build delays
+RUN pip install --no-cache-dir pandas==2.0.3
 
-# Verify gunicorn is installed
-RUN which gunicorn || echo "gunicorn not found" >&2
-
-# Copy the application code
+# Now copy the app
+WORKDIR /app
 COPY . .
 
-# Expose the port Render will use
-EXPOSE 8000
+# Install remaining dependencies (excluding pandas, already installed)
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Command to run the app
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "app:app"]
+# Run the app (change if not using Streamlit)
+CMD ["streamlit", "run", "app.py", "--server.port=8000", "--server.address=0.0.0.0"]
