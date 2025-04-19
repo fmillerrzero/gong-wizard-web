@@ -9,9 +9,14 @@
         .container { max-width: 600px; margin: auto; }
         .form-group { margin-bottom: 15px; }
         label { display: block; margin-bottom: 5px; }
-        input, select, button { width: 100%; padding: 8px; margin-bottom: 10px; }
+        input, select, button { width: 100%; padding: 8px; margin-bottom: 10px; box-sizing: border-box; }
+        select[multiple] { height: 150px; }
         button { background-color: #007bff; color: white; border: none; cursor: pointer; }
         button:hover { background-color: #0056b3; }
+        .download-links { margin-top: 20px; }
+        .download-links a { display: block; margin: 5px 0; color: #007bff; text-decoration: none; }
+        .download-links a:hover { text-decoration: underline; }
+        .message { color: #333; margin-top: 10px; }
     </style>
 </head>
 <body>
@@ -20,21 +25,21 @@
         <form action="/process" method="post">
             <div class="form-group">
                 <label for="access_key">Gong Access Key</label>
-                <input type="password" id="access_key" name="access_key" required>
+                <input type="password" id="access_key" name="access_key" value="{{ access_key }}" required>
             </div>
             <div class="form-group">
                 <label for="secret_key">Gong Secret Key</label>
-                <input type="password" id="secret_key" name="secret_key" required>
+                <input type="password" id="secret_key" name="secret_key" value="{{ secret_key }}" required>
             </div>
             <div class="form-group">
                 <label>Time Range</label>
-                <input type="radio" id="last7" name="time_range" value="last7" onclick="toggleDateInputs()">
+                <input type="radio" id="last7" name="time_range" value="last7" {% if time_range == 'last7' %}checked{% endif %} onclick="toggleDateInputs()">
                 <label for="last7">Last 7 Days</label>
-                <input type="radio" id="last30" name="time_range" value="last30" onclick="toggleDateInputs()">
+                <input type="radio" id="last30" name="time_range" value="last30" {% if time_range == 'last30' %}checked{% endif %} onclick="toggleDateInputs()">
                 <label for="last30">Last 30 Days</label>
-                <input type="radio" id="last90" name="time_range" value="last90" onclick="toggleDateInputs()">
+                <input type="radio" id="last90" name="time_range" value="last90" {% if time_range == 'last90' %}checked{% endif %} onclick="toggleDateInputs()">
                 <label for="last90">Last 90 Days</label>
-                <input type="radio" id="custom" name="time_range" value="custom" onclick="toggleDateInputs()" checked>
+                <input type="radio" id="custom" name="time_range" value="custom" {% if time_range == 'custom' or not time_range %}checked{% endif %} onclick="toggleDateInputs()">
                 <label for="custom">Custom</label>
             </div>
             <div class="form-group" id="custom_dates">
@@ -46,17 +51,25 @@
             <div class="form-group">
                 <label for="products">Products</label>
                 <select id="products" name="products" multiple>
-                    <option value="Select All" selected>Select All</option>
-                    <option value="IAQ Monitoring">IAQ Monitoring</option>
-                    <option value="ODCV">ODCV</option>
-                    <option value="Secure Air">Secure Air</option>
-                    <option value="Occupancy Analytics">Occupancy Analytics</option>
+                    <option value="Select All" {% if 'Select All' in products %}selected{% endif %}>Select All</option>
+                    <option value="IAQ Monitoring" {% if 'IAQ Monitoring' in products %}selected{% endif %}>IAQ Monitoring</option>
+                    <option value="ODCV" {% if 'ODCV' in products %}selected{% endif %}>ODCV</option>
+                    <option value="Secure Air" {% if 'Secure Air' in products %}selected{% endif %}>Secure Air</option>
+                    <option value="Occupancy Analytics" {% if 'Occupancy Analytics' in products %}selected{% endif %}>Occupancy Analytics</option>
                 </select>
             </div>
             <button type="submit">Submit</button>
         </form>
         {% if message %}
-        <p>{{ message }}</p>
+        <p class="message">{{ message }}</p>
+        {% endif %}
+        {% if show_download %}
+        <div class="download-links">
+            <h3>Download Files</h3>
+            <a href="/download/utterances">Download Filtered Utterances CSV</a>
+            <a href="/download/call_summary">Download Call Summary CSV</a>
+            <a href="/download/json">Download JSON Data</a>
+        </div>
         {% endif %}
     </div>
     <script>
@@ -64,8 +77,11 @@
             const customDates = document.getElementById('custom_dates');
             const customRadio = document.getElementById('custom');
             customDates.style.display = customRadio.checked ? 'block' : 'none';
+            console.log("toggleDateInputs called, customRadio.checked:", customRadio.checked);
         }
-        toggleDateInputs();
+        document.addEventListener('DOMContentLoaded', function() {
+            toggleDateInputs();
+        });
     </script>
 </body>
 </html>

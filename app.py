@@ -506,17 +506,22 @@ def prepare_json_output(calls: List[Dict[str, Any]], selected_products: List[str
 def index():
     start_date = (date.today() - timedelta(days=7)).strftime('%Y-%m-%d')
     end_date = date.today().strftime('%Y-%m-%d')
-    return render_template('index.html', start_date=start_date, end_date=end_date)
+    return render_template('index.html', start_date=start_date, end_date=end_date, time_range="custom", products=["Select All"], access_key="", secret_key="")
 
 @app.route('/process', methods=['POST'])
 def process():
-    access_key = request.form['access_key']
-    secret_key = request.form['secret_key']
-    time_range = request.form['time_range']
+    access_key = request.form.get('access_key', '')
+    secret_key = request.form.get('secret_key', '')
+    time_range = request.form.get('time_range', 'custom')
     products = request.form.getlist('products')
 
-    if not access_key or not secret_key:
-        return render_template('index.html', message="Please provide both Gong Access Key and Secret Key.")
+    # Prepare form state to pass back to the template
+    form_state = {
+        "access_key": access_key,
+        "secret_key": secret_key,
+        "time_range": time_range,
+        "products": products if products else ["Select All"]
+    }
 
     if time_range == 'last7':
         start_date = date.today() - timedelta(days=7)
@@ -532,10 +537,18 @@ def process():
             start_date = datetime.strptime(request.form['start_date'], '%Y-%m-%d').date()
             end_date = datetime.strptime(request.form['end_date'], '%Y-%m-%d').date()
         except ValueError:
-            return render_template('index.html', message="Invalid date format. Use YYYY-MM-DD.")
+            form_state["start_date"] = request.form.get('start_date', (date.today() - timedelta(days=7)).strftime('%Y-%m-%d'))
+            form_state["end_date"] = request.form.get('end_date', date.today().strftime('%Y-%m-%d'))
+            return render_template('index.html', message="Invalid date format. Use YYYY-MM-DD.", **form_state)
+
+    form_state["start_date"] = start_date.strftime('%Y-%m-%d')
+    form_state["end_date"] = end_date.strftime('%Y-%m-%d')
+
+    if not access_key or not secret_key:
+        return render_template('index.html', message="Please provide both Gong Access Key and Secret Key.", **form_state)
 
     if start_date > end_date:
-        return render_template('index.html', message="Start date cannot be after end date.")
+        return render_template('index.html', message="Start date cannot be after end date.", **form_state)
 
     try:
         session = requests.Session()
@@ -548,7 +561,7 @@ def process():
         )
 
         if not call_ids:
-            return render_template('index.html', message="No calls found for the selected date range.")
+            return render_template('index.html', message="No calls found for the selected date range.", **form_state)
 
         details = fetch_call_details(session, call_ids)
         transcripts = fetch_transcript(session, call_ids)
@@ -573,7 +586,7 @@ def process():
             message = ""
 
         if not full_data:
-            return render_template('index.html', message="No valid call data retrieved.")
+            return render_template('index.html', message="No valid call data retrieved.", **form_state)
 
         utterances_df = prepare_utterances_df(full_data, products)
         call_summary_df = prepare_call_summary_df(full_data, products)
@@ -594,13 +607,13 @@ def process():
         json_file = io.BytesIO(json_output.encode('utf-8'))
 
         message += f"\nTotal calls processed: {len(full_data)}\nFiltered utterances: {len(utterances_df)}"
-        return render_template('index.html', message=message, show_download=True)
+        return render_template('index.html', message=message, show_download=True, **form_state)
 
     except GongAPIError as e:
-        return render_template('index.html', message=f"API Error: {e.message}")
+        return render_template('index.html', message=f"API Error: {e.message}", **form_state)
     except Exception as e:
         logger.exception("Unexpected error in process")
-        return render_template('index.html', message=f"Unexpected error: {str(e)}")
+        return render_template('index.html', message=f"Unexpected error: {str(e)}", **form_state)
 
 @app.route('/download/utterances')
 def download_utterances():
