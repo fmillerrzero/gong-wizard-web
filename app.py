@@ -96,7 +96,7 @@ def fetch_call_list(session: requests.Session, from_date: str, to_date: str) -> 
                 elif is_retryable_error(response.status_code):
                     wait_time = int(response.headers.get("Retry-After", (2 ** attempt) * 2))
                     if response.status_code == 429:
-                        error_message = response.text.lower() if response.text is not None else "No response text"
+                        error_message = response.text.lower() if isinstance(response.text, str) else "No response text"
                         if "daily limit" in error_message:
                             raise GongAPIError(429, "Daily API call limit (10,000) exceeded. Try again tomorrow.")
                     logger.warning(f"Retryable error {response.status_code}, waiting {wait_time}s")
@@ -154,7 +154,7 @@ def fetch_call_details(session: requests.Session, call_ids: List[str]) -> List[D
                         wait_time = int(response.headers.get("Retry-After", (2 ** attempt) * 2))
                         if response.status_code == 429:
                             response_text = response.text if response.text is not None else ""
-                            error_message = response_text.lower() if response_text is not None else "No response text"
+                            error_message = response_text.lower() if isinstance(response_text, str) else "No response text"
                             if "daily limit" in error_message:
                                 raise GongAPIError(429, "Daily API call limit (10,000) exceeded. Try again tomorrow.")
                         logger.warning(f"Retryable error {response.status_code}, waiting {wait_time}s")
@@ -207,8 +207,10 @@ def fetch_transcript(session: requests.Session, call_ids: List[str]) -> Dict[str
                         raise GongAPIError(response.status_code, "Permission denied: Check API key permissions or required scopes (api:calls:read:extensive, api:calls:read:media-url).")
                     elif is_retryable_error(response.status_code):
                         wait_time = int(response.headers.get("Retry-After", (2 ** attempt) * 2))
-                        if response.status_code == 429 and response.text is not None and "daily limit" in response.text.lower():
-                            raise GongAPIError(429, "Daily API call limit (10,000) exceeded. Try again tomorrow.")
+                        if response.status_code == 429 and response.text is not None:
+                            error_message = response.text.lower() if isinstance(response.text, str) else "No response text"
+                            if "daily limit" in error_message:
+                                raise GongAPIError(429, "Daily API call limit (10,000) exceeded. Try again tomorrow.")
                         logger.warning(f"Retryable error {response.status_code}, waiting {wait_time}s")
                         time.sleep(wait_time)
                         continue
@@ -270,7 +272,6 @@ def normalize_call_data(call_data: Dict[str, Any], transcript: List[Dict[str, An
                     account_website = field.get("value", "Unknown")
                 if field.get("name") == "Industry":
                     processed_data["account_industry"] = field.get("value", "")
-
     opportunity_context = next((ctx for ctx in processed_data["context"] if any(obj.get("objectType") == "Opportunity" for obj in ctx.get("objects", []))), {})
     for obj in opportunity_context.get("objects", []):
         if obj.get("objectType") == "Opportunity":
@@ -325,15 +326,16 @@ def get_primary_speakers(call: Dict[str, Any]) -> Tuple[str, str, str]:
         if speaker_id not in speaker_counts:
             continue
         count = speaker_counts[speaker_id]
-        affiliation = party.get("affiliation", "unknown").lower()
+        affiliation = party.get("affiliation", "unknown")
+        affiliation_lower = affiliation.lower() if isinstance(affiliation, str) else "unknown"
 
-        if affiliation == "internal" and count > max_internal:
+        if affiliation_lower == "internal" and count > max_internal:
             internal_speaker = format_speaker(party)
             max_internal = count
-        elif affiliation == "external" and count > max_external:
+        elif affiliation_lower == "external" and count > max_external:
             external_speaker = format_speaker(party)
             max_external = count
-        elif affiliation == "unknown" and count > max_unknown:
+        elif affiliation_lower == "unknown" and count > max_unknown:
             unknown_speaker = format_speaker(party)
             max_unknown = count
 
@@ -405,12 +407,13 @@ def prepare_utterances_df(calls: List[Dict[str, Any]], selected_products: List[s
 
             speaker_id = utterance.get("speakerId", "")
             speaker = speaker_info.get(speaker_id, {})
-            affiliation = speaker.get("affiliation", "unknown").lower()
-            if affiliation == "internal":
+            affiliation = speaker.get("affiliation", "unknown")
+            affiliation_lower = affiliation.lower() if isinstance(affiliation, str) else "unknown"
+            if affiliation_lower == "internal":
                 continue
 
             topic = utterance.get("topic", "N/A")
-            if topic.lower() in ["call setup", "small talk"]:
+            if isinstance(topic, str) and topic.lower() in ["call setup", "small talk"]:
                 continue
 
             start_time = sentences[0].get("start", 0)
@@ -428,7 +431,7 @@ def prepare_utterances_df(calls: List[Dict[str, Any]], selected_products: List[s
                 "products": products_str,
                 "speaker_name": speaker.get("name", "Unknown"),
                 "speaker_job_title": speaker.get("jobTitle", ""),
-                "speaker_affiliation": affiliation,
+                "speaker_affiliation": affiliation_lower,
                 "speaker_email_address": speaker.get("emailAddress", ""),
                 "utterance_duration": duration,
                 "utterance_text": text,
@@ -490,12 +493,14 @@ def prepare_json_output(calls: List[Dict[str, Any]], selected_products: List[str
             speaker = speaker_info.get(speaker_id, {})
             start_time = sentences[0].get("start", 0)
             end_time = sentences[-1].get("end", 0)
+            affiliation = speaker.get("affiliation", "unknown")
+            affiliation_lower = affiliation.lower() if isinstance(affiliation, str) else "unknown"
 
             call_data["utterances"].append({
                 "timestamp": (start_time // 60000),
                 "speaker_name": speaker.get("name", "Unknown"),
                 "speaker_title": speaker.get("jobTitle", ""),
-                "speaker_affiliation": speaker.get("affiliation", "unknown").lower(),
+                "speaker_affiliation": affiliation_lower,
                 "speaker_email": speaker.get("emailAddress", ""),
                 "utterance_text": text,
                 "topic": utterance.get("topic", "N/A")
