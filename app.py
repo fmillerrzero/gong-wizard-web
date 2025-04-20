@@ -153,7 +153,8 @@ def fetch_call_details(session: requests.Session, call_ids: List[str]) -> List[D
                     elif is_retryable_error(response.status_code):
                         wait_time = int(response.headers.get("Retry-After", (2 ** attempt) * 2))
                         if response.status_code == 429:
-                            error_message = response.text.lower() if response.text else "No response text"
+                            response_text = response.text if response.text else ""
+                            error_message = response_text.lower()
                             if "daily limit" in error_message:
                                 raise GongAPIError(429, "Daily API call limit (10,000) exceeded. Try again tomorrow.")
                         logger.warning(f"Retryable error {response.status_code}, waiting {wait_time}s")
@@ -206,7 +207,7 @@ def fetch_transcript(session: requests.Session, call_ids: List[str]) -> Dict[str
                         raise GongAPIError(response.status_code, "Permission denied: Check API key permissions or required scopes (api:calls:read:extensive, api:calls:read:media-url).")
                     elif is_retryable_error(response.status_code):
                         wait_time = int(response.headers.get("Retry-After", (2 ** attempt) * 2))
-                        if response.status_code == 429 and "daily limit" in response.text.lower():
+                        if response.status_code == 429 and response.text and "daily limit" in response.text.lower():
                             raise GongAPIError(429, "Daily API call limit (10,000) exceeded. Try again tomorrow.")
                         logger.warning(f"Retryable error {response.status_code}, waiting {wait_time}s")
                         time.sleep(wait_time)
@@ -352,7 +353,7 @@ def prepare_call_summary_df(calls: List[Dict[str, Any]], selected_products: List
         other_topics_str = "|".join(t["name"] for t in other_topics) if other_topics else "none"
         internal_speaker, external_speaker, unknown_speaker = get_primary_speakers(call)
 
-        filtered_out = "yes" if products and not any(p in selected_products for p in products) and "Select All" not in selected_products else "no"
+        filtered_out = "yes" if products and not any(p in selected_products for p in products) else "no"
 
         data.append({
             "call_id": call_id,
@@ -389,7 +390,7 @@ def prepare_utterances_df(calls: List[Dict[str, Any]], selected_products: List[s
         products = sorted(set(p for p in call.get("products", []) if p in ALL_PRODUCT_TAGS))
         products_str = "|".join(products) if products else "none"
 
-        if products and not any(p in selected_products for p in products) and "Select All" not in selected_products:
+        if products and not any(p in selected_products for p in products):
             continue
 
         speaker_info = {p.get("speakerId", ""): p for p in call.get("parties", [])}
@@ -451,7 +452,8 @@ def prepare_json_output(calls: List[Dict[str, Any]], selected_products: List[str
         call_id = f'"{str(call["metaData"].get("id", ""))}"'
         call_date = convert_to_sf_time(call["metaData"].get("started", ""))
         products = sorted(set(p for p in call.get("products", []) if p in ALL_PRODUCT_TAGS))
-        if products and not any(p in selected_products for p in products) and "Select All" not in selected_products:
+        
+        if products and not any(p in selected_products for p in products):
             is_filtered = False
         else:
             is_filtered = True
@@ -510,7 +512,7 @@ def prepare_json_output(calls: List[Dict[str, Any]], selected_products: List[str
 def index():
     start_date = (date.today() - timedelta(days=7)).strftime('%Y-%m-%d')
     end_date = date.today().strftime('%Y-%m-%d')
-    return render_template('index.html', start_date=start_date, end_date=end_date, time_range="custom", products=["Select All"], access_key="", secret_key="")
+    return render_template('index.html', start_date=start_date, end_date=end_date, time_range="custom", products=ALL_PRODUCT_TAGS, access_key="", secret_key="")
 
 @app.route('/process', methods=['POST'])
 def process():
@@ -519,12 +521,11 @@ def process():
     time_range = request.form.get('time_range', 'custom')
     products = request.form.getlist('products')
 
-    # Prepare form state to pass back to the template
     form_state = {
         "access_key": access_key,
         "secret_key": secret_key,
         "time_range": time_range,
-        "products": products if products else ["Select All"]
+        "products": products if products else ALL_PRODUCT_TAGS
     }
 
     if time_range == 'last7':
@@ -599,7 +600,10 @@ def process():
         start_date_str = start_date.strftime("%d%b%y").lower()
         end_date_str = end_date.strftime("%d%b%y").lower()
 
-        # Store dataframes and JSON in memory for download
+        utterances_csv = utterances_df.to_csv(index=False)
+        call_summary_csv = call_summary_df.to_csv(index=False)
+        json_output = json.dumps(json_data, indent=2)
+
         global utterances_file, call_summary_file, json_file
         utterances_file = io.BytesIO(utterances_csv.encode('utf-8'))
         call_summary_file = io.BytesIO(call_summary_csv.encode('utf-8'))
@@ -648,4 +652,4 @@ def download_json():
     )
 
 if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=8000, debug=True)
+    app.run(host='0.0.0.0', port=10000, debug=True)

@@ -1,8 +1,12 @@
 __pycache__/
-*.pyc
+*.py[cod]
 *.log
+.env
+.env.*
 .DS_Store
-.streamlit/
+*.sqlite3
+.vscode/
+*.egg-info/
+dist/
+build/
 venv/
-env/
-*.env
