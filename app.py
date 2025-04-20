@@ -92,16 +92,18 @@ def fetch_call_list(session: requests.Session, from_date: str, to_date: str) -> 
                     page_params["cursor"] = cursor
                     time.sleep(1)
                 elif response.status_code in (401, 403):
-                    raise GongAPIError(response.status_code, f"Authentication failed: {response.text}")
+                    raise GongAPIError(response.status_code, f"Authentication failed: {response.text or 'No response text'}")
                 elif is_retryable_error(response.status_code):
                     wait_time = int(response.headers.get("Retry-After", (2 ** attempt) * 2))
-                    if response.status_code == 429 and "daily limit" in response.text.lower():
-                        raise GongAPIError(429, "Daily API call limit (10,000) exceeded. Try again tomorrow.")
+                    if response.status_code == 429:
+                        error_message = response.text.lower() if response.text else "No response text"
+                        if "daily limit" in error_message:
+                            raise GongAPIError(429, "Daily API call limit (10,000) exceeded. Try again tomorrow.")
                     logger.warning(f"Retryable error {response.status_code}, waiting {wait_time}s")
                     time.sleep(wait_time)
                     continue
                 else:
-                    raise GongAPIError(response.status_code, f"API error: {response.text}")
+                    raise GongAPIError(response.status_code, f"API error: {response.text or 'No response text'}")
             break
         except requests.RequestException as e:
             if attempt < max_attempts - 1:
@@ -150,13 +152,15 @@ def fetch_call_details(session: requests.Session, call_ids: List[str]) -> List[D
                         raise GongAPIError(response.status_code, "Permission denied: Check API key permissions or required scopes (api:calls:read:extensive, api:calls:read:media-url).")
                     elif is_retryable_error(response.status_code):
                         wait_time = int(response.headers.get("Retry-After", (2 ** attempt) * 2))
-                        if response.status_code == 429 and "daily limit" in response.text.lower():
-                            raise GongAPIError(429, "Daily API call limit (10,000) exceeded. Try again tomorrow.")
+                        if response.status_code == 429:
+                            error_message = response.text.lower() if response.text else "No response text"
+                            if "daily limit" in error_message:
+                                raise GongAPIError(429, "Daily API call limit (10,000) exceeded. Try again tomorrow.")
                         logger.warning(f"Retryable error {response.status_code}, waiting {wait_time}s")
                         time.sleep(wait_time)
                         continue
                     else:
-                        raise GongAPIError(response.status_code, f"API error: {response.text}")
+                        raise GongAPIError(response.status_code, f"API error: {response.text or 'No response text'}")
                 except requests.RequestException as e:
                     if attempt < max_attempts - 1:
                         time.sleep((2 ** attempt) * 1)
@@ -596,11 +600,6 @@ def process():
         end_date_str = end_date.strftime("%d%b%y").lower()
 
         # Store dataframes and JSON in memory for download
-        utterances_csv = utterances_df.to_csv(index=False, encoding='utf-8-sig')
-        call_summary_csv = call_summary_df.to_csv(index=False, encoding='utf-8-sig')
-        json_output = json.dumps(json_data, indent=4, ensure_ascii=False, default=str)
-
-        # Save files temporarily for download (in memory)
         global utterances_file, call_summary_file, json_file
         utterances_file = io.BytesIO(utterances_csv.encode('utf-8'))
         call_summary_file = io.BytesIO(call_summary_csv.encode('utf-8'))
