@@ -19,9 +19,6 @@
         .product-checkboxes { max-height: 150px; overflow-y: auto; padding: 5px; border: 1px solid #ccc; }
         .product-checkboxes label { display: block; width: auto; padding: 2px 0; }
         .product-checkboxes input { width: auto; margin-right: 5px; }
-        .radio-group { display: flex; align-items: center; margin-bottom: 5px; }
-        .radio-group input { width: auto; margin-right: 5px; }
-        .radio-group label { display: inline; margin-bottom: 0; margin-right: 15px; }
     </style>
 </head>
 <body>
@@ -37,29 +34,10 @@
                 <input type="password" id="secret_key" name="secret_key" value="{{ secret_key }}" required>
             </div>
             <div class="form-group">
-                <label>Time Range</label>
-                <div class="radio-group">
-                    <input type="radio" id="last7" name="time_range" value="last7" {% if time_range == 'last7' %}checked{% endif %} onclick="toggleDateInputs()">
-                    <label for="last7">Last 7 Days</label>
-                </div>
-                <div class="radio-group">
-                    <input type="radio" id="last30" name="time_range" value="last30" {% if time_range == 'last30' %}checked{% endif %} onclick="toggleDateInputs()">
-                    <label for="last30">Last 30 Days</label>
-                </div>
-                <div class="radio-group">
-                    <input type="radio" id="last90" name="time_range" value="last90" {% if time_range == 'last90' %}checked{% endif %} onclick="toggleDateInputs()">
-                    <label for="last90">Last 90 Days</label>
-                </div>
-                <div class="radio-group">
-                    <input type="radio" id="custom" name="time_range" value="custom" {% if time_range == 'custom' or not time_range %}checked{% endif %} onclick="toggleDateInputs()">
-                    <label for="custom">Custom</label>
-                </div>
-            </div>
-            <div class="form-group" id="custom_dates">
                 <label for="start_date">From Date</label>
-                <input type="date" id="start_date" name="start_date" value="{{ start_date }}">
+                <input type="date" id="start_date" name="start_date" value="{{ start_date }}" required>
                 <label for="end_date">To Date</label>
-                <input type="date" id="end_date" name="end_date" value="{{ end_date }}">
+                <input type="date" id="end_date" name="end_date" value="{{ end_date }}" required>
             </div>
             <div class="form-group">
                 <label>Products</label>
@@ -84,16 +62,5 @@
         </div>
         {% endif %}
     </div>
-    <script>
-        function toggleDateInputs() {
-            const customDates = document.getElementById('custom_dates');
-            const customRadio = document.getElementById('custom');
-            customDates.style.display = customRadio.checked ? 'block' : 'none';
-            console.log("toggleDateInputs called, customRadio.checked:", customRadio.checked);
-        }
-        document.addEventListener('DOMContentLoaded', function() {
-            toggleDateInputs();
-        });
-    </script>
 </body>
 </html>

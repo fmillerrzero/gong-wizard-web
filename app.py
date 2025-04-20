@@ -517,39 +517,27 @@ def prepare_json_output(calls: List[Dict[str, Any]], selected_products: List[str
 def index():
     start_date = (date.today() - timedelta(days=7)).strftime('%Y-%m-%d')
     end_date = date.today().strftime('%Y-%m-%d')
-    return render_template('index.html', start_date=start_date, end_date=end_date, time_range="custom", products=ALL_PRODUCT_TAGS, access_key="", secret_key="")
+    return render_template('index.html', start_date=start_date, end_date=end_date, products=ALL_PRODUCT_TAGS, access_key="", secret_key="")
 
 @app.route('/process', methods=['POST'])
 def process():
     access_key = request.form.get('access_key', '')
     secret_key = request.form.get('secret_key', '')
-    time_range = request.form.get('time_range', 'custom')
     products = request.form.getlist('products')
 
     form_state = {
         "access_key": access_key,
         "secret_key": secret_key,
-        "time_range": time_range,
         "products": products if products else ALL_PRODUCT_TAGS
     }
 
-    if time_range == 'last7':
-        start_date = date.today() - timedelta(days=7)
-        end_date = date.today()
-    elif time_range == 'last30':
-        start_date = date.today() - timedelta(days=30)
-        end_date = date.today()
-    elif time_range == 'last90':
-        start_date = date.today() - timedelta(days=90)
-        end_date = date.today()
-    else:
-        try:
-            start_date = datetime.strptime(request.form['start_date'], '%Y-%m-%d').date()
-            end_date = datetime.strptime(request.form['end_date'], '%Y-%m-%d').date()
-        except ValueError:
-            form_state["start_date"] = request.form.get('start_date', (date.today() - timedelta(days=7)).strftime('%Y-%m-%d'))
-            form_state["end_date"] = request.form.get('end_date', date.today().strftime('%Y-%m-%d'))
-            return render_template('index.html', message="Invalid date format. Use YYYY-MM-DD.", **form_state)
+    try:
+        start_date = datetime.strptime(request.form['start_date'], '%Y-%m-%d').date()
+        end_date = datetime.strptime(request.form['end_date'], '%Y-%m-%d').date()
+    except ValueError:
+        form_state["start_date"] = request.form.get('start_date', (date.today() - timedelta(days=7)).strftime('%Y-%m-%d'))
+        form_state["end_date"] = request.form.get('end_date', date.today().strftime('%Y-%m-%d'))
+        return render_template('index.html', message="Invalid date format. Use YYYY-MM-DD.", **form_state)
 
     form_state["start_date"] = start_date.strftime('%Y-%m-%d')
     form_state["end_date"] = end_date.strftime('%Y-%m-%d')
