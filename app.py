@@ -1,3 +1,4 @@
+import argparse
 import base64
 import json
 import logging
@@ -17,13 +18,18 @@ app = Flask(__name__)
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', os.urandom(24))
 logger = logging.getLogger(__name__)
 
+# Parse command-line arguments
+parser = argparse.ArgumentParser(description="Gong Wizard Web Flask Application")
+parser.add_argument('--debug', action='store_true', help='Enable debug logging mode')
+args = parser.parse_args()
+
 # Configure logging
 log_dir = "/tmp"
 if not os.path.exists(log_dir):
     os.makedirs(log_dir, exist_ok=True)
 log_file_path = os.path.join(log_dir, "app.log")
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG if args.debug else logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
         logging.FileHandler(log_file_path),
@@ -35,10 +41,10 @@ logger.info("Starting Gong Wizard Web Flask - Version 2025-04-21")
 # Constants
 GONG_BASE_URL = "https://us-11211.api.gong.io/v2"
 SF_TZ = pytz.timezone('America/Los_Angeles')
-TARGET_DOMAINS = set()  # For owner domains
-TENANT_DOMAINS = set()  # For tenant domains
+TARGET_DOMAINS = set()
+TENANT_DOMAINS = set()
 OUTPUT_DIR = "/tmp/gong_output"
-os.makedirs(OUTPUT_DIR, exist_ok=True)  # Fix: Prevent FileExistsError
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 PATHS_FILE = os.path.join(OUTPUT_DIR, "file_paths.json")
 PRODUCT_MAPPINGS = {
     "IAQ Monitoring": ["Air Quality"],
@@ -72,7 +78,6 @@ for product in PRODUCT_MAPPINGS:
         PRODUCT_MAPPINGS[product] = [re.compile(pattern, re.IGNORECASE) for pattern in PRODUCT_MAPPINGS[product]]
 
 def normalize_domain(url):
-    """Normalize a URL to extract the domain."""
     if not url or url in ["N/A", "Unknown"]:
         return ""
     domain = re.sub(r'^https?://', '', str(url).lower())
@@ -81,7 +86,6 @@ def normalize_domain(url):
     return domain.strip()
 
 def load_domains_from_sheet(sheet_id, target_set, label):
-    """Load domains from a Google Sheet into the specified set."""
     try:
         url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
         response = requests.get(url)
@@ -99,7 +103,6 @@ def load_domains_from_sheet(sheet_id, target_set, label):
         logger.error(f"Error loading {label} domains: {str(e)}")
 
 def cleanup_old_files():
-    """Remove old files from output directory."""
     now = time.time()
     for file_path in glob.glob(os.path.join(OUTPUT_DIR, "*")):
         if file_path == PATHS_FILE:
@@ -112,13 +115,11 @@ def cleanup_old_files():
                 logger.error(f"Error removing old file {file_path}: {str(e)}")
 
 def save_file_paths(paths):
-    """Save file paths to JSON file."""
     with open(PATHS_FILE, 'w') as f:
         json.dump(paths, f)
     logger.info(f"Saved file paths to {PATHS_FILE}")
 
 def load_file_paths():
-    """Load file paths from JSON file."""
     if not os.path.exists(PATHS_FILE):
         logger.error(f"Paths file not found: {PATHS_FILE}")
         return {}
@@ -131,7 +132,6 @@ def load_file_paths():
 
 @app.before_first_request
 def initialize():
-    """Initialize domain sets for owner and tenant domains."""
     global TARGET_DOMAINS, TENANT_DOMAINS
     load_domains_from_sheet("1HMAQ3eNhXhCAfcxPqQwds1qn1ZW8j6Sc1oCM9_TLjtQ", TARGET_DOMAINS, "owner")
     load_domains_from_sheet("19WrPxtEZV59_irXRm36TJGRNJFRoYsi0KnrOUDIDBVM", TENANT_DOMAINS, "tenant")
@@ -230,35 +230,72 @@ class GongAPIClient:
 
 def convert_to_sf_time(utc_time):
     if not utc_time:
+        logger.debug("Empty date received in convert_to_sf_time")
         return "N/A"
     try:
-        utc_dt = datetime.fromisoformat(utc_time.replace("Z", "+00:00"))
+        logger.debug(f"Converting date: {utc_time}")
+        utc_time = utc_time.strip()
+        if utc_time.endswith('Z'):
+            utc_dt = datetime.fromisoformat(utc_time.replace("Z", "+00:00"))
+        elif '+' in utc_time or '-' in utc_time:
+            utc_dt = datetime.fromisoformat(utc_time)
+        else:
+            utc_dt = datetime.fromisoformat(utc_time + "+00:00")
         sf_dt = utc_dt.astimezone(SF_TZ)
-        return sf_dt.strftime("%m/%d/%y")
-    except Exception:
-        return "N/A"
+        result = sf_dt.strftime("%m/%d/%y")
+        logger.debug(f"Converted date result: {result}")
+        return result
+    except ValueError as e:
+        logger.error(f"Date conversion error for {utc_time}: {str(e)}")
+        try:
+            utc_dt = datetime.strptime(utc_time, "%Y-%m-%dT%H:%M:%S")
+            sf_dt = utc_dt.replace(tzinfo=pytz.UTC).astimezone(SF_TZ)
+            result = sf_dt.strftime("%m/%d/%y")
+            logger.debug(f"Fallback converted date result: {result}")
+            return result
+        except ValueError as e2:
+            logger.error(f"Fallback date conversion failed for {utc_time}: {str(e2)}")
+            return "N/A"
 
 def get_field(data, key, default=""):
     if not isinstance(data, dict):
         return default
     for k, v in data.items():
         if k.lower() == key.lower():
-            return v if v is not None else default
+            return v if v is not None elseFIT default
     return default
 
 def extract_field_values(context, field_name, object_type=None):
     values = []
-    for ctx in context or []:
-        for obj in ctx.get("objects", []):
-            if object_type and get_field(obj, "objectType").lower() != object_type.lower():
+    logger.debug(f"Extracting {field_name} from {object_type}, context length: {len(context) if context else 0}")
+    
+    for ctx_idx, ctx in enumerate(context or []):
+        for obj_idx, obj in enumerate(ctx.get("objects", [])):
+            obj_type = get_field(obj, "objectType")
+            if object_type and obj_type.lower() != object_type.lower():
                 continue
+            
+            logger.debug(f"Found matching object type: {obj_type}")
+            
+            if field_name.lower() == "objectid" and "objectId" in obj:
+                value = obj.get("objectId")
+                if value is not None:
+                    logger.debug(f"Found objectId directly in object: {value}")
+                    values.append(str(value))
+                    continue
+                    
             for field in obj.get("fields", []):
                 if not isinstance(field, dict):
+                    logger.debug(f"Skipping invalid field: {field}")
                     continue
-                if get_field(field, "name").lower() == field_name.lower():
+                field_name_val = get_field(field, "name")
+                if field_name_val.lower() == field_name.lower():
                     value = field.get("value")
                     if value is not None:
+                        logger.debug(f"Found value for {field_name}: {value}")
                         values.append(str(value))
+    
+    logger.debug(f"Extracted values for {field_name}: {values}")
     return values
 
 def apply_occupancy_analytics_tags(call):
@@ -276,12 +313,15 @@ def normalize_call_data(call, transcript):
         content = call.get("content", {})
         parties = call.get("parties", [])
         context = call.get("context", [])
+        logger.debug(f"Context data length: {len(context) if context else 0}")
 
         call_id = get_field(meta_data, "id", "Unknown")
         call_title = get_field(meta_data, "title", "N/A")
         call_date = convert_to_sf_time(get_field(meta_data, "started"))
+        account_ids = extract_field_values(context, "objectId", "Account")
+        logger.debug(f"Call {call_id}: Extracted account_ids: {account_ids}")
         account_name = extract_field_values(context, "Name", "Account")[0] if extract_field_values(context, "Name", "Account") else "Unknown"
-        account_id = extract_field_values(context, "objectId", "Account")[0] if extract_field_values(context, "objectId", "Account") else "Unknown"
+        account_id = account_ids[0] if account_ids else "Unknown"
         account_website = extract_field_values(context, "Website", "Account")[0] if extract_field_values(context, "Website", "Account") else "Unknown"
         account_industry = extract_field_values(context, "Industry", "Account")[0] if extract_field_values(context, "Industry", "Account") else ""
 
@@ -308,16 +348,28 @@ def normalize_call_data(call, transcript):
             })
 
         call_summary = get_field(content, "brief", "")
-        key_points = [get_field(kp, "description", "") for kp in content.get("keyPoints", []) if get_field(kp, "description")]
+        key_points = []
+        key_points_raw = content.get("keyPoints", [])
+        logger.debug(f"Call {call_id}: Raw keyPoints: {key_points_raw}")
+        for kp in key_points_raw:
+            if not isinstance(kp, dict):
+                logger.debug(f"Call {call_id}: Skipping invalid keyPoint: {kp}")
+                continue
+            description = get_field(kp, "description", None)
+            if description and isinstance(description, str) and description.strip():
+                key_points.append(description.strip())
+                logger.debug(f"Call {call_id}: Added keyPoint description: {description}")
+            else:
+                logger.debug(f"Call {call_id}: Skipped empty/invalid description: {description}")
         key_points_str = "|".join(key_points) if key_points else ""
+        logger.debug(f"Call {call_id}: Final key_points_str: {key_points_str}")
 
         normalized_website = normalize_domain(account_website)
+        org_type = "other"  # Changed from "partner" to "other"
         if normalized_website in TARGET_DOMAINS:
             org_type = "owner"
         elif normalized_website in TENANT_DOMAINS:
             org_type = "tenant"
-        else:
-            org_type = "partner"
 
         return {
             "call_id": call_id,
@@ -350,7 +402,7 @@ def normalize_call_data(call, transcript):
             "parties": call.get("parties", []),
             "utterances": transcript or [],
             "partial_data": True,
-            "org_type": "partner",
+            "org_type": "other",  # Changed from "partner" to "other"
             "tracker_occurrences": [],
             "call_summary": "",
             "key_points": ""
@@ -377,22 +429,30 @@ def prepare_utterances_df(calls, selected_products):
         utterances = sorted(call["utterances"] or [], key=lambda x: get_field(x, "start", 0))
         for utterance in utterances:
             start_time = float(get_field(utterance, "start", 0))
-            end_time = float(get_field(utterance, "end", start_time + 10))
             utterance_key = f"{call_id}_{start_time}"
             call_tracker_map[call_id][utterance_key] = {"trackers": []}
         
         for tracker in call.get("tracker_occurrences", []):
-            tracker_time = float(get_field(tracker, "start", 0))
-            for utterance_key, info in call_tracker_map[call_id].items():
-                utterance_start = float(utterance_key.split('_')[-1])
-                utterance_end = utterance_start + 10
-                if utterance_start <= tracker_time <= utterance_end:
-                    info["trackers"].append({
-                        "tracker_name": get_field(tracker, "tracker_name", ""),
-                        "phrase": get_field(tracker, "phrase", "")
-                    })
+            try:
+                tracker_time = float(get_field(tracker, "start", 0))
+                for utterance_key, info in call_tracker_map[call_id].items():
+                    utterance_start = float(utterance_key.split('_')[-1])
+                    utterance_end = utterance_start + 30
+                    if utterance_start <= tracker_time <= utterance_end:
+                        info["trackers"].append({
+                            "tracker_name": get_field(tracker, "tracker_name", ""),
+                            "phrase": get_field(tracker, "phrase", "")
+                        })
+            except ValueError as e:
+                logger.error(f"Error processing tracker time for call {call_id}: {str(e)}")
+                continue
         
         speaker_info = {get_field(p, "speakerId"): p for p in call["parties"]}
+        for speaker_id, speaker in speaker_info.items():
+            logger.debug(f"Speaker data for call {call_id}, speakerId {speaker_id}: {speaker}")
+            logger.debug(f"Speaker jobTitle: {get_field(speaker, 'jobTitle', 'NOT_FOUND')}")
+            logger.debug(f"Speaker title: {get_field(speaker, 'title', 'NOT_FOUND')}")
+        
         for utterance in utterances:
             text = " ".join(s.get("text", "") if isinstance(s, dict) else "" for s in (utterance.get("sentences", []) or []))
             if len(text.split()) <= 5:
@@ -412,6 +472,12 @@ def prepare_utterances_df(calls, selected_products):
             tracker_names = [t["tracker_name"] for t in triggered_trackers]
             tracker_phrases = [t["phrase"] for t in triggered_trackers]
             
+            speaker_id = get_field(utterance, "speakerId", "Unknown")
+            logger.debug(f"Utterance speaker: {speaker_id}, Speaker data: {speaker}")
+            speaker_job_title = get_field(speaker, "jobTitle", None)
+            if speaker_job_title is None or speaker_job_title == "":
+                speaker_job_title = get_field(speaker, "title", "N/A")
+            
             data.append({
                 "call_id": call["call_id"],
                 "call_date": call["call_date"],
@@ -421,7 +487,7 @@ def prepare_utterances_df(calls, selected_products):
                 "account_industry": call["account_industry"],
                 "org_type": call["org_type"],
                 "speaker_name": get_field(speaker, "name", "Unknown"),
-                "speaker_job_title": get_field(speaker, "jobTitle", "N/A"),
+                "speaker_job_title": speaker_job_title,
                 "speaker_affiliation": affiliation,
                 "speaker_email_address": get_field(speaker, "emailAddress", ""),
                 "sales_topic": topic,
@@ -439,6 +505,7 @@ def prepare_utterances_df(calls, selected_products):
             "Product", "Tracker", "Keyword", "utterance_text"
         ]
         df = pd.DataFrame(data)[columns]
+        df['call_id'] = df['call_id'].astype(str)
         df = df.sort_values(["call_date", "call_id"], ascending=[False, True])
         logger.info(f"Utterances DataFrame: {len(df)} rows, columns: {df.columns.tolist()}")
     else:
@@ -474,6 +541,7 @@ def prepare_call_summary_df(calls, selected_products):
     
     df = pd.DataFrame(data)
     if not df.empty:
+        df['call_id'] = df['call_id'].astype(str)
         df = df.sort_values("call_date", ascending=False)
         logger.info(f"Call summary DataFrame: {len(df)} rows, columns: {df.columns.tolist()}")
     else:
