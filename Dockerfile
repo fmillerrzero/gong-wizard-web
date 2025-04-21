@@ -15,4 +15,4 @@ COPY . .
 EXPOSE 10000
 
 # Run with gunicorn, binding to PORT environment variable
-CMD ["gunicorn", "-w", "4", "-b", "0.0.0.0:$PORT", "app:app"]
+CMD ["gunicorn", "-w", "4", "-b", "0.0.0.0:10000", "app:app"]

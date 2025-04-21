@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import tempfile
+import time
 from datetime import datetime, timedelta
 from io import StringIO
 
@@ -15,9 +16,8 @@ from flask import Flask, render_template, request, send_file, session
 app = Flask(__name__)
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', os.urandom(24))  # Secure secret key
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Configure logging to a file for download
+# Configure logging to a file for download and stdout for Render
 log_dir = "/tmp"
 if not os.path.exists(log_dir):
     os.makedirs(log_dir)
@@ -30,7 +30,6 @@ logging.basicConfig(
         logging.StreamHandler()
     ]
 )
-logger = logging.getLogger(__name__)
 logger.info("Starting Gong Wizard Web Flask - Version 2025-04-21")
 
 # Constants
@@ -264,7 +263,6 @@ def normalize_call_data(call, transcript):
                         products.append(product)
                         break
 
-        # Domain matching for owner_org
         normalized_website = normalize_domain(account_website)
         is_owner_org = "yes" if normalized_website in TARGET_DOMAINS else "no"
 
