@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 # Configure logging
 log_dir = "/tmp"
 if not os.path.exists(log_dir):
-    os.makedirs(log_dir)
+    os.makedirs(log_dir, exist_ok=True)
 log_file_path = os.path.join(log_dir, "app.log")
 logging.basicConfig(
     level=logging.INFO,
@@ -38,8 +38,7 @@ SF_TZ = pytz.timezone('America/Los_Angeles')
 TARGET_DOMAINS = set()  # For owner domains
 TENANT_DOMAINS = set()  # For tenant domains
 OUTPUT_DIR = "/tmp/gong_output"
-if not os.path.exists(OUTPUT_DIR):
-    os.makedirs(OUTPUT_DIR)
+os.makedirs(OUTPUT_DIR, exist_ok=True)  # Fix: Prevent FileExistsError
 PATHS_FILE = os.path.join(OUTPUT_DIR, "file_paths.json")
 PRODUCT_MAPPINGS = {
     "IAQ Monitoring": ["Air Quality"],
@@ -332,7 +331,7 @@ def normalize_call_data(call, transcript):
             "parties": parties,
             "utterances": transcript or [],
             "partial_data": False,
-            "org_type": org_type,  # Renamed from owner_org
+            "org_type": org_type,
             "tracker_occurrences": tracker_occurrences,
             "call_summary": call_summary,
             "key_points": key_points_str
@@ -420,7 +419,7 @@ def prepare_utterances_df(calls, selected_products):
                 "account_name": call["account_name"],
                 "account_website": call["account_website"],
                 "account_industry": call["account_industry"],
-                "org_type": call["org_type"],  # Renamed from owner_org
+                "org_type": call["org_type"],
                 "speaker_name": get_field(speaker, "name", "Unknown"),
                 "speaker_job_title": get_field(speaker, "jobTitle", "N/A"),
                 "speaker_affiliation": affiliation,
@@ -465,7 +464,7 @@ def prepare_call_summary_df(calls, selected_products):
             "call_date": call["call_date"],
             "filtered_out": filtered_out,
             "product_tags": "|".join(products) if products else "",
-            "org_type": call["org_type"],  # Renamed from owner_org
+            "org_type": call["org_type"],
             "account_name": call["account_name"],
             "account_website": call["account_website"],
             "account_industry": call["account_industry"],
@@ -499,7 +498,7 @@ def prepare_json_output(calls, selected_products):
             "call_id": call["call_id"],
             "call_date": call["call_date"],
             "product_tags": "|".join(products) if products else "",
-            "org_type": call["org_type"],  # Renamed from owner_org
+            "org_type": call["org_type"],
             "account_name": call["account_name"],
             "account_website": call["account_website"],
             "account_industry": call["account_industry"],
