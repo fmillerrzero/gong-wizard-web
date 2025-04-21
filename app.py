@@ -11,7 +11,7 @@ from io import StringIO
 import pandas as pd
 import pytz
 import requests
-from flask import Flask, render_template, request, send_file, session
+from flask import Flask, render_template, request, send_file
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', os.urandom(24))
@@ -39,6 +39,9 @@ TARGET_DOMAINS = set()
 OUTPUT_DIR = "/tmp/gong_output"
 if not os.path.exists(OUTPUT_DIR):
     os.makedirs(OUTPUT_DIR)
+
+# File to store latest file paths
+PATHS_FILE = os.path.join(OUTPUT_DIR, "file_paths.json")
 
 # Product mappings
 PRODUCT_MAPPINGS = {
@@ -100,15 +103,32 @@ def load_target_domains_from_sheet(sheet_id="1HMAQ3eNhXhCAfcxPqQwds1qn1ZW8j6Sc1o
     return target_domains
 
 def cleanup_old_files():
-    """Remove files older than 1 hour in OUTPUT_DIR."""
     now = time.time()
     for file_path in glob.glob(os.path.join(OUTPUT_DIR, "*")):
+        if file_path == PATHS_FILE:
+            continue
         if os.path.isfile(file_path) and (now - os.path.getmtime(file_path)) > 3600:
             try:
                 os.remove(file_path)
                 logger.info(f"Removed old file: {file_path}")
             except Exception as e:
                 logger.error(f"Error removing old file {file_path}: {str(e)}")
+
+def save_file_paths(paths):
+    with open(PATHS_FILE, 'w') as f:
+        json.dump(paths, f)
+    logger.info(f"Saved file paths to {PATHS_FILE}")
+
+def load_file_paths():
+    if not os.path.exists(PATHS_FILE):
+        logger.error(f"Paths file not found: {PATHS_FILE}")
+        return {}
+    try:
+        with open(PATHS_FILE, 'r') as f:
+            return json.load(f)
+    except Exception as e:
+        logger.error(f"Error loading paths file {PATHS_FILE}: {str(e)}")
+        return {}
 
 @app.before_first_request
 def initialize():
@@ -523,11 +543,15 @@ def process():
         utterances_path = os.path.join(OUTPUT_DIR, f"utterances_gong_{start_date_str}_to_{end_date_str}_{unique_id}.csv")
         call_summary_path = os.path.join(OUTPUT_DIR, f"call_summary_gong_{start_date_str}_to_{end_date_str}_{unique_id}.csv")
         json_path = os.path.join(OUTPUT_DIR, f"call_data_gong_{start_date_str}_to_{end_date_str}_{unique_id}.json")
-        session['utterances_path'] = utterances_path
-        session['call_summary_path'] = call_summary_path
-        session['json_path'] = json_path
-        session['log_path'] = log_file_path
-        session.modified = True  # Ensure session is marked as modified
+
+        # Save file paths
+        paths = {
+            "utterances_path": utterances_path,
+            "call_summary_path": call_summary_path,
+            "json_path": json_path,
+            "log_path": log_file_path
+        }
+        save_file_paths(paths)
 
         # Write files and log results
         utterances_df.to_csv(utterances_path, index=False)
@@ -564,10 +588,11 @@ def process():
 
 @app.route('/download/utterances')
 def download_utterances():
-    if 'utterances_path' not in session:
-        logger.error("Utterances path not in session")
+    paths = load_file_paths()
+    utterances_path = paths.get("utterances_path")
+    if not utterances_path:
+        logger.error("Utterances path not found in paths file")
         return "No data", 400
-    utterances_path = session['utterances_path']
     if not os.path.exists(utterances_path):
         logger.error(f"Utterances file not found: {utterances_path}")
         return "File not found", 404
@@ -581,10 +606,11 @@ def download_utterances():
 
 @app.route('/download/call_summary')
 def download_call_summary():
-    if 'call_summary_path' not in session:
-        logger.error("Call summary path not in session")
+    paths = load_file_paths()
+    call_summary_path = paths.get("call_summary_path")
+    if not call_summary_path:
+        logger.error("Call summary path not found in paths file")
         return "No data", 400
-    call_summary_path = session['call_summary_path']
     if not os.path.exists(call_summary_path):
         logger.error(f"Call summary file not found: {call_summary_path}")
         return "File not found", 404
@@ -598,10 +624,11 @@ def download_call_summary():
 
 @app.route('/download/json')
 def download_json():
-    if 'json_path' not in session:
-        logger.error("JSON path not in session")
+    paths = load_file_paths()
+    json_path = paths.get("json_path")
+    if not json_path:
+        logger.error("JSON path not found in paths file")
         return "No data", 400
-    json_path = session['json_path']
     if not os.path.exists(json_path):
         logger.error(f"JSON file not found: {json_path}")
         return "File not found", 404
@@ -615,10 +642,11 @@ def download_json():
 
 @app.route('/download/logs')
 def download_logs():
-    if 'log_path' not in session:
-        logger.error("Log path not in session")
+    paths = load_file_paths()
+    log_path = paths.get("log_path")
+    if not log_path:
+        logger.error("Log path not found in paths file")
         return "No logs", 400
-    log_path = session['log_path']
     if not os.path.exists(log_path):
         logger.error(f"Log file not found: {log_path}")
         return "File not found", 404
