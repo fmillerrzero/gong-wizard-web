@@ -7,18 +7,16 @@ from datetime import datetime, timedelta, date
 import logging
 import pytz
 import re
-from io import StringIO
-from flask import Flask, render_template, request, session, Response
+import os
+import tempfile
+from flask import Flask, render_template, request, send_file, session
 
 app = Flask(__name__)
-app.secret_key = b'_5#y2L"F4Q8z\n\xec]/'
+app.secret_key = os.urandom(24)  # Secure random key for session
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
-log_stream = StringIO()
-handler = logging.StreamHandler(log_stream)
-logger.addHandler(handler)
 
 # Constants
 GONG_BASE_URL = "https://us-11211.api.gong.io/v2"
@@ -56,6 +54,12 @@ for product in PRODUCT_MAPPINGS:
     if product == "Occupancy Analytics":
         PRODUCT_MAPPINGS[product] = [re.compile(pattern, re.IGNORECASE) for pattern in PRODUCT_MAPPINGS[product]]
 
+class GongAPIError(Exception):
+    def __init__(self, status_code, message):
+        self.status_code = status_code
+        self.message = message
+        super().__init__(f"Gong API Error {status_code}: {message}")
+
 class GongAPIClient:
     def __init__(self, access_key, secret_key):
         self.base_url = GONG_BASE_URL
@@ -71,23 +75,20 @@ class GongAPIClient:
                 response = self.session.request(method, url, **kwargs, timeout=30)
                 if response.status_code == 200:
                     return response.json()
-                elif response.status_code == 401:
-                    logger.error("Authentication failed: Invalid API keys or insufficient permissions")
-                    return None
+                elif response.status_code in (401, 403):
+                    raise GongAPIError(response.status_code, "Authentication failed: Invalid API keys or permissions")
                 elif response.status_code == 429:
                     wait_time = int(response.headers.get("Retry-After", (2 ** attempt) * 2))
                     logger.warning(f"Rate limit hit, waiting {wait_time}s")
                     time.sleep(wait_time)
                     continue
                 else:
-                    logger.error(f"API error: {response.status_code} - {response.text}")
-                    return None
+                    raise GongAPIError(response.status_code, f"API error: {response.text}")
             except requests.RequestException as e:
                 if attempt == max_attempts - 1:
-                    logger.error(f"Network error: {str(e)}")
-                    return None
-                time.sleep(2 ** attempt * 1)
-        return None
+                    raise GongAPIError(0, f"Network error: {str(e)}")
+                time.sleep(2 ** attempt)
+        raise GongAPIError(429, "Max retries exceeded")
 
     def fetch_call_list(self, from_date, to_date):
         params = {"fromDateTime": from_date, "toDateTime": to_date}
@@ -97,9 +98,6 @@ class GongAPIClient:
             if cursor:
                 params["cursor"] = cursor
             data = self.api_call("GET", "calls", params=params)
-            if not data:
-                logger.error("Failed to fetch call list")
-                break
             calls = data.get("calls", [])
             call_ids.extend(str(call.get("id", "")) for call in calls if call.get("id"))
             cursor = data.get("records", {}).get("cursor")
@@ -110,7 +108,7 @@ class GongAPIClient:
         return call_ids
 
     def fetch_call_details(self, call_ids):
-        batch_size = 10  # Smaller batch size to limit memory usage
+        batch_size = 10
         for i in range(0, len(call_ids), batch_size):
             batch_ids = call_ids[i:i + batch_size]
             body = {
@@ -119,33 +117,31 @@ class GongAPIClient:
                     "context": "Extended",
                     "exposedFields": {
                         "parties": True,
-                        "content": {"trackers": True, "brief": True, "keyPoints": True, "callOutcome": True, "highlights": True},
+                        "content": {"trackers": True, "brief": True, "keyPoints": True},
                         "media": True,
                         "crmAssociations": True
                     }
                 }
             }
             data = self.api_call("POST", "calls/extensive", json=body)
-            if data:
-                for call in data.get("calls", []):
-                    yield call
+            for call in data.get("calls", []):
+                yield call
 
     def fetch_transcript(self, call_ids):
-        batch_size = 10  # Smaller batch size to limit memory usage
+        batch_size = 10
         for i in range(0, len(call_ids), batch_size):
             batch_ids = call_ids[i:i + batch_size]
             body = {"filter": {"callIds": batch_ids}}
             data = self.api_call("POST", "calls/transcript", json=body)
-            if data:
-                for t in data.get("callTranscripts", []):
-                    call_id = str(t.get("callId", ""))
-                    transcript = t.get("transcript", [])
-                    if call_id and isinstance(transcript, list):
-                        yield call_id, transcript
+            for t in data.get("callTranscripts", []):
+                call_id = str(t.get("callId", ""))
+                transcript = t.get("transcript", [])
+                if call_id and isinstance(transcript, list):
+                    yield call_id, transcript
 
 # Helper functions
 def convert_to_sf_time(utc_time):
-    if utc_time is None:
+    if not utc_time:
         return "N/A"
     try:
         utc_dt = datetime.fromisoformat(utc_time.replace("Z", "+00:00"))
@@ -159,7 +155,7 @@ def get_field(data, key, default=""):
         return default
     for k, v in data.items():
         if k.lower() == key.lower():
-            return v or default
+            return v if v is not None else default
     return default
 
 def extract_field_values(context, field_name, object_type=None):
@@ -187,45 +183,62 @@ def apply_occupancy_analytics_tags(call):
     return any(pattern.search(text) for pattern in PRODUCT_MAPPINGS["Occupancy Analytics"])
 
 def normalize_call_data(call, transcript):
-    meta_data = call.get("metaData", {})
-    content = call.get("content", {})
-    parties = call.get("parties", [])
-    context = call.get("context", [])
+    try:
+        meta_data = call.get("metaData", {})
+        content = call.get("content", {})
+        parties = call.get("parties", [])
+        context = call.get("context", [])
 
-    call_id = get_field(meta_data, "id", "Unknown")
-    call_title = get_field(meta_data, "title", "N/A")
-    call_date = convert_to_sf_time(get_field(meta_data, "started"))
-    account_name = extract_field_values(context, "Name", "Account")[0] if extract_field_values(context, "Name", "Account") else "Unknown"
-    account_id = extract_field_values(context, "objectId", "Account")[0] if extract_field_values(context, "objectId", "Account") else "Unknown"
-    account_website = extract_field_values(context, "Website", "Account")[0] if extract_field_values(context, "Website", "Account") else "Unknown"
-    account_industry = extract_field_values(context, "Industry", "Account")[0] if extract_field_values(context, "Industry", "Account") else ""
+        call_id = get_field(meta_data, "id", "Unknown")
+        call_title = get_field(meta_data, "title", "N/A")
+        call_date = convert_to_sf_time(get_field(meta_data, "started"))
+        account_name = extract_field_values(context, "Name", "Account")[0] if extract_field_values(context, "Name", "Account") else "Unknown"
+        account_id = extract_field_values(context, "objectId", "Account")[0] if extract_field_values(context, "objectId", "Account") else "Unknown"
+        account_website = extract_field_values(context, "Website", "Account")[0] if extract_field_values(context, "Website", "Account") else "Unknown"
+        account_industry = extract_field_values(context, "Industry", "Account")[0] if extract_field_values(context, "Industry", "Account") else ""
 
-    trackers = content.get("trackers", [])
-    tracker_counts = {get_field(t, "name").lower(): get_field(t, "count", 0) for t in trackers if get_field(t, "name")}
+        trackers = content.get("trackers", [])
+        tracker_counts = {get_field(t, "name").lower(): get_field(t, "count", 0) for t in trackers if get_field(t, "name")}
 
-    products = []
-    for product in PRODUCT_MAPPINGS:
-        if product == "Occupancy Analytics":
-            if apply_occupancy_analytics_tags(call):
-                products.append(product)
-        else:
-            for tracker in PRODUCT_MAPPINGS[product]:
-                if tracker_counts.get(tracker.lower(), 0) > 0:
+        products = []
+        for product in PRODUCT_MAPPINGS:
+            if product == "Occupancy Analytics":
+                if apply_occupancy_analytics_tags(call):
                     products.append(product)
-                    break
+            else:
+                for tracker in PRODUCT_MAPPINGS[product]:
+                    if tracker_counts.get(tracker.lower(), 0) > 0:
+                        products.append(product)
+                        break
 
-    return {
-        "call_id": call_id,
-        "call_title": call_title,
-        "call_date": call_date,
-        "account_name": account_name,
-        "account_id": account_id,
-        "account_website": account_website,
-        "account_industry": account_industry,
-        "products": products,
-        "parties": parties,
-        "utterances": transcript or []
-    }
+        return {
+            "call_id": call_id,
+            "call_title": call_title,
+            "call_date": call_date,
+            "account_name": account_name,
+            "account_id": account_id,
+            "account_website": account_website,
+            "account_industry": account_industry,
+            "products": products,
+            "parties": parties,
+            "utterances": transcript or [],
+            "partial_data": False
+        }
+    except Exception as e:
+        logger.error(f"Normalization error for call {get_field(call.get('metaData', {}), 'id', 'Unknown')}: {str(e)}")
+        return {
+            "call_id": get_field(call.get("metaData", {}), "id", "Unknown"),
+            "call_title": "N/A",
+            "call_date": "N/A",
+            "account_name": "Unknown",
+            "account_id": "Unknown",
+            "account_website": "Unknown",
+            "account_industry": "",
+            "products": [],
+            "parties": call.get("parties", []),
+            "utterances": transcript or [],
+            "partial_data": True
+        }
 
 # Output preparation functions
 def prepare_utterances_df(calls, selected_products):
@@ -330,121 +343,160 @@ def prepare_json_output(calls, selected_products):
 @app.route('/')
 def index():
     end_date = date.today()
-    start_date = end_date - timedelta(days=30)
-    return render_template('index.html', start_date=start_date.strftime('%Y-%m-%d'), end_date=end_date.strftime('%Y-%m-%d'), products=ALL_PRODUCT_TAGS)
+    start_date = end_date - timedelta(days=7)
+    return render_template('index.html', start_date=start_date.strftime('%Y-%m-%d'), end_date=end_date.strftime('%Y-%m-%d'), products=ALL_PRODUCT_TAGS, access_key="", secret_key="", message="")
 
 @app.route('/process', methods=['POST'])
 def process():
-    access_key = request.form.get('access_key')
-    secret_key = request.form.get('secret_key')
+    access_key = request.form.get('access_key', '')
+    secret_key = request.form.get('secret_key', '')
     products = request.form.getlist('products') or ALL_PRODUCT_TAGS
     start_date = request.form.get('start_date')
     end_date = request.form.get('end_date')
 
-    # Clear session to prevent large cookie size
-    session.clear()
+    form_state = {
+        "start_date": start_date,
+        "end_date": end_date,
+        "products": products,
+        "access_key": access_key,
+        "secret_key": secret_key,
+        "message": ""
+    }
 
-    # Validate date inputs
+    # Validate inputs
     if not start_date or not end_date:
-        log_data = log_stream.getvalue()
-        message = "Missing start or end date.<br><br>Logs:<br>" + log_data.replace('\n', '<br>')
-        return render_template('index.html', message=message, start_date=start_date, end_date=end_date, products=products)
+        form_state["message"] = "Missing start or end date."
+        return render_template('index.html', **form_state)
 
-    # Validate date format
     date_format = '%Y-%m-%d'
     try:
-        datetime.strptime(start_date, date_format)
-        datetime.strptime(end_date, date_format)
+        start_dt = datetime.strptime(start_date, date_format).date()
+        end_dt = datetime.strptime(end_date, date_format).date()
+        if start_dt > end_dt:
+            form_state["message"] = "Start date cannot be after end date."
+            return render_template('index.html', **form_state)
     except ValueError:
-        log_data = log_stream.getvalue()
-        message = "Invalid date format. Use YYYY-MM-DD.<br><br>Logs:<br>" + log_data.replace('\n', '<br>')
-        return render_template('index.html', message=message, start_date=start_date, end_date=end_date, products=products)
+        form_state["message"] = "Invalid date format. Use YYYY-MM-DD."
+        return render_template('index.html', **form_state)
 
     if not access_key or not secret_key:
-        log_data = log_stream.getvalue()
-        message = "Missing API keys.<br><br>Logs:<br>" + log_data.replace('\n', '<br>')
-        return render_template('index.html', message=message, start_date=start_date, end_date=end_date, products=products)
+        form_state["message"] = "Missing API keys."
+        return render_template('index.html', **form_state)
 
     try:
         client = GongAPIClient(access_key, secret_key)
         utc = pytz.UTC
-        start_dt = utc.localize(datetime.strptime(start_date, '%Y-%m-%d'))
-        end_dt = utc.localize(datetime.strptime(end_date, '%Y-%m-%d').replace(hour=23, minute=59, second=59))
+        start_dt = utc.localize(datetime.strptime(start_date, date_format))
+        end_dt = utc.localize(datetime.strptime(end_date, date_format).replace(hour=23, minute=59, second=59))
         start_date_utc = start_dt.isoformat().replace('+00:00', 'Z')
         end_date_utc = end_dt.isoformat().replace('+00:00', 'Z')
+        
+        logger.info(f"Fetching calls from {start_date_utc} to {end_date_utc}")
         call_ids = client.fetch_call_list(start_date_utc, end_date_utc)
+        logger.info(f"Fetched {len(call_ids)} call IDs")
+        
         if not call_ids:
-            log_data = log_stream.getvalue()
-            message = "No calls found.<br><br>Logs:<br>" + log_data.replace('\n', '<br>')
-            return render_template('index.html', message=message, start_date=start_date, end_date=end_date, products=products)
+            form_state["message"] = "No calls found for the selected date range."
+            return render_template('index.html', **form_state)
 
-        # Process calls in batches to avoid memory issues
         full_data = []
+        dropped_calls = 0
         transcripts = {}
+        logger.info("Fetching transcripts")
         for call_id, transcript in client.fetch_transcript(call_ids):
             transcripts[call_id] = transcript
+        logger.info(f"Fetched transcripts for {len(transcripts)} calls")
 
+        logger.info("Fetching and normalizing call details")
         for call in client.fetch_call_details(call_ids):
             call_id = get_field(call.get("metaData", {}), "id")
-            if call_id:
-                normalized = normalize_call_data(call, transcripts.get(call_id, []))
-                if normalized:
-                    full_data.append(normalized)
-                    # Clear memory periodically
-                    if len(full_data) >= 10:
-                        utterances_df = prepare_utterances_df(full_data, products)
-                        call_summary_df = prepare_call_summary_df(full_data, products)
-                        json_data = prepare_json_output(full_data, products)
-                        # Append to session incrementally
-                        session['utterances_csv'] = (session.get('utterances_csv', '') + utterances_df.to_csv(index=False))[:10000]
-                        session['call_summary_csv'] = (session.get('call_summary_csv', '') + call_summary_df.to_csv(index=False))[:10000]
-                        session['json_data'] = (session.get('json_data', '') + json.dumps(json_data, indent=2, default=str))[:10000]
-                        full_data = []  # Reset to free memory
+            if not call_id:
+                dropped_calls += 1
+                continue
+            normalized = normalize_call_data(call, transcripts.get(call_id, []))
+            full_data.append(normalized)
+            if len(full_data) % 10 == 0:
+                logger.info(f"Processed {len(full_data)} calls")
+        logger.info(f"Total calls normalized: {len(full_data)}, dropped: {dropped_calls}")
 
-        # Process any remaining data
-        if full_data:
-            utterances_df = prepare_utterances_df(full_data, products)
-            call_summary_df = prepare_call_summary_df(full_data, products)
-            json_data = prepare_json_output(full_data, products)
-            session['utterances_csv'] = (session.get('utterances_csv', '') + utterances_df.to_csv(index=False))[:10000]
-            session['call_summary_csv'] = (session.get('call_summary_csv', '') + call_summary_df.to_csv(index=False))[:10000]
-            session['json_data'] = (session.get('json_data', '') + json.dumps(json_data, indent=2, default=str))[:10000]
+        if not full_data:
+            form_state["message"] = f"No valid call data retrieved. Dropped {dropped_calls} calls."
+            return render_template('index.html', **form_state)
 
-        return render_template('index.html', message="Processing complete", show_download=True, start_date=start_date, end_date=end_date, products=products)
+        utterances_df = prepare_utterances_df(full_data, products)
+        call_summary_df = prepare_call_summary_df(full_data, products)
+        json_data = prepare_json_output(full_data, products)
+
+        # Use temporary files for storage
+        temp_dir = tempfile.mkdtemp()
+        session['temp_dir'] = temp_dir
+        start_date_str = start_dt.strftime("%d%b%y").lower()
+        end_date_str = end_dt.strftime("%d%b%y").lower()
+        session['utterances_path'] = os.path.join(temp_dir, f"utterances_gong_{start_date_str}_to_{end_date_str}.csv")
+        session['call_summary_path'] = os.path.join(temp_dir, f"call_summary_gong_{start_date_str}_to_{end_date_str}.csv")
+        session['json_path'] = os.path.join(temp_dir, f"call_data_gong_{start_date_str}_to_{end_date_str}.json")
+
+        utterances_df.to_csv(session['utterances_path'], index=False)
+        call_summary_df.to_csv(session['call_summary_path'], index=False)
+        with open(session['json_path'], 'w') as f:
+            json.dump(json_data, f, indent=2)
+
+        message = f"Processed {len(full_data)} calls. Dropped {dropped_calls} calls. Filtered utterances: {len(utterances_df)}."
+        return render_template('index.html', message=message, show_download=True, **form_state)
+
+    except GongAPIError as e:
+        logger.error(f"API error: {e.message}")
+        form_state["message"] = f"API Error: {e.message}"
+        return render_template('index.html', **form_state)
     except Exception as e:
-        logger.error(f"Error in process: {str(e)}")
-        log_data = log_stream.getvalue()
-        message = "Unexpected error: " + str(e) + ".<br><br>Logs:<br>" + log_data.replace('\n', '<br>')
-        return render_template('index.html', message=message, start_date=start_date, end_date=end_date, products=products)
+        logger.error(f"Unexpected error: {str(e)}")
+        form_state["message"] = f"Unexpected error: {str(e)}"
+        return render_template('index.html', **form_state)
 
 @app.route('/download/utterances')
 def download_utterances():
-    if 'utterances_csv' not in session:
+    if 'utterances_path' not in session:
         return "No data", 400
-    response = Response(session['utterances_csv'], mimetype='text/csv', headers={"Content-Disposition": "attachment;filename=utterances.csv"})
-    session.pop('utterances_csv', None)  # Clear after download
-    return response
+    return send_file(
+        session['utterances_path'],
+        mimetype='text/csv',
+        as_attachment=True,
+        download_name=os.path.basename(session['utterances_path'])
+    )
 
 @app.route('/download/call_summary')
 def download_call_summary():
-    if 'call_summary_csv' not in session:
+    if 'call_summary_path' not in session:
         return "No data", 400
-    response = Response(session['call_summary_csv'], mimetype='text/csv', headers={"Content-Disposition": "attachment;filename=call_summary.csv"})
-    session.pop('call_summary_csv', None)  # Clear after download
-    return response
+    return send_file(
+        session['call_summary_path'],
+        mimetype='text/csv',
+        as_attachment=True,
+        download_name=os.path.basename(session['call_summary_path'])
+    )
 
 @app.route('/download/json')
 def download_json():
-    if 'json_data' not in session:
+    if 'json_path' not in session:
         return "No data", 400
-    response = Response(session['json_data'], mimetype='application/json', headers={"Content-Disposition": "attachment;filename=data.json"})
-    session.pop('json_data', None)  # Clear after download
-    return response
+    return send_file(
+        session['json_path'],
+        mimetype='application/json',
+        as_attachment=True,
+        download_name=os.path.basename(session['json_path'])
+    )
 
 @app.route('/download/logs')
 def download_logs():
-    log_data = log_stream.getvalue()
-    return Response(log_data, mimetype='text/plain', headers={"Content-Disposition": "attachment;filename=logs.txt"})
+    log_file = os.path.join(session.get('temp_dir', tempfile.gettempdir()), 'app.log')
+    with open(log_file, 'w') as f:
+        f.write(logging.getLogger().handlers[0].stream.getvalue())
+    return send_file(
+        log_file,
+        mimetype='text/plain',
+        as_attachment=True,
+        download_name='logs.txt'
+    )
 
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=10000)
