@@ -71,6 +71,9 @@ class GongAPIClient:
                 response = self.session.request(method, url, **kwargs, timeout=30)
                 if response.status_code == 200:
                     return response.json()
+                elif response.status_code == 401:
+                    logger.error("Authentication failed: Invalid API keys or insufficient permissions")
+                    return None
                 elif response.status_code == 429:
                     wait_time = int(response.headers.get("Retry-After", (2 ** attempt) * 2))
                     logger.warning(f"Rate limit hit, waiting {wait_time}s")
@@ -145,6 +148,8 @@ class GongAPIClient:
 
 # Helper functions
 def convert_to_sf_time(utc_time):
+    if utc_time is None:
+        return "N/A"
     try:
         utc_dt = datetime.fromisoformat(utc_time.replace("Z", "+00:00"))
         sf_dt = utc_dt.astimezone(SF_TZ)
@@ -167,6 +172,8 @@ def extract_field_values(context, field_name, object_type=None):
             if object_type and get_field(obj, "objectType").lower() != object_type.lower():
                 continue
             for field in obj.get("fields", []):
+                if not isinstance(field, dict):
+                    continue
                 if get_field(field, "name").lower() == field_name.lower():
                     value = field.get("value")
                     if value is not None:
@@ -177,7 +184,7 @@ def apply_occupancy_analytics_tags(call):
     fields = [
         get_field(call.get("metaData", {}), "title"),
         get_field(call.get("content", {}), "brief"),
-        " ".join(str(get_field(kp, "description")) for kp in call.get("content", {}).get("keyPoints", []))
+        " ".join(str(get_field(kp, "description")) for kp in call.get("content", {}).get("keyPoints", []) if isinstance(kp, dict))
     ]
     text = " ".join(f for f in fields if f).lower()
     return any(pattern.search(text) for pattern in PRODUCT_MAPPINGS["Occupancy Analytics"])
@@ -225,14 +232,17 @@ def normalize_call_data(call, transcript):
 
 # Output preparation functions
 def prepare_utterances_df(calls, selected_products):
+    if not calls:
+        return pd.DataFrame()
     data = []
     for call in calls:
-        products = [p.lower() for p in call.get("products", [])]
+        products = call.get("products", [])
         selected = [p.lower() for p in selected_products]
-        if not any(p in selected for p in products):
+        products_lower = [p.lower() for p in products if isinstance(p, str)]
+        if products and not any(p in selected for p in products_lower):
             continue
         speaker_info = {get_field(p, "speakerId"): p for p in call["parties"]}
-        for utterance in sorted(call["utterances"], key=lambda x: get_field(x, "start", 0)):
+        for utterance in sorted(call["utterances"] or [], key=lambda x: get_field(x, "start", 0)):
             text = " ".join(s.get("text", "") for s in utterance.get("sentences", []))
             if len(text.split()) <= 5:
                 continue
@@ -250,7 +260,7 @@ def prepare_utterances_df(calls, selected_products):
                 "account_name": call["account_name"],
                 "account_website": call["account_website"],
                 "account_industry": call["account_industry"],
-                "products": "|".join(call["products"]),
+                "products": "|".join(products) if products else "",
                 "speaker_name": get_field(speaker, "name", "Unknown"),
                 "speaker_job_title": get_field(speaker, "jobTitle", ""),
                 "speaker_affiliation": affiliation,
@@ -264,16 +274,19 @@ def prepare_utterances_df(calls, selected_products):
     return df
 
 def prepare_call_summary_df(calls, selected_products):
+    if not calls:
+        return pd.DataFrame()
     data = []
     for call in calls:
-        products = [p.lower() for p in call.get("products", [])]
+        products = call.get("products", [])
         selected = [p.lower() for p in selected_products]
-        filtered_out = "yes" if not any(p in selected for p in products) else "no"
+        products_lower = [p.lower() for p in products if isinstance(p, str)]
+        filtered_out = "yes" if products and not any(p in selected for p in products_lower) else "no"
         data.append({
             "call_id": call["call_id"],
             "call_date": call["call_date"],
             "filtered_out": filtered_out,
-            "product_tags": "|".join(call["products"]),
+            "product_tags": "|".join(products) if products else "",
             "account_name": call["account_name"],
             "account_website": call["account_website"],
             "account_industry": call["account_industry"]
@@ -284,15 +297,19 @@ def prepare_call_summary_df(calls, selected_products):
     return df
 
 def prepare_json_output(calls, selected_products):
+    if not calls:
+        return {"filtered_calls": [], "non_filtered_calls": []}
     filtered_calls = []
     non_filtered_calls = []
     for call in calls:
-        products = [p.lower() for p in call.get("products", [])]
+        products = call.get("products", [])
         selected = [p.lower() for p in selected_products]
+        products_lower = [p.lower() for p in products if isinstance(p, str)]
+        speaker_info = {get_field(p, "speakerId"): p for p in call["parties"]}
         call_data = {
             "call_id": call["call_id"],
             "call_date": call["call_date"],
-            "product_tags": "|".join(call["products"]),
+            "product_tags": "|".join(products) if products else "",
             "account_name": call["account_name"],
             "account_website": call["account_website"],
             "account_industry": call["account_industry"],
@@ -301,13 +318,12 @@ def prepare_json_output(calls, selected_products):
                     "timestamp": get_field(u, "start", "N/A"),
                     "speaker_name": get_field(speaker_info.get(get_field(u, "speakerId"), {}), "name", "Unknown"),
                     "speaker_affiliation": get_field(speaker_info.get(get_field(u, "speakerId"), {}), "affiliation", "unknown"),
-                    "utterance_text": " ".join(s.get("text", "") for s in u.get("sentences", [])),
+                    "utterance_text": " ".join(s.get("text", "") for s in (u.get("sentences", []) or [])),
                     "topic": get_field(u, "topic", "N/A")
-                } for u in sorted(call["utterances"], key=lambda x: get_field(x, "start", 0))
+                } for u in sorted(call["utterances"] or [], key=lambda x: get_field(x, "start", 0))
             ]
         }
-        speaker_info = {get_field(p, "speakerId"): p for p in call["parties"]}
-        if any(p in selected for p in products):
+        if products and any(p in selected for p in products_lower):
             filtered_calls.append(call_data)
         else:
             non_filtered_calls.append(call_data)
@@ -328,9 +344,26 @@ def process():
     start_date = request.form.get('start_date')
     end_date = request.form.get('end_date')
 
+    # Validate date inputs
+    if not start_date or not end_date:
+        log_data = log_stream.getvalue()
+        message = "Missing start or end date.<br><br>Logs:<br>" + log_data.replace('\n', '<br>')
+        return render_template('index.html', message=message, start_date=start_date, end_date=end_date, products=products)
+
+    # Validate date format
+    date_format = '%Y-%m-%d'
+    try:
+        datetime.strptime(start_date, date_format)
+        datetime.strptime(end_date, date_format)
+    except ValueError:
+        log_data = log_stream.getvalue()
+        message = "Invalid date format. Use YYYY-MM-DD.<br><br>Logs:<br>" + log_data.replace('\n', '<br>')
+        return render_template('index.html', message=message, start_date=start_date, end_date=end_date, products=products)
+
     if not access_key or not secret_key:
         log_data = log_stream.getvalue()
-        return render_template('index.html', message=f"Missing API keys.<br><br>Logs:<br>{log_data.replace('\n', '<br>')}", start_date=start_date, end_date=end_date, products=products)
+        message = "Missing API keys.<br><br>Logs:<br>" + log_data.replace('\n', '<br>')
+        return render_template('index.html', message=message, start_date=start_date, end_date=end_date, products=products)
 
     try:
         client = GongAPIClient(access_key, secret_key)
@@ -339,7 +372,8 @@ def process():
         call_ids = client.fetch_call_list(start_date_utc, end_date_utc)
         if not call_ids:
             log_data = log_stream.getvalue()
-            return render_template('index.html', message=f"No calls found.<br><br>Logs:<br>{log_data.replace('\n', '<br>')}", start_date=start_date, end_date=end_date, products=products)
+            message = "No calls found.<br><br>Logs:<br>" + log_data.replace('\n', '<br>')
+            return render_template('index.html', message=message, start_date=start_date, end_date=end_date, products=products)
 
         details = client.fetch_call_details(call_ids)
         transcripts = client.fetch_transcript(call_ids)
@@ -354,7 +388,8 @@ def process():
 
         if not full_data:
             log_data = log_stream.getvalue()
-            return render_template('index.html', message=f"No valid call data.<br><br>Logs:<br>{log_data.replace('\n', '<br>')}", start_date=start_date, end_date=end_date, products=products)
+            message = "No valid call data.<br><br>Logs:<br>" + log_data.replace('\n', '<br>')
+            return render_template('index.html', message=message, start_date=start_date, end_date=end_date, products=products)
 
         utterances_df = prepare_utterances_df(full_data, products)
         call_summary_df = prepare_call_summary_df(full_data, products)
@@ -362,13 +397,14 @@ def process():
 
         session['utterances_csv'] = utterances_df.to_csv(index=False)
         session['call_summary_csv'] = call_summary_df.to_csv(index=False)
-        session['json_data'] = json.dumps(json_data, indent=2)
+        session['json_data'] = json.dumps(json_data, indent=2, default=str)
 
         return render_template('index.html', message="Processing complete", show_download=True, start_date=start_date, end_date=end_date, products=products)
     except Exception as e:
         logger.error(f"Error in process: {str(e)}")
         log_data = log_stream.getvalue()
-        return render_template('index.html', message=f"Unexpected error: {str(e)}.<br><br>Logs:<br>{log_data.replace('\n', '<br>')}", start_date=start_date, end_date=end_date, products=products)
+        message = "Unexpected error: " + str(e) + ".<br><br>Logs:<br>" + log_data.replace('\n', '<br>')
+        return render_template('index.html', message=message, start_date=start_date, end_date=end_date, products=products)
 
 @app.route('/download/utterances')
 def download_utterances():
@@ -394,4 +430,4 @@ def download_logs():
     return Response(log_data, mimetype='text/plain', headers={"Content-Disposition": "attachment;filename=logs.txt"})
 
 if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=10000, debug=True)
+    app.run(host='0.0.0.0', port=10000)
