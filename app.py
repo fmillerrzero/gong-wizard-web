@@ -3,7 +3,7 @@ import requests
 import base64
 import json
 import time
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta
 import logging
 import pytz
 import re
@@ -12,7 +12,7 @@ import tempfile
 from flask import Flask, render_template, request, send_file, session
 
 app = Flask(__name__)
-app.secret_key = os.urandom(24)  # Secure random key for session
+app.secret_key = os.urandom(24)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -342,9 +342,9 @@ def prepare_json_output(calls, selected_products):
 # Flask routes
 @app.route('/')
 def index():
-    end_date = date.today()
+    end_date = datetime.today()
     start_date = end_date - timedelta(days=7)
-    return render_template('index.html', start_date=start_date.strftime('%Y-%m-%d'), end_date=end_date.strftime('%Y-%m-%d'), products=ALL_PRODUCT_TAGS, access_key="", secret_key="", message="")
+    return render_template('index.html', start_date=start_date.strftime('%Y-%m-%d'), end_date=end_date.strftime('%Y-%m-%d'), products=ALL_PRODUCT_TAGS, access_key="", secret_key="")
 
 @app.route('/process', methods=['POST'])
 def process():
@@ -360,7 +360,8 @@ def process():
         "products": products,
         "access_key": access_key,
         "secret_key": secret_key,
-        "message": ""
+        "message": "",
+        "show_download": False
     }
 
     # Validate inputs
@@ -370,8 +371,8 @@ def process():
 
     date_format = '%Y-%m-%d'
     try:
-        start_dt = datetime.strptime(start_date, date_format).date()
-        end_dt = datetime.strptime(end_date, date_format).date()
+        start_dt = datetime.strptime(start_date, date_format)
+        end_dt = datetime.strptime(end_date, date_format)
         if start_dt > end_dt:
             form_state["message"] = "Start date cannot be after end date."
             return render_template('index.html', **form_state)
@@ -427,7 +428,10 @@ def process():
         call_summary_df = prepare_call_summary_df(full_data, products)
         json_data = prepare_json_output(full_data, products)
 
-        # Use temporary files for storage
+        if utterances_df.empty and call_summary_df.empty:
+            form_state["message"] = "No calls matched the selected products."
+            return render_template('index.html', **form_state)
+
         temp_dir = tempfile.mkdtemp()
         session['temp_dir'] = temp_dir
         start_date_str = start_dt.strftime("%d%b%y").lower()
@@ -435,14 +439,21 @@ def process():
         session['utterances_path'] = os.path.join(temp_dir, f"utterances_gong_{start_date_str}_to_{end_date_str}.csv")
         session['call_summary_path'] = os.path.join(temp_dir, f"call_summary_gong_{start_date_str}_to_{end_date_str}.csv")
         session['json_path'] = os.path.join(temp_dir, f"call_data_gong_{start_date_str}_to_{end_date_str}.json")
+        session['log_path'] = os.path.join(temp_dir, "logs.txt")
 
         utterances_df.to_csv(session['utterances_path'], index=False)
         call_summary_df.to_csv(session['call_summary_path'], index=False)
         with open(session['json_path'], 'w') as f:
             json.dump(json_data, f, indent=2)
 
-        message = f"Processed {len(full_data)} calls. Dropped {dropped_calls} calls. Filtered utterances: {len(utterances_df)}."
-        return render_template('index.html', message=message, show_download=True, **form_state)
+        # Save logs to file
+        log_stream = logging.getLogger().handlers[0].stream.getvalue()
+        with open(session['log_path'], 'w') as f:
+            f.write(log_stream)
+
+        form_state["message"] = f"Processed {len(full_data)} calls. Dropped {dropped_calls} calls. Filtered utterances: {len(utterances_df)}."
+        form_state["show_download"] = True
+        return render_template('index.html', **form_state)
 
     except GongAPIError as e:
         logger.error(f"API error: {e.message}")
@@ -488,14 +499,13 @@ def download_json():
 
 @app.route('/download/logs')
 def download_logs():
-    log_file = os.path.join(session.get('temp_dir', tempfile.gettempdir()), 'app.log')
-    with open(log_file, 'w') as f:
-        f.write(logging.getLogger().handlers[0].stream.getvalue())
+    if 'log_path' not in session:
+        return "No logs", 400
     return send_file(
-        log_file,
+        session['log_path'],
         mimetype='text/plain',
         as_attachment=True,
-        download_name='logs.txt'
+        download_name="logs.txt"
     )
 
 if __name__ == "__main__":
