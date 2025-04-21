@@ -6,13 +6,13 @@ WORKDIR /app
 
 # Install dependencies
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip cache purge && pip install --no-cache-dir --no-deps -r requirements.txt
 
 # Copy application files
 COPY . .
 
-# Expose port (Render assigns dynamically, but we document 10000)
+# Expose port (Render maps internally to external port)
 EXPOSE 10000
 
-# Run with gunicorn, binding to port 10000 (Render will override via PORT env)
+# Run with gunicorn, binding to port 10000
 CMD ["gunicorn", "-w", "4", "-b", "0.0.0.0:10000", "app:app"]
