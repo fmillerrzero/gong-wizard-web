@@ -14,10 +14,10 @@ import requests
 from flask import Flask, render_template, request, send_file, session
 
 app = Flask(__name__)
-app.secret_key = os.environ.get('FLASK_SECRET_KEY', os.urandom(24))  # Secure secret key
+app.secret_key = os.environ.get('FLASK_SECRET_KEY', os.urandom(24))
 logger = logging.getLogger(__name__)
 
-# Configure logging to a file for download and stdout for Render
+# Configure logging
 log_dir = "/tmp"
 if not os.path.exists(log_dir):
     os.makedirs(log_dir)
@@ -35,8 +35,6 @@ logger.info("Starting Gong Wizard Web Flask - Version 2025-04-21")
 # Constants
 GONG_BASE_URL = "https://us-11211.api.gong.io/v2"
 SF_TZ = pytz.timezone('America/Los_Angeles')
-
-# Global set for target domains
 TARGET_DOMAINS = set()
 
 # Product mappings
@@ -66,13 +64,12 @@ PRODUCT_MAPPINGS = {
 }
 ALL_PRODUCT_TAGS = list(PRODUCT_MAPPINGS.keys())
 
-# Precompile regex patterns for Occupancy Analytics
+# Precompile regex patterns
 for product in PRODUCT_MAPPINGS:
     if product == "Occupancy Analytics":
         PRODUCT_MAPPINGS[product] = [re.compile(pattern, re.IGNORECASE) for pattern in PRODUCT_MAPPINGS[product]]
 
 def normalize_domain(url):
-    """Extract and normalize a domain from a URL."""
     if not url or url in ["N/A", "Unknown"]:
         return ""
     domain = re.sub(r'^https?://', '', str(url).lower())
@@ -81,7 +78,6 @@ def normalize_domain(url):
     return domain.strip()
 
 def load_target_domains_from_sheet(sheet_id="1HMAQ3eNhXhCAfcxPqQwds1qn1ZW8j6Sc1oCM9_TLjtQ"):
-    """Load target domains from a public Google Sheet."""
     target_domains = set()
     try:
         url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
@@ -93,16 +89,15 @@ def load_target_domains_from_sheet(sheet_id="1HMAQ3eNhXhCAfcxPqQwds1qn1ZW8j6Sc1o
                 normalized = normalize_domain(domain)
                 if normalized:
                     target_domains.add(normalized)
-            logger.info(f"Loaded {len(target_domains)} target domains from Google Sheet")
+            logger.info(f"Loaded {len(target_domains)} target domains")
         else:
             logger.error(f"Failed to fetch Google Sheet: HTTP {response.status_code}")
     except Exception as e:
-        logger.error(f"Error loading domains from Google Sheet: {str(e)}")
+        logger.error(f"Error loading domains: {str(e)}")
     return target_domains
 
 @app.before_first_request
 def initialize():
-    """Load target domains once when the app starts."""
     global TARGET_DOMAINS
     TARGET_DOMAINS = load_target_domains_from_sheet()
     logger.info(f"Initialized with {len(TARGET_DOMAINS)} target domains")
@@ -129,7 +124,7 @@ class GongAPIClient:
                 if response.status_code == 200:
                     return response.json()
                 elif response.status_code in (401, 403):
-                    raise GongAPIError(response.status_code, "Authentication failed: Invalid API keys or permissions")
+                    raise GongAPIError(response.status_code, "Authentication failed")
                 elif response.status_code == 429:
                     wait_time = int(response.headers.get("Retry-After", (2 ** attempt) * 2))
                     logger.warning(f"Rate limit hit, waiting {wait_time}s")
@@ -338,6 +333,7 @@ def prepare_utterances_df(calls, selected_products):
     df = pd.DataFrame(data)
     if not df.empty:
         df = df.sort_values(["call_date", "call_id"], ascending=[False, True])
+    logger.info(f"Prepared utterances DataFrame with {len(df)} rows")
     return df
 
 def prepare_call_summary_df(calls, selected_products):
@@ -362,6 +358,7 @@ def prepare_call_summary_df(calls, selected_products):
     df = pd.DataFrame(data)
     if not df.empty:
         df = df.sort_values("call_date", ascending=False)
+    logger.info(f"Prepared call summary DataFrame with {len(df)} rows")
     return df
 
 def prepare_json_output(calls, selected_products):
@@ -398,6 +395,7 @@ def prepare_json_output(calls, selected_products):
             non_filtered_calls.append(call_data)
     filtered_calls = sorted(filtered_calls, key=lambda x: datetime.strptime(x["call_date"], "%m/%d/%y") if x["call_date"] != "N/A" else datetime.min, reverse=True)
     non_filtered_calls = sorted(non_filtered_calls, key=lambda x: datetime.strptime(x["call_date"], "%m/%d/%y") if x["call_date"] != "N/A" else datetime.min, reverse=True)
+    logger.info(f"Prepared JSON with {len(filtered_calls)} filtered, {len(non_filtered_calls)} non-filtered calls")
     return {"filtered_calls": filtered_calls, "non_filtered_calls": non_filtered_calls}
 
 @app.route('/')
@@ -408,7 +406,6 @@ def index():
 
 @app.route('/health')
 def health():
-    """Health check endpoint for Render."""
     return "OK", 200
 
 @app.route('/process', methods=['POST'])
@@ -429,7 +426,6 @@ def process():
         "show_download": False
     }
 
-    # Validate inputs
     if not start_date or not end_date:
         form_state["message"] = "Missing start or end date."
         return render_template('index.html', **form_state)
@@ -459,7 +455,6 @@ def process():
         
         logger.info(f"Fetching calls from {start_date_utc} to {end_date_utc}")
         call_ids = client.fetch_call_list(start_date_utc, end_date_utc)
-        logger.info(f"Fetched {len(call_ids)} call IDs")
         
         if not call_ids:
             form_state["message"] = "No calls found for the selected date range."
@@ -498,18 +493,37 @@ def process():
             return render_template('index.html', **form_state)
 
         temp_dir = tempfile.mkdtemp()
+        logger.info(f"Created temp directory: {temp_dir}")
         session['temp_dir'] = temp_dir
         start_date_str = start_dt.strftime("%d%b%y").lower()
         end_date_str = end_dt.strftime("%d%b%y").lower()
-        session['utterances_path'] = os.path.join(temp_dir, f"utterances_gong_{start_date_str}_to_{end_date_str}.csv")
-        session['call_summary_path'] = os.path.join(temp_dir, f"call_summary_gong_{start_date_str}_to_{end_date_str}.csv")
-        session['json_path'] = os.path.join(temp_dir, f"call_data_gong_{start_date_str}_to_{end_date_str}.json")
+        utterances_path = os.path.join(temp_dir, f"utterances_gong_{start_date_str}_to_{end_date_str}.csv")
+        call_summary_path = os.path.join(temp_dir, f"call_summary_gong_{start_date_str}_to_{end_date_str}.csv")
+        json_path = os.path.join(temp_dir, f"call_data_gong_{start_date_str}_to_{end_date_str}.json")
+        session['utterances_path'] = utterances_path
+        session['call_summary_path'] = call_summary_path
+        session['json_path'] = json_path
         session['log_path'] = log_file_path
 
-        utterances_df.to_csv(session['utterances_path'], index=False)
-        call_summary_df.to_csv(session['call_summary_path'], index=False)
-        with open(session['json_path'], 'w') as f:
+        # Write files and log results
+        utterances_df.to_csv(utterances_path, index=False)
+        if os.path.exists(utterances_path):
+            logger.info(f"Utterances CSV written: {utterances_path}, size: {os.path.getsize(utterances_path)} bytes")
+        else:
+            logger.error(f"Utterances CSV not found after writing: {utterances_path}")
+
+        call_summary_df.to_csv(call_summary_path, index=False)
+        if os.path.exists(call_summary_path):
+            logger.info(f"Call summary CSV written: {call_summary_path}, size: {os.path.getsize(call_summary_path)} bytes")
+        else:
+            logger.error(f"Call summary CSV not found after writing: {call_summary_path}")
+
+        with open(json_path, 'w') as f:
             json.dump(json_data, f, indent=2)
+        if os.path.exists(json_path):
+            logger.info(f"JSON written: {json_path}, size: {os.path.getsize(json_path)} bytes")
+        else:
+            logger.error(f"JSON not found after writing: {json_path}")
 
         form_state["message"] = f"Processed {len(full_data)} calls. Dropped {dropped_calls} calls. Filtered utterances: {len(utterances_df)}."
         form_state["show_download"] = True
@@ -527,47 +541,71 @@ def process():
 @app.route('/download/utterances')
 def download_utterances():
     if 'utterances_path' not in session:
+        logger.error("Utterances path not in session")
         return "No data", 400
+    utterances_path = session['utterances_path']
+    if not os.path.exists(utterances_path):
+        logger.error(f"Utterances file not found: {utterances_path}")
+        return "File not found", 404
+    logger.info(f"Serving utterances file: {utterances_path}, size: {os.path.getsize(utterances_path)} bytes")
     return send_file(
-        session['utterances_path'],
+        utterances_path,
         mimetype='text/csv',
         as_attachment=True,
-        download_name=os.path.basename(session['utterances_path'])
+        download_name=os.path.basename(utterances_path)
     )
 
 @app.route('/download/call_summary')
 def download_call_summary():
     if 'call_summary_path' not in session:
+        logger.error("Call summary path not in session")
         return "No data", 400
+    call_summary_path = session['call_summary_path']
+    if not os.path.exists(call_summary_path):
+        logger.error(f"Call summary file not found: {call_summary_path}")
+        return "File not found", 404
+    logger.info(f"Serving call summary file: {call_summary_path}, size: {os.path.getsize(call_summary_path)} bytes")
     return send_file(
-        session['call_summary_path'],
+        call_summary_path,
         mimetype='text/csv',
         as_attachment=True,
-        download_name=os.path.basename(session['call_summary_path'])
+        download_name=os.path.basename(call_summary_path)
     )
 
 @app.route('/download/json')
 def download_json():
     if 'json_path' not in session:
+        logger.error("JSON path not in session")
         return "No data", 400
+    json_path = session['json_path']
+    if not os.path.exists(json_path):
+        logger.error(f"JSON file not found: {json_path}")
+        return "File not found", 404
+    logger.info(f"Serving JSON file: {json_path}, size: {os.path.getsize(json_path)} bytes")
     return send_file(
-        session['json_path'],
+        json_path,
         mimetype='application/json',
         as_attachment=True,
-        download_name=os.path.basename(session['json_path'])
+        download_name=os.path.basename(json_path)
     )
 
 @app.route('/download/logs')
 def download_logs():
     if 'log_path' not in session:
+        logger.error("Log path not in session")
         return "No logs", 400
+    log_path = session['log_path']
+    if not os.path.exists(log_path):
+        logger.error(f"Log file not found: {log_path}")
+        return "File not found", 404
+    logger.info(f"Serving log file: {log_path}, size: {os.path.getsize(log_path)} bytes")
     return send_file(
-        session['log_path'],
+        log_path,
         mimetype='text/plain',
         as_attachment=True,
         download_name="logs.txt"
     )
 
 if __name__ == "__main__":
-    port = int(os.environ.get('PORT', 10000))  # Use Render's PORT or default to 10000
+    port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port, debug=False)
