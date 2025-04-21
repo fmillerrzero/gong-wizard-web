@@ -110,8 +110,7 @@ class GongAPIClient:
         return call_ids
 
     def fetch_call_details(self, call_ids):
-        calls = []
-        batch_size = 100
+        batch_size = 10  # Smaller batch size to limit memory usage
         for i in range(0, len(call_ids), batch_size):
             batch_ids = call_ids[i:i + batch_size]
             body = {
@@ -128,12 +127,11 @@ class GongAPIClient:
             }
             data = self.api_call("POST", "calls/extensive", json=body)
             if data:
-                calls.extend(data.get("calls", []))
-        return calls
+                for call in data.get("calls", []):
+                    yield call
 
     def fetch_transcript(self, call_ids):
-        transcripts = {}
-        batch_size = 100
+        batch_size = 10  # Smaller batch size to limit memory usage
         for i in range(0, len(call_ids), batch_size):
             batch_ids = call_ids[i:i + batch_size]
             body = {"filter": {"callIds": batch_ids}}
@@ -143,8 +141,7 @@ class GongAPIClient:
                     call_id = str(t.get("callId", ""))
                     transcript = t.get("transcript", [])
                     if call_id and isinstance(transcript, list):
-                        transcripts[call_id] = transcript
-        return transcripts
+                        yield call_id, transcript
 
 # Helper functions
 def convert_to_sf_time(utc_time):
@@ -344,6 +341,9 @@ def process():
     start_date = request.form.get('start_date')
     end_date = request.form.get('end_date')
 
+    # Clear session to prevent large cookie size
+    session.clear()
+
     # Validate date inputs
     if not start_date or not end_date:
         log_data = log_stream.getvalue()
@@ -378,29 +378,37 @@ def process():
             message = "No calls found.<br><br>Logs:<br>" + log_data.replace('\n', '<br>')
             return render_template('index.html', message=message, start_date=start_date, end_date=end_date, products=products)
 
-        details = client.fetch_call_details(call_ids)
-        transcripts = client.fetch_transcript(call_ids)
-
+        # Process calls in batches to avoid memory issues
         full_data = []
-        for call in details:
+        transcripts = {}
+        for call_id, transcript in client.fetch_transcript(call_ids):
+            transcripts[call_id] = transcript
+
+        for call in client.fetch_call_details(call_ids):
             call_id = get_field(call.get("metaData", {}), "id")
             if call_id:
                 normalized = normalize_call_data(call, transcripts.get(call_id, []))
                 if normalized:
                     full_data.append(normalized)
+                    # Clear memory periodically
+                    if len(full_data) >= 10:
+                        utterances_df = prepare_utterances_df(full_data, products)
+                        call_summary_df = prepare_call_summary_df(full_data, products)
+                        json_data = prepare_json_output(full_data, products)
+                        # Append to session incrementally
+                        session['utterances_csv'] = (session.get('utterances_csv', '') + utterances_df.to_csv(index=False))[:10000]
+                        session['call_summary_csv'] = (session.get('call_summary_csv', '') + call_summary_df.to_csv(index=False))[:10000]
+                        session['json_data'] = (session.get('json_data', '') + json.dumps(json_data, indent=2, default=str))[:10000]
+                        full_data = []  # Reset to free memory
 
-        if not full_data:
-            log_data = log_stream.getvalue()
-            message = "No valid call data.<br><br>Logs:<br>" + log_data.replace('\n', '<br>')
-            return render_template('index.html', message=message, start_date=start_date, end_date=end_date, products=products)
-
-        utterances_df = prepare_utterances_df(full_data, products)
-        call_summary_df = prepare_call_summary_df(full_data, products)
-        json_data = prepare_json_output(full_data, products)
-
-        session['utterances_csv'] = utterances_df.to_csv(index=False)
-        session['call_summary_csv'] = call_summary_df.to_csv(index=False)
-        session['json_data'] = json.dumps(json_data, indent=2, default=str)
+        # Process any remaining data
+        if full_data:
+            utterances_df = prepare_utterances_df(full_data, products)
+            call_summary_df = prepare_call_summary_df(full_data, products)
+            json_data = prepare_json_output(full_data, products)
+            session['utterances_csv'] = (session.get('utterances_csv', '') + utterances_df.to_csv(index=False))[:10000]
+            session['call_summary_csv'] = (session.get('call_summary_csv', '') + call_summary_df.to_csv(index=False))[:10000]
+            session['json_data'] = (session.get('json_data', '') + json.dumps(json_data, indent=2, default=str))[:10000]
 
         return render_template('index.html', message="Processing complete", show_download=True, start_date=start_date, end_date=end_date, products=products)
     except Exception as e:
@@ -413,19 +421,25 @@ def process():
 def download_utterances():
     if 'utterances_csv' not in session:
         return "No data", 400
-    return Response(session['utterances_csv'], mimetype='text/csv', headers={"Content-Disposition": "attachment;filename=utterances.csv"})
+    response = Response(session['utterances_csv'], mimetype='text/csv', headers={"Content-Disposition": "attachment;filename=utterances.csv"})
+    session.pop('utterances_csv', None)  # Clear after download
+    return response
 
 @app.route('/download/call_summary')
 def download_call_summary():
     if 'call_summary_csv' not in session:
         return "No data", 400
-    return Response(session['call_summary_csv'], mimetype='text/csv', headers={"Content-Disposition": "attachment;filename=call_summary.csv"})
+    response = Response(session['call_summary_csv'], mimetype='text/csv', headers={"Content-Disposition": "attachment;filename=call_summary.csv"})
+    session.pop('call_summary_csv', None)  # Clear after download
+    return response
 
 @app.route('/download/json')
 def download_json():
     if 'json_data' not in session:
         return "No data", 400
-    return Response(session['json_data'], mimetype='application/json', headers={"Content-Disposition": "attachment;filename=data.json"})
+    response = Response(session['json_data'], mimetype='application/json', headers={"Content-Disposition": "attachment;filename=data.json"})
+    session.pop('json_data', None)  # Clear after download
+    return response
 
 @app.route('/download/logs')
 def download_logs():
