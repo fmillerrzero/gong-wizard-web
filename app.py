@@ -14,8 +14,19 @@ from flask import Flask, render_template, request, send_file, session
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# Configure logging to write to a file in a Docker-friendly way
+log_dir = "/tmp"  # Use /tmp for Docker containers
+if not os.path.exists(log_dir):
+    os.makedirs(log_dir)
+log_file_path = os.path.join(log_dir, "app.log")
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(log_file_path),  # Write logs to a file
+        logging.StreamHandler()  # Also write to console for Docker logs
+    ]
+)
 logger = logging.getLogger(__name__)
 
 # Constants
@@ -439,17 +450,12 @@ def process():
         session['utterances_path'] = os.path.join(temp_dir, f"utterances_gong_{start_date_str}_to_{end_date_str}.csv")
         session['call_summary_path'] = os.path.join(temp_dir, f"call_summary_gong_{start_date_str}_to_{end_date_str}.csv")
         session['json_path'] = os.path.join(temp_dir, f"call_data_gong_{start_date_str}_to_{end_date_str}.json")
-        session['log_path'] = os.path.join(temp_dir, "logs.txt")
+        session['log_path'] = log_file_path
 
         utterances_df.to_csv(session['utterances_path'], index=False)
         call_summary_df.to_csv(session['call_summary_path'], index=False)
         with open(session['json_path'], 'w') as f:
             json.dump(json_data, f, indent=2)
-
-        # Save logs to file
-        log_stream = logging.getLogger().handlers[0].stream.getvalue()
-        with open(session['log_path'], 'w') as f:
-            f.write(log_stream)
 
         form_state["message"] = f"Processed {len(full_data)} calls. Dropped {dropped_calls} calls. Filtered utterances: {len(utterances_df)}."
         form_state["show_download"] = True
