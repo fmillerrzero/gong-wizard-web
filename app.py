@@ -88,7 +88,7 @@ def normalize_domain(url):
 def load_domains_from_sheet(sheet_id, target_set, label):
     try:
         url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
-        response = requests.get(url)
+        response = requests.get(url, timeout=10)
         if response.status_code == 200:
             df = pd.read_csv(StringIO(response.text))
             domains_list = df.iloc[:, 0].dropna().astype(str).tolist()
@@ -99,6 +99,8 @@ def load_domains_from_sheet(sheet_id, target_set, label):
             logger.info(f"Loaded {len(target_set)} {label} domains")
         else:
             logger.error(f"Failed to fetch {label} Google Sheet: HTTP {response.status_code}")
+    except requests.RequestException as e:
+        logger.error(f"Network error loading {label} domains: {str(e)}")
     except Exception as e:
         logger.error(f"Error loading {label} domains: {str(e)}")
 
@@ -130,13 +132,18 @@ def load_file_paths():
         logger.error(f"Error loading paths file {PATHS_FILE}: {str(e)}")
         return {}
 
-@app.before_first_request
+# Fix: Replace deprecated @app.before_first_request with @app.before_request
+_initialization_done = False
+
+@app.before_request
 def initialize():
-    global TARGET_DOMAINS, TENANT_DOMAINS
-    load_domains_from_sheet("1HMAQ3eNhXhCAfcxPqQwds1qn1ZW8j6Sc1oCM9_TLjtQ", TARGET_DOMAINS, "owner")
-    load_domains_from_sheet("19WrPxtEZV59_irXRm36TJGRNJFRoYsi0KnrOUDIDBVM", TENANT_DOMAINS, "tenant")
-    logger.info(f"Initialized with {len(TARGET_DOMAINS)} owner domains and {len(TENANT_DOMAINS)} tenant domains")
-    cleanup_old_files()
+    global TARGET_DOMAINS, TENANT_DOMAINS, _initialization_done
+    if not _initialization_done:
+        load_domains_from_sheet("1HMAQ3eNhXhCAfcxPqQwds1qn1ZW8j6Sc1oCM9_TLjtQ", TARGET_DOMAINS, "owner")
+        load_domains_from_sheet("19WrPxtEZV59_irXRm36TJGRNJFRoYsi0KnrOUDIDBVM", TENANT_DOMAINS, "tenant")
+        logger.info(f"Initialized with {len(TARGET_DOMAINS)} owner domains and {len(TENANT_DOMAINS)} tenant domains")
+        cleanup_old_files()
+        _initialization_done = True
 
 class GongAPIError(Exception):
     def __init__(self, status_code, message):
@@ -262,7 +269,7 @@ def get_field(data, key, default=""):
         return default
     for k, v in data.items():
         if k.lower() == key.lower():
-            return v if v is not None else default  # Fixed typo: "elseFIT" to "else"
+            return v if v is not None else default
     return default
 
 def extract_field_values(context, field_name, object_type=None):
