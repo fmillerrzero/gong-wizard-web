@@ -1,4 +1,3 @@
-import argparse
 import base64
 import json
 import logging
@@ -18,25 +17,30 @@ app = Flask(__name__)
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', os.urandom(24))
 logger = logging.getLogger(__name__)
 
-# Parse command-line arguments
-parser = argparse.ArgumentParser(description="Gong Wizard Web Flask Application")
-parser.add_argument('--debug', action='store_true', help='Enable debug logging mode')
-args = parser.parse_args()
-
 # Configure logging
 log_dir = "/tmp"
 if not os.path.exists(log_dir):
     os.makedirs(log_dir, exist_ok=True)
 log_file_path = os.path.join(log_dir, "app.log")
 logging.basicConfig(
-    level=logging.DEBUG if args.debug else logging.INFO,
+    level=logging.DEBUG if os.environ.get('FLASK_DEBUG', 'False').lower() == 'true' else logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
         logging.FileHandler(log_file_path),
         logging.StreamHandler()
     ]
 )
+
+# Log startup to catch deployment issues
 logger.info("Starting Gong Wizard Web Flask - Version 2025-04-21")
+try:
+    logger.info("Application startup initiated")
+    logger.debug(f"FLASK_SECRET_KEY: {'set' if os.environ.get('FLASK_SECRET_KEY') else 'not set, using default'}")
+    logger.debug(f"PORT: {os.environ.get('PORT', '10000')}")
+    logger.debug(f"FLASK_DEBUG: {os.environ.get('FLASK_DEBUG', 'False')}")
+except Exception as e:
+    logger.error(f"Failed to start application: {str(e)}")
+    raise
 
 # Constants
 GONG_BASE_URL = "https://us-11211.api.gong.io/v2"
@@ -44,7 +48,11 @@ SF_TZ = pytz.timezone('America/Los_Angeles')
 TARGET_DOMAINS = set()
 TENANT_DOMAINS = set()
 OUTPUT_DIR = "/tmp/gong_output"
-os.makedirs(OUTPUT_DIR, exist_ok=True)
+try:
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    logger.info(f"Output directory created: {OUTPUT_DIR}")
+except Exception as e:
+    logger.error(f"Failed to create output directory {OUTPUT_DIR}: {str(e)}")
 PATHS_FILE = os.path.join(OUTPUT_DIR, "file_paths.json")
 PRODUCT_MAPPINGS = {
     "IAQ Monitoring": ["Air Quality"],
@@ -88,6 +96,7 @@ def normalize_domain(url):
 def load_domains_from_sheet(sheet_id, target_set, label):
     try:
         url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
+        logger.debug(f"Attempting to load {label} domains from {url}")
         response = requests.get(url, timeout=10)
         if response.status_code == 200:
             df = pd.read_csv(StringIO(response.text))
@@ -101,8 +110,10 @@ def load_domains_from_sheet(sheet_id, target_set, label):
             logger.error(f"Failed to fetch {label} Google Sheet: HTTP {response.status_code}")
     except requests.RequestException as e:
         logger.error(f"Network error loading {label} domains: {str(e)}")
+        logger.warning(f"Continuing without {label} domains")
     except Exception as e:
         logger.error(f"Error loading {label} domains: {str(e)}")
+        logger.warning(f"Continuing without {label} domains")
 
 def cleanup_old_files():
     now = time.time()
@@ -117,9 +128,12 @@ def cleanup_old_files():
                 logger.error(f"Error removing old file {file_path}: {str(e)}")
 
 def save_file_paths(paths):
-    with open(PATHS_FILE, 'w') as f:
-        json.dump(paths, f)
-    logger.info(f"Saved file paths to {PATHS_FILE}")
+    try:
+        with open(PATHS_FILE, 'w') as f:
+            json.dump(paths, f)
+        logger.info(f"Saved file paths to {PATHS_FILE}")
+    except Exception as e:
+        logger.error(f"Failed to save file paths to {PATHS_FILE}: {str(e)}")
 
 def load_file_paths():
     if not os.path.exists(PATHS_FILE):
@@ -139,11 +153,17 @@ _initialization_done = False
 def initialize():
     global TARGET_DOMAINS, TENANT_DOMAINS, _initialization_done
     if not _initialization_done:
-        load_domains_from_sheet("1HMAQ3eNhXhCAfcxPqQwds1qn1ZW8j6Sc1oCM9_TLjtQ", TARGET_DOMAINS, "owner")
-        load_domains_from_sheet("19WrPxtEZV59_irXRm36TJGRNJFRoYsi0KnrOUDIDBVM", TENANT_DOMAINS, "tenant")
-        logger.info(f"Initialized with {len(TARGET_DOMAINS)} owner domains and {len(TENANT_DOMAINS)} tenant domains")
-        cleanup_old_files()
-        _initialization_done = True
+        logger.info("Starting initialization of domains")
+        try:
+            load_domains_from_sheet("1HMAQ3eNhXhCAfcxPqQwds1qn1ZW8j6Sc1oCM9_TLjtQ", TARGET_DOMAINS, "owner")
+            load_domains_from_sheet("19WrPxtEZV59_irXRm36TJGRNJFRoYsi0KnrOUDIDBVM", TENANT_DOMAINS, "tenant")
+            logger.info(f"Initialized with {len(TARGET_DOMAINS)} owner domains and {len(TENANT_DOMAINS)} tenant domains")
+            cleanup_old_files()
+            _initialization_done = True
+            logger.info("Initialization completed successfully")
+        except Exception as e:
+            logger.error(f"Initialization failed: {str(e)}")
+            raise
 
 class GongAPIError(Exception):
     def __init__(self, status_code, message):
@@ -174,7 +194,7 @@ class GongAPIClient:
                     time.sleep(wait_time)
                     continue
                 else:
-                    raise GongAPIError(response.status_code, f"API error: {response.text}")
+                    raise GongAPIError(response.status_code, "API error: {response.text}")
             except requests.RequestException as e:
                 if attempt == max_attempts - 1:
                     raise GongAPIError(0, f"Network error: {str(e)}")
@@ -814,4 +834,5 @@ def download_logs():
 
 if __name__ == "__main__":
     port = int(os.environ.get('PORT', 10000))
-    app.run(host='0.0.0.0', port=port, debug=False)
+    debug_mode = os.environ.get('FLASK_DEBUG', 'False').lower() == 'true'
+    app.run(host='0.0.0.0', port=port, debug=debug_mode)
