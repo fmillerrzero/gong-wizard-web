@@ -262,7 +262,7 @@ def get_field(data, key, default=""):
         return default
     for k, v in data.items():
         if k.lower() == key.lower():
-            return v if v is not None elseFIT default
+            return v if v is not None else default  # Fixed typo: "elseFIT" to "else"
     return default
 
 def extract_field_values(context, field_name, object_type=None):
@@ -365,7 +365,7 @@ def normalize_call_data(call, transcript):
         logger.debug(f"Call {call_id}: Final key_points_str: {key_points_str}")
 
         normalized_website = normalize_domain(account_website)
-        org_type = "other"  # Changed from "partner" to "other"
+        org_type = "other"
         if normalized_website in TARGET_DOMAINS:
             org_type = "owner"
         elif normalized_website in TENANT_DOMAINS:
@@ -402,7 +402,7 @@ def normalize_call_data(call, transcript):
             "parties": call.get("parties", []),
             "utterances": transcript or [],
             "partial_data": True,
-            "org_type": "other",  # Changed from "partner" to "other"
+            "org_type": "other",
             "tracker_occurrences": [],
             "call_summary": "",
             "key_points": ""
