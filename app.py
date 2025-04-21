@@ -367,8 +367,11 @@ def process():
 
     try:
         client = GongAPIClient(access_key, secret_key)
-        start_date_utc = datetime.strptime(start_date, '%Y-%m-%d').isoformat() + "T00:00:00Z"
-        end_date_utc = datetime.strptime(end_date, '%Y-%m-%d').isoformat() + "T23:59:59Z"
+        utc = pytz.UTC
+        start_dt = utc.localize(datetime.strptime(start_date, '%Y-%m-%d'))
+        end_dt = utc.localize(datetime.strptime(end_date, '%Y-%m-%d').replace(hour=23, minute=59, second=59))
+        start_date_utc = start_dt.isoformat().replace('+00:00', 'Z')
+        end_date_utc = end_dt.isoformat().replace('+00:00', 'Z')
         call_ids = client.fetch_call_list(start_date_utc, end_date_utc)
         if not call_ids:
             log_data = log_stream.getvalue()
