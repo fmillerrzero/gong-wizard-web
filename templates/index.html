@@ -42,10 +42,10 @@
             <div class="form-group">
                 <label>Products</label>
                 <div class="product-checkboxes">
-                    <label><input type="checkbox" name="products" value="IAQ Monitoring" {% if 'IAQ Monitoring' in products %}checked{% endif %}> IAQ Monitoring</label>
-                    <label><input type="checkbox" name="products" value="ODCV" {% if 'ODCV' in products %}checked{% endif %}> ODCV</label>
-                    <label><input type="checkbox" name="products" value="Secure Air" {% if 'Secure Air' in products %}checked{% endif %}> Secure Air</label>
-                    <label><input type="checkbox" name="products" value="Occupancy Analytics" {% if 'Occupancy Analytics' in products %}checked{% endif %}> Occupancy Analytics</label>
+                    <label><input type="checkbox" name="products" value="IAQ Monitoring" checked> IAQ Monitoring</label>
+                    <label><input type="checkbox" name="products" value="ODCV" checked> ODCV</label>
+                    <label><input type="checkbox" name="products" value="Secure Air" checked> Secure Air</label>
+                    <label><input type="checkbox" name="products" value="Occupancy Analytics" checked> Occupancy Analytics</label>
                 </div>
             </div>
             <button type="submit">Submit</button>
@@ -59,6 +59,7 @@
             <a href="/download/utterances">Download Filtered Utterances CSV</a>
             <a href="/download/call_summary">Download Call Summary CSV</a>
             <a href="/download/json">Download JSON Data</a>
+            <a href="/download/logs">Download Logs</a>
         </div>
         {% endif %}
     </div>
