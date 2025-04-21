@@ -568,11 +568,6 @@ def download_logs():
         download_name="logs.txt"
     )
 
-@app.route('/health')
-def health():
-    """Health check endpoint for Render."""
-    return "OK", 200
-
 if __name__ == "__main__":
     port = int(os.environ.get('PORT', 10000))  # Use Render's PORT or default to 10000
     app.run(host='0.0.0.0', port=port, debug=False)
