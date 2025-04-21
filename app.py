@@ -95,13 +95,15 @@ class GongAPIClient:
                 params["cursor"] = cursor
             data = self.api_call("GET", "calls", params=params)
             if not data:
+                logger.error("Failed to fetch call list")
                 break
             calls = data.get("calls", [])
-            call_ids.extend(str(call.get("metaData", {}).get("id", "")) for call in calls if call.get("metaData", {}).get("id"))
+            call_ids.extend(str(call.get("id", "")) for call in calls if call.get("id"))
             cursor = data.get("records", {}).get("cursor")
             if not cursor:
                 break
             time.sleep(1)
+        logger.info(f"Fetched {len(call_ids)} call IDs")
         return call_ids
 
     def fetch_call_details(self, call_ids):
@@ -327,15 +329,17 @@ def process():
     end_date = request.form.get('end_date')
 
     if not access_key or not secret_key:
-        return render_template('index.html', message="Missing API keys", start_date=start_date, end_date=end_date, products=products)
+        log_data = log_stream.getvalue()
+        return render_template('index.html', message=f"Missing API keys.<br><br>Logs:<br>{log_data.replace('\n', '<br>')}", start_date=start_date, end_date=end_date, products=products)
 
     try:
         client = GongAPIClient(access_key, secret_key)
-        start_date_utc = datetime.strptime(start_date, '%Y-%m-%d').isoformat() + "Z"
-        end_date_utc = datetime.strptime(end_date, '%Y-%m-%d').isoformat() + "Z"
+        start_date_utc = datetime.strptime(start_date, '%Y-%m-%d').isoformat() + "T00:00:00Z"
+        end_date_utc = datetime.strptime(end_date, '%Y-%m-%d').isoformat() + "T23:59:59Z"
         call_ids = client.fetch_call_list(start_date_utc, end_date_utc)
         if not call_ids:
-            return render_template('index.html', message="No calls found", start_date=start_date, end_date=end_date, products=products)
+            log_data = log_stream.getvalue()
+            return render_template('index.html', message=f"No calls found.<br><br>Logs:<br>{log_data.replace('\n', '<br>')}", start_date=start_date, end_date=end_date, products=products)
 
         details = client.fetch_call_details(call_ids)
         transcripts = client.fetch_transcript(call_ids)
@@ -349,7 +353,8 @@ def process():
                     full_data.append(normalized)
 
         if not full_data:
-            return render_template('index.html', message="No valid call data", start_date=start_date, end_date=end_date, products=products)
+            log_data = log_stream.getvalue()
+            return render_template('index.html', message=f"No valid call data.<br><br>Logs:<br>{log_data.replace('\n', '<br>')}", start_date=start_date, end_date=end_date, products=products)
 
         utterances_df = prepare_utterances_df(full_data, products)
         call_summary_df = prepare_call_summary_df(full_data, products)
@@ -362,7 +367,8 @@ def process():
         return render_template('index.html', message="Processing complete", show_download=True, start_date=start_date, end_date=end_date, products=products)
     except Exception as e:
         logger.error(f"Error in process: {str(e)}")
-        return render_template('index.html', message="Unexpected error", start_date=start_date, end_date=end_date, products=products)
+        log_data = log_stream.getvalue()
+        return render_template('index.html', message=f"Unexpected error: {str(e)}.<br><br>Logs:<br>{log_data.replace('\n', '<br>')}", start_date=start_date, end_date=end_date, products=products)
 
 @app.route('/download/utterances')
 def download_utterances():
