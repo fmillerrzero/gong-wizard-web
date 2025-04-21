@@ -14,5 +14,5 @@ COPY . .
 # Expose port (Render assigns dynamically, but we document 10000)
 EXPOSE 10000
 
-# Run with gunicorn, binding to PORT environment variable
+# Run with gunicorn, binding to port 10000 (Render will override via PORT env)
 CMD ["gunicorn", "-w", "4", "-b", "0.0.0.0:10000", "app:app"]
