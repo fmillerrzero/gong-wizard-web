@@ -3,8 +3,8 @@ import json
 import logging
 import os
 import re
-import tempfile
 import time
+import glob
 from datetime import datetime, timedelta
 from io import StringIO
 
@@ -36,6 +36,9 @@ logger.info("Starting Gong Wizard Web Flask - Version 2025-04-21")
 GONG_BASE_URL = "https://us-11211.api.gong.io/v2"
 SF_TZ = pytz.timezone('America/Los_Angeles')
 TARGET_DOMAINS = set()
+OUTPUT_DIR = "/tmp/gong_output"
+if not os.path.exists(OUTPUT_DIR):
+    os.makedirs(OUTPUT_DIR)
 
 # Product mappings
 PRODUCT_MAPPINGS = {
@@ -96,11 +99,23 @@ def load_target_domains_from_sheet(sheet_id="1HMAQ3eNhXhCAfcxPqQwds1qn1ZW8j6Sc1o
         logger.error(f"Error loading domains: {str(e)}")
     return target_domains
 
+def cleanup_old_files():
+    """Remove files older than 1 hour in OUTPUT_DIR."""
+    now = time.time()
+    for file_path in glob.glob(os.path.join(OUTPUT_DIR, "*")):
+        if os.path.isfile(file_path) and (now - os.path.getmtime(file_path)) > 3600:
+            try:
+                os.remove(file_path)
+                logger.info(f"Removed old file: {file_path}")
+            except Exception as e:
+                logger.error(f"Error removing old file {file_path}: {str(e)}")
+
 @app.before_first_request
 def initialize():
     global TARGET_DOMAINS
     TARGET_DOMAINS = load_target_domains_from_sheet()
     logger.info(f"Initialized with {len(TARGET_DOMAINS)} target domains")
+    cleanup_old_files()
 
 class GongAPIError(Exception):
     def __init__(self, status_code, message):
@@ -294,6 +309,7 @@ def normalize_call_data(call, transcript):
 
 def prepare_utterances_df(calls, selected_products):
     if not calls:
+        logger.info("No calls to process for utterances DataFrame")
         return pd.DataFrame()
     data = []
     for call in calls:
@@ -333,11 +349,14 @@ def prepare_utterances_df(calls, selected_products):
     df = pd.DataFrame(data)
     if not df.empty:
         df = df.sort_values(["call_date", "call_id"], ascending=[False, True])
-    logger.info(f"Prepared utterances DataFrame with {len(df)} rows")
+        logger.info(f"Utterances DataFrame: {len(df)} rows, columns: {df.columns.tolist()}")
+    else:
+        logger.info("Utterances DataFrame is empty after processing")
     return df
 
 def prepare_call_summary_df(calls, selected_products):
     if not calls:
+        logger.info("No calls to process for call summary DataFrame")
         return pd.DataFrame()
     data = []
     for call in calls:
@@ -358,11 +377,14 @@ def prepare_call_summary_df(calls, selected_products):
     df = pd.DataFrame(data)
     if not df.empty:
         df = df.sort_values("call_date", ascending=False)
-    logger.info(f"Prepared call summary DataFrame with {len(df)} rows")
+        logger.info(f"Call summary DataFrame: {len(df)} rows, columns: {df.columns.tolist()}")
+    else:
+        logger.info("Call summary DataFrame is empty after processing")
     return df
 
 def prepare_json_output(calls, selected_products):
     if not calls:
+        logger.info("No calls to process for JSON output")
         return {"filtered_calls": [], "non_filtered_calls": []}
     filtered_calls = []
     non_filtered_calls = []
@@ -395,7 +417,7 @@ def prepare_json_output(calls, selected_products):
             non_filtered_calls.append(call_data)
     filtered_calls = sorted(filtered_calls, key=lambda x: datetime.strptime(x["call_date"], "%m/%d/%y") if x["call_date"] != "N/A" else datetime.min, reverse=True)
     non_filtered_calls = sorted(non_filtered_calls, key=lambda x: datetime.strptime(x["call_date"], "%m/%d/%y") if x["call_date"] != "N/A" else datetime.min, reverse=True)
-    logger.info(f"Prepared JSON with {len(filtered_calls)} filtered, {len(non_filtered_calls)} non-filtered calls")
+    logger.info(f"JSON output: {len(filtered_calls)} filtered, {len(non_filtered_calls)} non-filtered calls")
     return {"filtered_calls": filtered_calls, "non_filtered_calls": non_filtered_calls}
 
 @app.route('/')
@@ -492,18 +514,20 @@ def process():
             form_state["message"] = "No calls matched the selected products."
             return render_template('index.html', **form_state)
 
-        temp_dir = tempfile.mkdtemp()
-        logger.info(f"Created temp directory: {temp_dir}")
-        session['temp_dir'] = temp_dir
+        # Use persistent directory with unique ID
+        unique_id = datetime.now().strftime("%Y%m%d%H%M%S")
+        logger.info(f"Using output directory: {OUTPUT_DIR}")
+        cleanup_old_files()
         start_date_str = start_dt.strftime("%d%b%y").lower()
         end_date_str = end_dt.strftime("%d%b%y").lower()
-        utterances_path = os.path.join(temp_dir, f"utterances_gong_{start_date_str}_to_{end_date_str}.csv")
-        call_summary_path = os.path.join(temp_dir, f"call_summary_gong_{start_date_str}_to_{end_date_str}.csv")
-        json_path = os.path.join(temp_dir, f"call_data_gong_{start_date_str}_to_{end_date_str}.json")
+        utterances_path = os.path.join(OUTPUT_DIR, f"utterances_gong_{start_date_str}_to_{end_date_str}_{unique_id}.csv")
+        call_summary_path = os.path.join(OUTPUT_DIR, f"call_summary_gong_{start_date_str}_to_{end_date_str}_{unique_id}.csv")
+        json_path = os.path.join(OUTPUT_DIR, f"call_data_gong_{start_date_str}_to_{end_date_str}_{unique_id}.json")
         session['utterances_path'] = utterances_path
         session['call_summary_path'] = call_summary_path
         session['json_path'] = json_path
         session['log_path'] = log_file_path
+        session.modified = True  # Ensure session is marked as modified
 
         # Write files and log results
         utterances_df.to_csv(utterances_path, index=False)
