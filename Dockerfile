@@ -1,18 +1,1 @@
-# Use a slim Python image for smaller size
-FROM python:3.9-slim
-
-# Set working directory
-WORKDIR /app
-
-# Install dependencies
-COPY requirements.txt .
-RUN pip cache purge && pip install --no-cache-dir -r requirements.txt
-
-# Copy application files
-COPY . .
-
-# Expose port (Render maps internally to external port)
-EXPOSE 10000
-
-# Run with gunicorn, binding to port 10000
-CMD ["gunicorn", "-w", "4", "-b", "0.0.0.0:10000", "app:app"]
+FROM python:3.9-slim WORKDIR /app COPY packages.txt . RUN if [ -s packages.txt ]; then apt-get update && xargs -a packages.txt apt-get install -y; fi COPY requirements.txt . RUN pip install --no-cache-dir -r requirements.txt COPY . . EXPOSE 10000 CMD ["gunicorn", "--bind", "0.0.0.0:$PORT", "app:app"]
