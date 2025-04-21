@@ -243,7 +243,7 @@ def prepare_utterances_df(calls, selected_products):
             continue
         speaker_info = {get_field(p, "speakerId"): p for p in call["parties"]}
         for utterance in sorted(call["utterances"] or [], key=lambda x: get_field(x, "start", 0)):
-            text = " ".join(s.get("text", "") for s in utterance.get("sentences", []))
+            text = " ".join(s.get("text", "") if isinstance(s, dict) else "" for s in (utterance.get("sentences", []) or []))
             if len(text.split()) <= 5:
                 continue
             speaker = speaker_info.get(get_field(utterance, "speakerId"), {})
@@ -318,7 +318,7 @@ def prepare_json_output(calls, selected_products):
                     "timestamp": get_field(u, "start", "N/A"),
                     "speaker_name": get_field(speaker_info.get(get_field(u, "speakerId"), {}), "name", "Unknown"),
                     "speaker_affiliation": get_field(speaker_info.get(get_field(u, "speakerId"), {}), "affiliation", "unknown"),
-                    "utterance_text": " ".join(s.get("text", "") for s in (u.get("sentences", []) or [])),
+                    "utterance_text": " ".join(s.get("text", "") if isinstance(s, dict) else "" for s in (u.get("sentences", []) or [])),
                     "topic": get_field(u, "topic", "N/A")
                 } for u in sorted(call["utterances"] or [], key=lambda x: get_field(x, "start", 0))
             ]
