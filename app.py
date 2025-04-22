@@ -394,7 +394,7 @@ def normalize_call_data(call):
             org_type = "tenant"
 
         utterances = content.get("transcript", [])
-        logger.debug(f"Call {call_id}: Found {len(utterances)} utterances")
+        logger.debug(f"Call {call_id}: Found {len(utterances)} utterances: {utterances}")
 
         return {
             "call_id": call_id,
@@ -485,18 +485,21 @@ def prepare_utterances_df(calls, selected_products):
         
         for utterance in utterances:
             text = " ".join(s.get("text", "") if isinstance(s, dict) else "" for s in (utterance.get("sentences", []) or []))
-            if len(text.split()) <= 5:
-                logger.debug(f"Call {call_id}: Utterance skipped, text too short: {text}")
-                continue
+            # Temporarily remove word count filter to capture all utterances
+            # if len(text.split()) <= 5:
+            #     logger.debug(f"Call {call_id}: Utterance skipped, text too short: {text}")
+            #     continue
             speaker = speaker_info.get(get_field(utterance, "speakerId"), {})
             affiliation = get_field(speaker, "affiliation", "unknown").lower()
-            if affiliation == "internal":
-                logger.debug(f"Call {call_id}: Utterance skipped, internal speaker: {text}")
-                continue
+            # Temporarily remove internal speaker filter
+            # if affiliation == "internal":
+            #     logger.debug(f"Call {call_id}: Utterance skipped, internal speaker: {text}")
+            #     continue
             topic = get_field(utterance, "topic", "N/A")
-            if topic.lower() in ["call setup", "small talk"]:
-                logger.debug(f"Call {call_id}: Utterance skipped, topic {topic}: {text}")
-                continue
+            # Temporarily remove topic filter
+            # if topic.lower() in ["call setup", "small talk"]:
+            #     logger.debug(f"Call {call_id}: Utterance skipped, topic {topic}: {text}")
+            #     continue
             
             utterance_start = float(get_field(utterance, "start", 0))
             utterance_key = f"{call_id}_{utterance_start}"
@@ -506,7 +509,7 @@ def prepare_utterances_df(calls, selected_products):
             tracker_phrases = [t["phrase"] for t in triggered_trackers]
             
             speaker_id = get_field(utterance, "speakerId", "Unknown")
-            logger.debug(f"Utterance speaker: {speaker_id}, Speaker data: {speaker}")
+            logger.debug(f"Utterance speaker: {speaker_id}, Speaker data: {speaker}, Text: {text}")
             speaker_job_title = get_field(speaker, "jobTitle", None)
             if speaker_job_title is None or speaker_job_title == "":
                 speaker_job_title = get_field(speaker, "title", "N/A")
