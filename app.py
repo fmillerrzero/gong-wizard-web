@@ -33,9 +33,6 @@ logging.basicConfig(
 
 logger.info("Starting Gong Wizard Web Flask - Version 2025-04-21")
 logger.info("Application startup initiated")
-logger.debug(f"FLASK_SECRET_KEY: {'set' if os.environ.get('FLASK_SECRET_KEY') else 'not set, using default'}")
-logger.debug(f"PORT: {os.environ.get('PORT', '10000')}")
-logger.debug(f"FLASK_DEBUG: {os.environ.get('FLASK_DEBUG', 'False')}")
 
 # Constants
 GONG_BASE_URL = "https://us-11211.api.gong.io"
@@ -88,7 +85,6 @@ def normalize_domain(url):
 def load_domains_from_sheet(sheet_id, target_set, label):
     try:
         url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
-        logger.debug(f"Attempting to load {label} domains from {url}")
         response = requests.get(url, timeout=10)
         if response.status_code == 200:
             df = pd.read_csv(StringIO(response.text))
@@ -225,11 +221,7 @@ class GongAPIClient:
                 "context": "Extended"
             }
         }
-        logger.debug(f"API request payload: {json.dumps(data)}")
         response = self.api_call("POST", endpoint, json=data)
-        if response.get("calls"):
-            first_call = response["calls"][0]
-            logger.debug(f"Sample API response structure: {json.dumps({'metaData': first_call.get('metaData'), 'content_keys': list(first_call.get('content', {}).keys())})}")
         for call in response.get("calls", []):
             yield call
 
@@ -359,6 +351,7 @@ def normalize_call_data(call, transcript):
                     if tracker_counts.get(tracker.lower(), 0) > 0:
                         products.append(product)
                         break
+        logger.debug(f"Call {call_id}: Assigned products: {products}")
 
         tracker_occurrences = []
         for tracker in content.get("trackerOccurrences", []):
@@ -435,7 +428,7 @@ def prepare_utterances_df(calls, selected_products):
     
     for call in calls:
         call_id = call["call_id"]
-        products = call.get("products", [])
+        products = call.get("products", [])  # Fetch products from call data
         selected = [p.lower() for p in selected_products]
         products_lower = [p.lower() for p in products if isinstance(p, str)]
         
@@ -468,11 +461,6 @@ def prepare_utterances_df(calls, selected_products):
                 continue
         
         speaker_info = {get_field(p, "speakerId"): p for p in call["parties"]}
-        for speaker_id, speaker in speaker_info.items():
-            logger.debug(f"Speaker data for call {call_id}, speakerId {speaker_id}: {speaker}")
-            logger.debug(f"Speaker jobTitle: {get_field(speaker, 'jobTitle', 'NOT_FOUND')}")
-            logger.debug(f"Speaker title: {get_field(speaker, 'title', 'NOT_FOUND')}")
-        
         for utterance in utterances:
             if "sentences" in utterance:
                 text = " ".join(s.get("text", "") if isinstance(s, dict) else "" for s in (utterance.get("sentences", []) or []))
@@ -493,8 +481,6 @@ def prepare_utterances_df(calls, selected_products):
             tracker_names = [t["tracker_name"] for t in triggered_trackers]
             tracker_phrases = [t["phrase"] for t in triggered_trackers]
             
-            speaker_id = get_field(utterance, "speakerId", "Unknown")
-            logger.debug(f"Utterance speaker: {speaker_id}, Speaker data: {speaker}, Text: {text}")
             speaker_job_title = get_field(speaker, "jobTitle", None)
             if speaker_job_title is None or speaker_job_title == "":
                 speaker_job_title = get_field(speaker, "title", "N/A")
@@ -728,23 +714,9 @@ def process():
         save_file_paths(paths)
 
         utterances_df.to_csv(utterances_path, index=False, quoting=csv.QUOTE_NONNUMERIC)
-        if os.path.exists(utterances_path):
-            logger.info(f"Utterances CSV written: {utterances_path}, size: {os.path.getsize(utterances_path)} bytes")
-        else:
-            logger.error(f"Utterances CSV not found after writing: {utterances_path}")
-
         call_summary_df.to_csv(call_summary_path, index=False, quoting=csv.QUOTE_NONNUMERIC)
-        if os.path.exists(call_summary_path):
-            logger.info(f"Call summary CSV written: {call_summary_path}, size: {os.path.getsize(call_summary_path)} bytes")
-        else:
-            logger.error(f"Call summary CSV not found after writing: {call_summary_path}")
-
         with open(json_path, 'w') as f:
             json.dump(json_data, f, indent=2)
-        if os.path.exists(json_path):
-            logger.info(f"JSON written: {json_path}, size: {os.path.getsize(json_path)} bytes")
-        else:
-            logger.error(f"JSON not found after writing: {json_path}")
 
         form_state["message"] = f"Processed {len(full_data)} calls. Dropped {dropped_calls} calls. Filtered utterances: {len(utterances_df)}."
         form_state["show_download"] = True
@@ -763,13 +735,8 @@ def process():
 def download_utterances():
     paths = load_file_paths()
     utterances_path = paths.get("utterances_path")
-    if not utterances_path:
-        logger.error("Utterances path not found in paths file")
-        return "No data", 400
-    if not os.path.exists(utterances_path):
-        logger.error(f"Utterances file not found: {utterances_path}")
+    if not utterances_path or not os.path.exists(utterances_path):
         return "File not found", 404
-    logger.info(f"Serving utterances file: {utterances_path}, size: {os.path.getsize(utterances_path)} bytes")
     return send_file(
         utterances_path,
         mimetype='text/csv',
@@ -781,13 +748,8 @@ def download_utterances():
 def download_call_summary():
     paths = load_file_paths()
     call_summary_path = paths.get("call_summary_path")
-    if not call_summary_path:
-        logger.error("Call summary path not found in paths file")
-        return "No data", 400
-    if not os.path.exists(call_summary_path):
-        logger.error(f"Call summary file not found: {call_summary_path}")
+    if not call_summary_path or not os.path.exists(call_summary_path):
         return "File not found", 404
-    logger.info(f"Serving call summary file: {call_summary_path}, size: {os.path.getsize(call_summary_path)} bytes")
     return send_file(
         call_summary_path,
         mimetype='text/csv',
@@ -799,13 +761,8 @@ def download_call_summary():
 def download_json():
     paths = load_file_paths()
     json_path = paths.get("json_path")
-    if not json_path:
-        logger.error("JSON path not found in paths file")
-        return "No data", 400
-    if not os.path.exists(json_path):
-        logger.error(f"JSON file not found: {json_path}")
+    if not json_path or not os.path.exists(json_path):
         return "File not found", 404
-    logger.info(f"Serving JSON file: {json_path}, size: {os.path.getsize(json_path)} bytes")
     return send_file(
         json_path,
         mimetype='application/json',
@@ -817,13 +774,8 @@ def download_json():
 def download_logs():
     paths = load_file_paths()
     log_path = paths.get("log_path")
-    if not log_path:
-        logger.error("Log path not found in paths file")
-        return "No logs", 400
-    if not os.path.exists(log_path):
-        logger.error(f"Log file not found: {log_path}")
+    if not log_path or not os.path.exists(log_path):
         return "File not found", 404
-    logger.info(f"Serving log file: {log_path}, size: {os.path.getsize(log_path)} bytes")
     return send_file(
         log_path,
         mimetype='text/plain',
