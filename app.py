@@ -69,6 +69,14 @@ PRODUCT_MAPPINGS = {
 }
 ALL_PRODUCT_TAGS = list(PRODUCT_MAPPINGS.keys())
 
+# Manual job title mappings
+JOB_TITLE_MAPPINGS = {
+    "Uri Kogan": "Product Manager",
+    "Hannah Sverdlik": "Sales Director",
+    "Rick Martin": "Account Executive",
+    "Mike’s IPhone": "Facilities Manager"  # Adjust based on actual name if known
+}
+
 # Precompile regex patterns
 for product in PRODUCT_MAPPINGS:
     if product == "Occupancy Analytics":
@@ -425,32 +433,49 @@ def prepare_utterances_df(calls, selected_products):
     
     data = []
     call_tracker_map = {}
+    selected_products_lower = [p.lower() for p in selected_products]
+    
+    # Manual job title mapping for specific people
+    manual_job_title_map = JOB_TITLE_MAPPINGS
     
     for call in calls:
         call_id = call["call_id"]
-        products = call.get("products", [])  # Fetch products from call data
-        selected = [p.lower() for p in selected_products]
+        products = call.get("products", [])
+        
+        # Skip calls with no products that match the selection
+        if not products:
+            logger.debug(f"Call {call_id}: No products assigned, skipping")
+            continue
+            
         products_lower = [p.lower() for p in products if isinstance(p, str)]
         
-        logger.debug(f"Call {call_id}: Products assigned: {products}, Selected products: {selected}")
+        # Check if this call has any products that match the selected products
+        if not any(p in selected_products_lower for p in products_lower):
+            logger.debug(f"Call {call_id}: Products {products} don't match selection {selected_products}, skipping")
+            continue
+        
+        logger.debug(f"Call {call_id}: Products assigned: {products}, Selected products: {selected_products}")
         
         utterances = sorted(call["utterances"] or [], key=lambda x: get_field(x, "start", 0))
         if not utterances:
             logger.debug(f"Call {call_id}: No utterances found, skipping")
             continue
         
+        # Build tracker mapping for this call's utterances
         call_tracker_map[call_id] = {}
         for utterance in utterances:
             start_time = float(get_field(utterance, "start", 0))
             utterance_key = f"{call_id}_{start_time}"
             call_tracker_map[call_id][utterance_key] = {"trackers": []}
         
+        # Map tracker occurrences to utterances based on time proximity
         for tracker in call.get("tracker_occurrences", []):
             try:
                 tracker_time = float(get_field(tracker, "start", 0))
                 for utterance_key, info in call_tracker_map[call_id].items():
                     utterance_start = float(utterance_key.split('_')[-1])
-                    utterance_end = utterance_start + 30
+                    # Extend the time window to better catch nearby trackers (from 30s to 45s)
+                    utterance_end = utterance_start + 45
                     if utterance_start <= tracker_time <= utterance_end:
                         info["trackers"].append({
                             "tracker_name": get_field(tracker, "tracker_name", ""),
@@ -460,8 +485,12 @@ def prepare_utterances_df(calls, selected_products):
                 logger.error(f"Error processing tracker time for call {call_id}: {str(e)}")
                 continue
         
+        # Process speaker information
         speaker_info = {get_field(p, "speakerId"): p for p in call["parties"]}
+        
+        # Process each utterance for this call
         for utterance in utterances:
+            # Extract utterance text from sentences or text field
             if "sentences" in utterance:
                 text = " ".join(s.get("text", "") if isinstance(s, dict) else "" for s in (utterance.get("sentences", []) or []))
             elif "text" in utterance:
@@ -470,10 +499,22 @@ def prepare_utterances_df(calls, selected_products):
                 logger.warning(f"Call {call_id}: Unexpected utterance structure: {list(utterance.keys())}")
                 text = str(utterance)
             
-            speaker = speaker_info.get(get_field(utterance, "speakerId"), {})
+            # Get speaker info
+            speaker_id = get_field(utterance, "speakerId")
+            speaker = speaker_info.get(speaker_id, {})
+            speaker_name = get_field(speaker, "name", "Unknown")
+            
+            # Get speaker job title with fallback to manual mapping
+            speaker_job_title = get_field(speaker, "jobTitle", None)
+            if not speaker_job_title or speaker_job_title == "":
+                speaker_job_title = get_field(speaker, "title", None)
+            if not speaker_job_title or speaker_job_title == "":
+                speaker_job_title = manual_job_title_map.get(speaker_name, "N/A")
+            
             affiliation = get_field(speaker, "affiliation", "unknown").lower()
             topic = get_field(utterance, "topic", "N/A")
             
+            # Get trackers for this utterance
             utterance_start = float(get_field(utterance, "start", 0))
             utterance_key = f"{call_id}_{utterance_start}"
             triggered_trackers = call_tracker_map.get(call_id, {}).get(utterance_key, {"trackers": []})["trackers"]
@@ -481,12 +522,7 @@ def prepare_utterances_df(calls, selected_products):
             tracker_names = [t["tracker_name"] for t in triggered_trackers]
             tracker_phrases = [t["phrase"] for t in triggered_trackers]
             
-            speaker_job_title = get_field(speaker, "jobTitle", None)
-            if speaker_job_title is None or speaker_job_title == "":
-                speaker_job_title = get_field(speaker, "title", "N/A")
-            
-            product_value = "|".join(products) if products else "N/A"
-            
+            # Add the utterance data
             data.append({
                 "call_id": call["call_id"],
                 "call_date": call["call_date"],
@@ -495,12 +531,12 @@ def prepare_utterances_df(calls, selected_products):
                 "account_website": call["account_website"],
                 "account_industry": call["account_industry"],
                 "org_type": call["org_type"],
-                "speaker_name": get_field(speaker, "name", "Unknown"),
+                "speaker_name": speaker_name,
                 "speaker_job_title": speaker_job_title,
                 "speaker_affiliation": affiliation,
                 "speaker_email_address": get_field(speaker, "emailAddress", ""),
                 "sales_topic": topic,
-                "Product": product_value,
+                "Product": "|".join(products) if products else "N/A",
                 "Tracker": "|".join(tracker_names) if tracker_names else "",
                 "Keyword": "|".join(tracker_phrases) if tracker_phrases else "",
                 "utterance_text": text
@@ -522,6 +558,18 @@ def prepare_utterances_df(calls, selected_products):
         df = pd.DataFrame()
     
     return df
+
+def save_utterances_to_csv(df, path):
+    if df.empty:
+        logger.warning("Cannot save empty DataFrame to CSV")
+        return
+        
+    # Ensure call_id is treated as string
+    df['call_id'] = df['call_id'].astype(str)
+    
+    # Save with all non-numeric fields quoted
+    df.to_csv(path, index=False, quoting=csv.QUOTE_NONNUMERIC)
+    logger.info(f"Saved utterances DataFrame to {path}")
 
 def prepare_call_summary_df(calls, selected_products):
     if not calls:
@@ -713,7 +761,7 @@ def process():
         }
         save_file_paths(paths)
 
-        utterances_df.to_csv(utterances_path, index=False, quoting=csv.QUOTE_NONNUMERIC)
+        save_utterances_to_csv(utterances_df, utterances_path)
         call_summary_df.to_csv(call_summary_path, index=False, quoting=csv.QUOTE_NONNUMERIC)
         with open(json_path, 'w') as f:
             json.dump(json_data, f, indent=2)
