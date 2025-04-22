@@ -217,7 +217,8 @@ class GongAPIClient:
                         "trackerOccurrences": True,
                         "brief": True,
                         "keyPoints": True,
-                        "transcript": True  # Ensure transcript is requested
+                        "transcript": True,
+                        "messages": True  # Add messages in case transcripts are under a different field
                     },
                     "collaboration": {
                         "publicComments": True
@@ -226,7 +227,11 @@ class GongAPIClient:
                 "context": "Extended"
             }
         }
+        logger.debug(f"API request payload: {json.dumps(data)}")
         response = self.api_call("POST", endpoint, json=data)
+        if response.get("calls"):
+            first_call = response["calls"][0]
+            logger.debug(f"Sample API response structure: {json.dumps({'metaData': first_call.get('metaData'), 'content_keys': list(first_call.get('content', {}).keys())})}")
         for call in response.get("calls", []):
             yield call
 
@@ -239,15 +244,12 @@ def convert_to_sf_time(utc_time):
         utc_time = utc_time.strip()
         # Handle milliseconds by removing them while preserving timezone
         if '.' in utc_time:
-            # Split on the decimal point
             parts = utc_time.split('.')
             base_time = parts[0]  # e.g., 2025-04-09T09:01:34
-            # Extract timezone part (e.g., -07:00 or Z)
             timezone_part = parts[1]
             if 'Z' in timezone_part:
                 utc_time = base_time + 'Z'
             elif '-' in timezone_part or '+' in timezone_part:
-                # Find the timezone separator
                 tz_index = timezone_part.index('-') if '-' in timezone_part else timezone_part.index('+')
                 timezone = timezone_part[tz_index:]
                 utc_time = base_time + timezone
@@ -393,8 +395,20 @@ def normalize_call_data(call):
         elif normalized_website in TENANT_DOMAINS:
             org_type = "tenant"
 
+        # Add detailed logging of content structure
+        logger.debug(f"Call {call_id}: Content keys: {list(content.keys() if content else [])}")
+        
         utterances = content.get("transcript", [])
-        logger.debug(f"Call {call_id}: Found {len(utterances)} utterances: {utterances}")
+        if not utterances:
+            logger.warning(f"Call {call_id}: Empty transcript data")
+        else:
+            # Log the first utterance structure to understand the format
+            logger.debug(f"Call {call_id}: First utterance structure: {utterances[0] if utterances else 'None'}")
+            # Check if sentences exist in the first utterance
+            if utterances and "sentences" not in utterances[0]:
+                logger.warning(f"Call {call_id}: Utterance does not have 'sentences' field. Keys: {list(utterances[0].keys())}")
+        
+        logger.debug(f"Call {call_id}: Found {len(utterances)} utterances")
 
         return {
             "call_id": call_id,
@@ -484,22 +498,18 @@ def prepare_utterances_df(calls, selected_products):
             logger.debug(f"Speaker title: {get_field(speaker, 'title', 'NOT_FOUND')}")
         
         for utterance in utterances:
-            text = " ".join(s.get("text", "") if isinstance(s, dict) else "" for s in (utterance.get("sentences", []) or []))
-            # Temporarily remove word count filter to capture all utterances
-            # if len(text.split()) <= 5:
-            #     logger.debug(f"Call {call_id}: Utterance skipped, text too short: {text}")
-            #     continue
+            # Handle different possible data structures
+            if "sentences" in utterance:
+                text = " ".join(s.get("text", "") if isinstance(s, dict) else "" for s in (utterance.get("sentences", []) or []))
+            elif "text" in utterance:
+                text = utterance.get("text", "")
+            else:
+                logger.warning(f"Call {call_id}: Unexpected utterance structure: {list(utterance.keys())}")
+                text = str(utterance)  # Use string representation as fallback
+            
             speaker = speaker_info.get(get_field(utterance, "speakerId"), {})
             affiliation = get_field(speaker, "affiliation", "unknown").lower()
-            # Temporarily remove internal speaker filter
-            # if affiliation == "internal":
-            #     logger.debug(f"Call {call_id}: Utterance skipped, internal speaker: {text}")
-            #     continue
             topic = get_field(utterance, "topic", "N/A")
-            # Temporarily remove topic filter
-            # if topic.lower() in ["call setup", "small talk"]:
-            #     logger.debug(f"Call {call_id}: Utterance skipped, topic {topic}: {text}")
-            #     continue
             
             utterance_start = float(get_field(utterance, "start", 0))
             utterance_key = f"{call_id}_{utterance_start}"
