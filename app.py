@@ -43,6 +43,7 @@ OUTPUT_DIR = "/tmp/gong_output"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 logger.info(f"Output directory created: {OUTPUT_DIR}")
 PATHS_FILE = os.path.join(OUTPUT_DIR, "file_paths.json")
+BATCH_SIZE = 50
 PRODUCT_MAPPINGS = {
     "IAQ Monitoring": ["Air Quality"],
     "ODCV": ["ODCV"],
@@ -76,7 +77,6 @@ for product in PRODUCT_MAPPINGS:
         PRODUCT_MAPPINGS[product] = [re.compile(pattern, re.IGNORECASE) for pattern in PRODUCT_MAPPINGS[product]]
 
 def safe_operation(operation, default_value=None, log_message=None, *args, **kwargs):
-    """Execute operation safely, returning default value on exception if provided."""
     try:
         return operation(*args, **kwargs)
     except Exception as e:
@@ -93,7 +93,6 @@ def normalize_domain(url):
     return domain.strip()
 
 def get_email_domain(email):
-    """Extract and normalize email domain."""
     if not email or "@" not in email:
         return ""
     domain = email.split("@")[-1].lower().strip()
@@ -216,7 +215,9 @@ class GongAPIClient:
             response = self.api_call("GET", endpoint, params=params)
             calls = response.get("calls", [])
             call_ids.extend([str(call.get("id")) for call in calls])
-            cursor = response.get("records", {}).get("cursor")
+            records = response.get("records", {})
+            logger.info(f"Page info: totalRecords={records.get('totalRecords')}, currentPageSize={records.get('currentPageSize')}, cursor={cursor}")
+            cursor = records.get("cursor")
             if not cursor:
                 break
         logger.info(f"Fetched {len(call_ids)} call IDs")
@@ -245,6 +246,8 @@ class GongAPIClient:
             }
         }
         response = self.api_call("POST", endpoint, json=data)
+        records = response.get("records", {})
+        logger.info(f"Call details page info: totalRecords={records.get('totalRecords')}, currentPageSize={records.get('currentPageSize')}")
         for call in response.get("calls", []):
             yield call
 
@@ -350,13 +353,15 @@ def normalize_call_data(call, transcript):
                         break
 
         tracker_occurrences = []
-        for occurrence in content.get("trackerOccurrences", []):
-            tracker_occurrences.append({
-                "tracker_name": get_field(occurrence, "trackerName", "Unknown"),
-                "phrase": get_field(occurrence, "phrase", "Unknown"),
-                "start": get_field(occurrence, "startTime", 0),
-                "speakerId": get_field(occurrence, "speakerId", "Unknown")
-            })
+        for tracker in trackers:
+            tracker_name = get_field(tracker, "name", "Unknown")
+            for occurrence in tracker.get("occurrences", []):
+                tracker_occurrences.append({
+                    "tracker_name": tracker_name,
+                    "phrase": get_field(occurrence, "phrase", "Unknown"),
+                    "start": get_field(occurrence, "startTime", 0),
+                    "speakerId": get_field(occurrence, "speakerId", "Unknown")
+                })
 
         call_summary = get_field(content, "brief", "Unknown")
         key_points = []
@@ -459,7 +464,7 @@ def prepare_utterances_df(calls, selected_products):
             tracker_start = safe_operation(
                 lambda: float(get_field(tracker, "start", 0)), 0, f"Invalid tracker start time for call {call_id}"
             )
-            tracker_time = tracker_start * 1000 if tracker_start < 1_000_000 else tracker_start
+            tracker_time = tracker_start * 1000 if tracker_start < 1000 else tracker_start
             
             matched = False
             for utterance_key, info in call_tracker_map[call_id].items():
@@ -635,7 +640,7 @@ def prepare_json_output(calls, selected_products):
             "call_date": call["call_date"],
             "product_tags": "|".join(products) if products else "",
             "org_type": call["org_type"],
-            "account_name": call["account_name"],
+            "account_name": call["call_name"],
             "account_website": call["account_website"],
             "account_industry": call["account_industry"],
             "utterances": [
@@ -731,16 +736,19 @@ def process():
         transcripts = client.fetch_transcript(call_ids)
 
         logger.info("Fetching and normalizing call details")
-        for call in client.fetch_call_details(call_ids):
-            call_id = get_field(call.get("metaData", {}), "id", "Unknown")
-            if call_id == "Unknown":
-                dropped_calls += 1
-                continue
-            call_transcript = transcripts.get(call_id, [])
-            normalized = normalize_call_data(call, call_transcript)
-            full_data.append(normalized)
-            if len(full_data) % 10 == 0:
-                logger.info(f"Processed {len(full_data)} calls")
+        for i in range(0, len(call_ids), BATCH_SIZE):
+            batch_call_ids = call_ids[i:i + BATCH_SIZE]
+            logger.info(f"Processing batch {i // BATCH_SIZE + 1}: calls {i + 1} to {min(i + BATCH_SIZE, len(call_ids))}")
+            for call in client.fetch_call_details(batch_call_ids):
+                call_id = get_field(call.get("metaData", {}), "id", "Unknown")
+                if call_id == "Unknown":
+                    dropped_calls += 1
+                    continue
+                call_transcript = transcripts.get(call_id, [])
+                normalized = normalize_call_data(call, call_transcript)
+                full_data.append(normalized)
+                if len(full_data) % 10 == 0:
+                    logger.info(f"Processed {len(full_data)} calls")
         logger.info(f"Total calls normalized: {len(full_data)}, dropped: {dropped_calls}")
 
         if not full_data:
