@@ -350,12 +350,12 @@ def normalize_call_data(call, transcript):
         trackers = content.get("trackers", [])
         tracker_counts = {get_field(t, "name").lower(): get_field(t, "count", 0) for t in trackers if get_field(t, "name")}
 
-        # Log tracker details to verify occurrences
-        for tracker in trackers:
-            tracker_name = get_field(tracker, "name")
-            count = get_field(tracker, "count", 0)
-            occurrences = get_field(tracker, "occurrences", [])
-            logger.debug(f"Call '{call_id}': Tracker '{tracker_name}' with count {count} and {len(occurrences)} occurrences")
+        # Debug tracker data
+        logger.debug(f"Call '{call_id}': Found {len(trackers)} trackers")
+        for tracker in trackers[:2]:  # Log first two trackers for brevity
+            logger.debug(f"Tracker: {get_field(tracker, 'name')}, occurrences: {len(get_field(tracker, 'occurrences', []))}")
+            for occ in get_field(tracker, 'occurrences', [])[:2]:
+                logger.debug(f"  Occurrence: startTime={get_field(occ, 'startTime')}, speakerId={get_field(occ, 'speakerId')}")
 
         products = []
         for product in PRODUCT_MAPPINGS:
@@ -370,12 +370,15 @@ def normalize_call_data(call, transcript):
         logger.debug(f"Call '{call_id}': Assigned products: {products}")
 
         tracker_occurrences = []
-        for tracker in content.get("trackerOccurrences", []):
-            tracker_occurrences.append({
-                "tracker_name": get_field(tracker, "trackerName", ""),
-                "phrase": get_field(tracker, "phrase", ""),
-                "start": get_field(tracker, "start", 0)
-            })
+        for tracker in content.get("trackers", []):
+            tracker_name = get_field(tracker, "name", "")
+            for occurrence in get_field(tracker, "occurrences", []):
+                tracker_occurrences.append({
+                    "tracker_name": tracker_name,
+                    "phrase": "",  # API doesn't provide phrase
+                    "start": get_field(occurrence, "startTime", 0),  # Use startTime
+                    "speakerId": get_field(occurrence, "speakerId", "")
+                })
 
         call_summary = get_field(content, "brief", "")
         key_points = []
@@ -477,9 +480,9 @@ def prepare_utterances_df(calls, selected_products):
         # Map tracker occurrences to utterances based on time proximity
         for tracker in call.get("tracker_occurrences", []):
             try:
-                # Convert tracker time to milliseconds (Gong API gives tracker startTime in seconds)
-                tracker_start = float(get_field(tracker, "start", 0))
-                tracker_time = tracker_start * 1000 if tracker_start < 1_000_000 else tracker_start  # Unit check
+                # Convert tracker time from seconds to milliseconds
+                tracker_start = float(get_field(tracker, "start", 0)) * 1000  # Convert seconds to milliseconds
+                tracker_time = tracker_start if tracker_start > 1_000_000 else tracker_start  # Unit check
                 
                 # First attempt: Match within the utterance window
                 matched = False
@@ -709,7 +712,7 @@ def index():
 
 @app.route('/health')
 def health():
-    return "OK", 200
+    return "OK", stroke-width: 200
 
 @app.route('/process', methods=['POST'])
 def process():
