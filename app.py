@@ -217,8 +217,7 @@ class GongAPIClient:
                         "trackerOccurrences": True,
                         "brief": True,
                         "keyPoints": True,
-                        "transcript": True,
-                        "messages": True  # Add messages in case transcripts are under a different field
+                        "messages": True
                     },
                     "collaboration": {
                         "publicComments": True
@@ -235,6 +234,46 @@ class GongAPIClient:
         for call in response.get("calls", []):
             yield call
 
+    def fetch_transcript(self, call_ids, max_attempts=3):
+        endpoint = "/v2/calls/transcript"
+        result = {}
+        cursor = None
+        while True:
+            request_body = {"filter": {"callIds": call_ids}}
+            if cursor:
+                request_body["cursor"] = cursor
+            for attempt in range(max_attempts):
+                try:
+                    response = self.session.post(endpoint, json=request_body, timeout=60)
+                    if response.status_code == 200:
+                        data = response.json()
+                        transcripts = data.get("callTranscripts", [])
+                        for t in transcripts:
+                            if t.get("callId"):
+                                call_id = str(t["callId"])
+                                result[call_id] = t.get("transcript", [])
+                        cursor = data.get("records", {}).get("cursor")
+                        if not cursor:
+                            logger.info(f"Fetched transcripts for {len(result)} calls")
+                            return result
+                        break
+                    elif response.status_code == 429:
+                        wait_time = int(response.headers.get("Retry-After", (2 ** attempt) * 2))
+                        logger.warning(f"Rate limit hit, waiting {wait_time}s")
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        logger.warning(f"Transcript fetch failed: {response.status_code} - {response.text}")
+                        return {call_id: [] for call_id in call_ids}
+                except requests.RequestException as e:
+                    if attempt == max_attempts - 1:
+                        logger.warning(f"Error fetching transcripts: {str(e)}")
+                        return {call_id: [] for call_id in call_ids}
+                    time.sleep(2 ** attempt)
+            if not cursor:
+                break
+        return result
+
 def convert_to_sf_time(utc_time):
     if not utc_time:
         logger.debug("Empty date received in convert_to_sf_time")
@@ -242,10 +281,9 @@ def convert_to_sf_time(utc_time):
     try:
         logger.debug(f"Converting date: {utc_time}")
         utc_time = utc_time.strip()
-        # Handle milliseconds by removing them while preserving timezone
         if '.' in utc_time:
             parts = utc_time.split('.')
-            base_time = parts[0]  # e.g., 2025-04-09T09:01:34
+            base_time = parts[0]
             timezone_part = parts[1]
             if 'Z' in timezone_part:
                 utc_time = base_time + 'Z'
@@ -329,7 +367,7 @@ def apply_occupancy_analytics_tags(call):
     logger.debug(f"Occupancy Analytics matches for call {get_field(call.get('metaData', {}), 'id', 'Unknown')}: {matches}")
     return bool(matches)
 
-def normalize_call_data(call):
+def normalize_call_data(call, transcript):
     try:
         meta_data = call.get("metaData", {})
         content = call.get("content", {})
@@ -395,16 +433,12 @@ def normalize_call_data(call):
         elif normalized_website in TENANT_DOMAINS:
             org_type = "tenant"
 
-        # Add detailed logging of content structure
-        logger.debug(f"Call {call_id}: Content keys: {list(content.keys() if content else [])}")
-        
-        utterances = content.get("transcript", [])
+        # Use the separately fetched transcript
+        utterances = transcript if transcript is not None else []
         if not utterances:
             logger.warning(f"Call {call_id}: Empty transcript data")
         else:
-            # Log the first utterance structure to understand the format
             logger.debug(f"Call {call_id}: First utterance structure: {utterances[0] if utterances else 'None'}")
-            # Check if sentences exist in the first utterance
             if utterances and "sentences" not in utterances[0]:
                 logger.warning(f"Call {call_id}: Utterance does not have 'sentences' field. Keys: {list(utterances[0].keys())}")
         
@@ -461,10 +495,8 @@ def prepare_utterances_df(calls, selected_products):
         selected = [p.lower() for p in selected_products]
         products_lower = [p.lower() for p in products if isinstance(p, str)]
         
-        # Log filtering decision
         logger.debug(f"Call {call_id}: Products assigned: {products}, Selected products: {selected}")
         
-        # Skip calls with no utterances
         utterances = sorted(call["utterances"] or [], key=lambda x: get_field(x, "start", 0))
         if not utterances:
             logger.debug(f"Call {call_id}: No utterances found, skipping")
@@ -498,14 +530,13 @@ def prepare_utterances_df(calls, selected_products):
             logger.debug(f"Speaker title: {get_field(speaker, 'title', 'NOT_FOUND')}")
         
         for utterance in utterances:
-            # Handle different possible data structures
             if "sentences" in utterance:
                 text = " ".join(s.get("text", "") if isinstance(s, dict) else "" for s in (utterance.get("sentences", []) or []))
             elif "text" in utterance:
                 text = utterance.get("text", "")
             else:
                 logger.warning(f"Call {call_id}: Unexpected utterance structure: {list(utterance.keys())}")
-                text = str(utterance)  # Use string representation as fallback
+                text = str(utterance)
             
             speaker = speaker_info.get(get_field(utterance, "speakerId"), {})
             affiliation = get_field(speaker, "affiliation", "unknown").lower()
@@ -524,7 +555,6 @@ def prepare_utterances_df(calls, selected_products):
             if speaker_job_title is None or speaker_job_title == "":
                 speaker_job_title = get_field(speaker, "title", "N/A")
             
-            # Use "N/A" if no products to ensure Product column is never empty
             product_value = "|".join(products) if products else "N/A"
             
             data.append({
@@ -678,7 +708,6 @@ def process():
         if start_dt > end_dt:
             form_state["message"] = "Start date cannot be after end date."
             return render_template('index.html', **form_state)
-        # Prevent future dates as Gong API likely rejects them
         today = datetime.today()
         if start_dt > today or end_dt > today:
             form_state["message"] = "Date range cannot include future dates."
@@ -709,13 +738,17 @@ def process():
         full_data = []
         dropped_calls = 0
 
+        logger.info("Fetching transcripts")
+        transcripts = client.fetch_transcript(call_ids)
+
         logger.info("Fetching and normalizing call details")
         for call in client.fetch_call_details(call_ids):
             call_id = get_field(call.get("metaData", {}), "id")
             if not call_id:
                 dropped_calls += 1
                 continue
-            normalized = normalize_call_data(call)
+            call_transcript = transcripts.get(call_id, [])
+            normalized = normalize_call_data(call, call_transcript)
             full_data.append(normalized)
             if len(full_data) % 10 == 0:
                 logger.info(f"Processed {len(full_data)} calls")
