@@ -640,7 +640,7 @@ def prepare_json_output(calls, selected_products):
             "call_date": call["call_date"],
             "product_tags": "|".join(products) if products else "",
             "org_type": call["org_type"],
-            "account_name": call["call_name"],
+            "account_name": call["account_name"],
             "account_website": call["account_website"],
             "account_industry": call["account_industry"],
             "utterances": [
