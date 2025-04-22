@@ -32,14 +32,10 @@ logging.basicConfig(
 )
 
 logger.info("Starting Gong Wizard Web Flask - Version 2025-04-21")
-try:
-    logger.info("Application startup initiated")
-    logger.debug(f"FLASK_SECRET_KEY: {'set' if os.environ.get('FLASK_SECRET_KEY') else 'not set, using default'}")
-    logger.debug(f"PORT: {os.environ.get('PORT', '10000')}")
-    logger.debug(f"FLASK_DEBUG: {os.environ.get('FLASK_DEBUG', 'False')}")
-except Exception as e:
-    logger.error(f"Failed to start application: {str(e)}")
-    raise
+logger.info("Application startup initiated")
+logger.debug(f"FLASK_SECRET_KEY: {'set' if os.environ.get('FLASK_SECRET_KEY') else 'not set, using default'}")
+logger.debug(f"PORT: {os.environ.get('PORT', '10000')}")
+logger.debug(f"FLASK_DEBUG: {os.environ.get('FLASK_DEBUG', 'False')}")
 
 # Constants
 GONG_BASE_URL = "https://us-11211.api.gong.io"
@@ -47,11 +43,8 @@ SF_TZ = pytz.timezone('America/Los_Angeles')
 TARGET_DOMAINS = set()
 TENANT_DOMAINS = set()
 OUTPUT_DIR = "/tmp/gong_output"
-try:
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    logger.info(f"Output directory created: {OUTPUT_DIR}")
-except Exception as e:
-    logger.error(f"Failed to create output directory {OUTPUT_DIR}: {str(e)}")
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+logger.info(f"Output directory created: {OUTPUT_DIR}")
 PATHS_FILE = os.path.join(OUTPUT_DIR, "file_paths.json")
 PRODUCT_MAPPINGS = {
     "IAQ Monitoring": ["Air Quality"],
@@ -223,7 +216,8 @@ class GongAPIClient:
                         "trackers": True,
                         "trackerOccurrences": True,
                         "brief": True,
-                        "keyPoints": True
+                        "keyPoints": True,
+                        "transcript": True  # Ensure transcript is requested
                     },
                     "collaboration": {
                         "publicComments": True
@@ -243,6 +237,22 @@ def convert_to_sf_time(utc_time):
     try:
         logger.debug(f"Converting date: {utc_time}")
         utc_time = utc_time.strip()
+        # Handle milliseconds by removing them while preserving timezone
+        if '.' in utc_time:
+            # Split on the decimal point
+            parts = utc_time.split('.')
+            base_time = parts[0]  # e.g., 2025-04-09T09:01:34
+            # Extract timezone part (e.g., -07:00 or Z)
+            timezone_part = parts[1]
+            if 'Z' in timezone_part:
+                utc_time = base_time + 'Z'
+            elif '-' in timezone_part or '+' in timezone_part:
+                # Find the timezone separator
+                tz_index = timezone_part.index('-') if '-' in timezone_part else timezone_part.index('+')
+                timezone = timezone_part[tz_index:]
+                utc_time = base_time + timezone
+            else:
+                utc_time = base_time
         if utc_time.endswith('Z'):
             utc_dt = datetime.fromisoformat(utc_time.replace("Z", "+00:00"))
         elif '+' in utc_time or '-' in utc_time:
@@ -313,7 +323,9 @@ def apply_occupancy_analytics_tags(call):
         " ".join(str(get_field(kp, "description")) for kp in call.get("content", {}).get("keyPoints", []) if isinstance(kp, dict))
     ]
     text = " ".join(f for f in fields if f).lower()
-    return any(pattern.search(text) for pattern in PRODUCT_MAPPINGS["Occupancy Analytics"])
+    matches = [pattern.pattern for pattern in PRODUCT_MAPPINGS["Occupancy Analytics"] if pattern.search(text)]
+    logger.debug(f"Occupancy Analytics matches for call {get_field(call.get('metaData', {}), 'id', 'Unknown')}: {matches}")
+    return bool(matches)
 
 def normalize_call_data(call):
     try:
@@ -335,6 +347,7 @@ def normalize_call_data(call):
 
         trackers = content.get("trackers", [])
         tracker_counts = {get_field(t, "name").lower(): get_field(t, "count", 0) for t in trackers if get_field(t, "name")}
+        logger.debug(f"Call {call_id}: Tracker counts: {tracker_counts}")
 
         products = []
         for product in PRODUCT_MAPPINGS:
@@ -346,6 +359,7 @@ def normalize_call_data(call):
                     if tracker_counts.get(tracker.lower(), 0) > 0:
                         products.append(product)
                         break
+        logger.debug(f"Call {call_id}: Assigned products: {products}")
 
         tracker_occurrences = []
         for tracker in content.get("trackerOccurrences", []):
@@ -379,8 +393,8 @@ def normalize_call_data(call):
         elif normalized_website in TENANT_DOMAINS:
             org_type = "tenant"
 
-        # Extract utterances directly from the call data if available
         utterances = content.get("transcript", [])
+        logger.debug(f"Call {call_id}: Found {len(utterances)} utterances")
 
         return {
             "call_id": call_id,
@@ -428,21 +442,21 @@ def prepare_utterances_df(calls, selected_products):
     call_tracker_map = {}
     
     for call in calls:
+        call_id = call["call_id"]
         products = call.get("products", [])
-        # Skip calls with no products to ensure Product column is never empty
-        if not products:
-            continue
-        
         selected = [p.lower() for p in selected_products]
         products_lower = [p.lower() for p in products if isinstance(p, str)]
-        # Only include calls that match selected products
-        if not any(p in selected for p in products_lower):
+        
+        # Log filtering decision
+        logger.debug(f"Call {call_id}: Products assigned: {products}, Selected products: {selected}")
+        
+        # Skip calls with no utterances
+        utterances = sorted(call["utterances"] or [], key=lambda x: get_field(x, "start", 0))
+        if not utterances:
+            logger.debug(f"Call {call_id}: No utterances found, skipping")
             continue
         
-        call_id = call["call_id"]
         call_tracker_map[call_id] = {}
-        
-        utterances = sorted(call["utterances"] or [], key=lambda x: get_field(x, "start", 0))
         for utterance in utterances:
             start_time = float(get_field(utterance, "start", 0))
             utterance_key = f"{call_id}_{start_time}"
@@ -472,13 +486,16 @@ def prepare_utterances_df(calls, selected_products):
         for utterance in utterances:
             text = " ".join(s.get("text", "") if isinstance(s, dict) else "" for s in (utterance.get("sentences", []) or []))
             if len(text.split()) <= 5:
+                logger.debug(f"Call {call_id}: Utterance skipped, text too short: {text}")
                 continue
             speaker = speaker_info.get(get_field(utterance, "speakerId"), {})
             affiliation = get_field(speaker, "affiliation", "unknown").lower()
             if affiliation == "internal":
+                logger.debug(f"Call {call_id}: Utterance skipped, internal speaker: {text}")
                 continue
             topic = get_field(utterance, "topic", "N/A")
             if topic.lower() in ["call setup", "small talk"]:
+                logger.debug(f"Call {call_id}: Utterance skipped, topic {topic}: {text}")
                 continue
             
             utterance_start = float(get_field(utterance, "start", 0))
@@ -494,6 +511,9 @@ def prepare_utterances_df(calls, selected_products):
             if speaker_job_title is None or speaker_job_title == "":
                 speaker_job_title = get_field(speaker, "title", "N/A")
             
+            # Use "N/A" if no products to ensure Product column is never empty
+            product_value = "|".join(products) if products else "N/A"
+            
             data.append({
                 "call_id": call["call_id"],
                 "call_date": call["call_date"],
@@ -507,7 +527,7 @@ def prepare_utterances_df(calls, selected_products):
                 "speaker_affiliation": affiliation,
                 "speaker_email_address": get_field(speaker, "emailAddress", ""),
                 "sales_topic": topic,
-                "Product": "|".join(products),
+                "Product": product_value,
                 "Tracker": "|".join(tracker_names) if tracker_names else "",
                 "Keyword": "|".join(tracker_phrases) if tracker_phrases else "",
                 "utterance_text": text
