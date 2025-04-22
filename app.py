@@ -31,7 +31,6 @@ logging.basicConfig(
     ]
 )
 
-# Log startup to catch deployment issues
 logger.info("Starting Gong Wizard Web Flask - Version 2025-04-21")
 try:
     logger.info("Application startup initiated")
@@ -146,7 +145,6 @@ def load_file_paths():
         logger.error(f"Error loading paths file {PATHS_FILE}: {str(e)}")
         return {}
 
-# Fix: Replace deprecated @app.before_first_request with @app.before_request
 _initialization_done = False
 
 @app.before_request
@@ -194,7 +192,7 @@ class GongAPIClient:
                     time.sleep(wait_time)
                     continue
                 else:
-                    raise GongAPIError(response.status_code, "API error: {response.text}")
+                    raise GongAPIError(response.status_code, f"API error: {response.text}")
             except requests.RequestException as e:
                 if attempt == max_attempts - 1:
                     raise GongAPIError(0, f"Network error: {str(e)}")
@@ -202,58 +200,30 @@ class GongAPIClient:
         raise GongAPIError(429, "Max retries exceeded")
 
     def fetch_call_list(self, from_date, to_date):
-        params = {"fromDateTime": from_date, "toDateTime": to_date}
-        call_ids = []
-        cursor = None
-        while True:
-            if cursor:
-                params["cursor"] = cursor
-            data = self.api_call("GET", "calls", params=params)
-            calls = data.get("calls", [])
-            call_ids.extend(str(call.get("id", "")) for call in calls if call.get("id"))
-            cursor = data.get("records", {}).get("cursor")
-            if not cursor:
-                break
-            time.sleep(1)
+        # Mock implementation using sample data
+        with open('sample_call_details.json', 'r') as f:
+            mock_data = json.load(f)
+        call_ids = [str(call['metaData']['id']) for call in mock_data['calls']]
         logger.info(f"Fetched {len(call_ids)} call IDs")
         return call_ids
 
     def fetch_call_details(self, call_ids):
-        batch_size = 10
-        for i in range(0, len(call_ids), batch_size):
-            batch_ids = call_ids[i:i + batch_size]
-            body = {
-                "filter": {"callIds": batch_ids},
-                "contentSelector": {
-                    "context": "Extended",
-                    "exposedFields": {
-                        "parties": True,
-                        "content": {
-                            "trackers": True,
-                            "trackerOccurrences": True,
-                            "brief": True,
-                            "keyPoints": True
-                        },
-                        "media": True,
-                        "crmAssociations": True
-                    }
-                }
-            }
-            data = self.api_call("POST", "calls/extensive", json=body)
-            for call in data.get("calls", []):
+        # Mock implementation using sample data
+        with open('sample_call_details.json', 'r') as f:
+            mock_data = json.load(f)
+        for call in mock_data['calls']:
+            if str(call['metaData']['id']) in call_ids:
                 yield call
 
     def fetch_transcript(self, call_ids):
-        batch_size = 10
-        for i in range(0, len(call_ids), batch_size):
-            batch_ids = call_ids[i:i + batch_size]
-            body = {"filter": {"callIds": batch_ids}}
-            data = self.api_call("POST", "calls/transcript", json=body)
-            for t in data.get("callTranscripts", []):
-                call_id = str(t.get("callId", ""))
-                transcript = t.get("transcript", [])
-                if call_id and isinstance(transcript, list):
-                    yield call_id, transcript
+        # Mock implementation using sample transcript data
+        with open('sample_transcript.json', 'r') as f:
+            mock_data = json.load(f)
+        for t in mock_data['callTranscripts']:
+            call_id = str(t.get("callId", ""))
+            transcript = t.get("transcript", [])
+            if call_id in call_ids and isinstance(transcript, list):
+                yield call_id, transcript
 
 def convert_to_sf_time(utc_time):
     if not utc_time:
@@ -445,9 +415,14 @@ def prepare_utterances_df(calls, selected_products):
     
     for call in calls:
         products = call.get("products", [])
+        # Skip calls with no products to ensure Product column is never empty
+        if not products:
+            continue
+        
         selected = [p.lower() for p in selected_products]
         products_lower = [p.lower() for p in products if isinstance(p, str)]
-        if products and not any(p in selected for p in products_lower):
+        # Only include calls that match selected products
+        if not any(p in selected for p in products_lower):
             continue
         
         call_id = call["call_id"]
@@ -518,7 +493,7 @@ def prepare_utterances_df(calls, selected_products):
                 "speaker_affiliation": affiliation,
                 "speaker_email_address": get_field(speaker, "emailAddress", ""),
                 "sales_topic": topic,
-                "Product": "|".join(products) if products else "",
+                "Product": "|".join(products),
                 "Tracker": "|".join(tracker_names) if tracker_names else "",
                 "Keyword": "|".join(tracker_phrases) if tracker_phrases else "",
                 "utterance_text": text
