@@ -42,7 +42,7 @@ except Exception as e:
     raise
 
 # Constants
-GONG_BASE_URL = "https://us-11211.api.gong.io/v2"
+GONG_BASE_URL = "https://us-11211.api.gong.io"
 SF_TZ = pytz.timezone('America/Los_Angeles')
 TARGET_DOMAINS = set()
 TENANT_DOMAINS = set()
@@ -200,30 +200,41 @@ class GongAPIClient:
         raise GongAPIError(429, "Max retries exceeded")
 
     def fetch_call_list(self, from_date, to_date):
-        # Mock implementation using sample data
-        with open('sample_call_details.json', 'r') as f:
-            mock_data = json.load(f)
-        call_ids = [str(call['metaData']['id']) for call in mock_data['calls']]
+        endpoint = "/v2/calls"
+        params = {
+            "fromDateTime": from_date,
+            "toDateTime": to_date
+        }
+        response = self.api_call("GET", endpoint, params=params)
+        call_ids = [str(call.get("id")) for call in response.get("calls", [])]
         logger.info(f"Fetched {len(call_ids)} call IDs")
         return call_ids
 
     def fetch_call_details(self, call_ids):
-        # Mock implementation using sample data
-        with open('sample_call_details.json', 'r') as f:
-            mock_data = json.load(f)
-        for call in mock_data['calls']:
-            if str(call['metaData']['id']) in call_ids:
-                yield call
-
-    def fetch_transcript(self, call_ids):
-        # Mock implementation using sample transcript data
-        with open('sample_transcript.json', 'r') as f:
-            mock_data = json.load(f)
-        for t in mock_data['callTranscripts']:
-            call_id = str(t.get("callId", ""))
-            transcript = t.get("transcript", [])
-            if call_id in call_ids and isinstance(transcript, list):
-                yield call_id, transcript
+        endpoint = "/v2/calls/extensive"
+        data = {
+            "filter": {
+                "callIds": call_ids
+            },
+            "contentSelector": {
+                "exposedFields": {
+                    "parties": True,
+                    "content": {
+                        "trackers": True,
+                        "trackerOccurrences": True,
+                        "brief": True,
+                        "keyPoints": True
+                    },
+                    "collaboration": {
+                        "publicComments": True
+                    }
+                },
+                "context": "Extended"
+            }
+        }
+        response = self.api_call("POST", endpoint, json=data)
+        for call in response.get("calls", []):
+            yield call
 
 def convert_to_sf_time(utc_time):
     if not utc_time:
@@ -304,7 +315,7 @@ def apply_occupancy_analytics_tags(call):
     text = " ".join(f for f in fields if f).lower()
     return any(pattern.search(text) for pattern in PRODUCT_MAPPINGS["Occupancy Analytics"])
 
-def normalize_call_data(call, transcript):
+def normalize_call_data(call):
     try:
         meta_data = call.get("metaData", {})
         content = call.get("content", {})
@@ -368,6 +379,9 @@ def normalize_call_data(call, transcript):
         elif normalized_website in TENANT_DOMAINS:
             org_type = "tenant"
 
+        # Extract utterances directly from the call data if available
+        utterances = content.get("transcript", [])
+
         return {
             "call_id": call_id,
             "call_title": call_title,
@@ -378,7 +392,7 @@ def normalize_call_data(call, transcript):
             "account_industry": account_industry,
             "products": products,
             "parties": parties,
-            "utterances": transcript or [],
+            "utterances": utterances,
             "partial_data": False,
             "org_type": org_type,
             "tracker_occurrences": tracker_occurrences,
@@ -397,7 +411,7 @@ def normalize_call_data(call, transcript):
             "account_industry": "",
             "products": [],
             "parties": call.get("parties", []),
-            "utterances": transcript or [],
+            "utterances": [],
             "partial_data": True,
             "org_type": "other",
             "tracker_occurrences": [],
@@ -631,6 +645,11 @@ def process():
         if start_dt > end_dt:
             form_state["message"] = "Start date cannot be after end date."
             return render_template('index.html', **form_state)
+        # Prevent future dates as Gong API likely rejects them
+        today = datetime.today()
+        if start_dt > today or end_dt > today:
+            form_state["message"] = "Date range cannot include future dates."
+            return render_template('index.html', **form_state)
     except ValueError:
         form_state["message"] = "Invalid date format. Use YYYY-MM-DD."
         return render_template('index.html', **form_state)
@@ -656,11 +675,6 @@ def process():
 
         full_data = []
         dropped_calls = 0
-        transcripts = {}
-        logger.info("Fetching transcripts")
-        for call_id, transcript in client.fetch_transcript(call_ids):
-            transcripts[call_id] = transcript
-        logger.info(f"Fetched transcripts for {len(transcripts)} calls")
 
         logger.info("Fetching and normalizing call details")
         for call in client.fetch_call_details(call_ids):
@@ -668,7 +682,7 @@ def process():
             if not call_id:
                 dropped_calls += 1
                 continue
-            normalized = normalize_call_data(call, transcripts.get(call_id, []))
+            normalized = normalize_call_data(call)
             full_data.append(normalized)
             if len(full_data) % 10 == 0:
                 logger.info(f"Processed {len(full_data)} calls")
