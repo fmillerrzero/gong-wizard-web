@@ -69,15 +69,16 @@ PRODUCT_MAPPINGS = {
 }
 ALL_PRODUCT_TAGS = list(PRODUCT_MAPPINGS.keys())
 
-# Manual job title mappings
+# Manual job title mappings (by email)
 JOB_TITLE_MAPPINGS = {
-    "Uri Kogan": "Product Manager",
-    "Hannah Sverdlik": "Sales Director",
-    "Rick Martin": "Account Executive",
-    "Mike’s IPhone": "Facilities Manager"  # Adjust based on actual name if known
+    "ukogan@rzero.com": "Product Manager",
+    "hsverdlik@rzero.com": "Sales Director",
+    "rmartin@rzero.com": "Account Executive",
+    "fstamatatos@rzero.com": "Senior Engineer",
+    "jbocanegra@norman-wright.com": "Product Manager"
 }
 
-# Precompile regex patterns
+# Precompile regex patterns for Occupancy Analytics
 for product in PRODUCT_MAPPINGS:
     if product == "Occupancy Analytics":
         PRODUCT_MAPPINGS[product] = [re.compile(pattern, re.IGNORECASE) for pattern in PRODUCT_MAPPINGS[product]]
@@ -349,6 +350,13 @@ def normalize_call_data(call, transcript):
         trackers = content.get("trackers", [])
         tracker_counts = {get_field(t, "name").lower(): get_field(t, "count", 0) for t in trackers if get_field(t, "name")}
 
+        # Log tracker details to verify occurrences
+        for tracker in trackers:
+            tracker_name = get_field(tracker, "name")
+            count = get_field(tracker, "count", 0)
+            occurrences = get_field(tracker, "occurrences", [])
+            logger.debug(f"Call '{call_id}': Tracker '{tracker_name}' with count {count} and {len(occurrences)} occurrences")
+
         products = []
         for product in PRODUCT_MAPPINGS:
             if product == "Occupancy Analytics":
@@ -359,7 +367,7 @@ def normalize_call_data(call, transcript):
                     if tracker_counts.get(tracker.lower(), 0) > 0:
                         products.append(product)
                         break
-        logger.debug(f"Call {call_id}: Assigned products: {products}")
+        logger.debug(f"Call '{call_id}': Assigned products: {products}")
 
         tracker_occurrences = []
         for tracker in content.get("trackerOccurrences", []):
@@ -390,7 +398,7 @@ def normalize_call_data(call, transcript):
         utterances = transcript if transcript is not None else []
 
         return {
-            "call_id": call_id,
+            "call_id": f"'{call_id}",  # Add leading apostrophe
             "call_title": call_title,
             "call_date": call_date,
             "account_name": account_name,
@@ -407,9 +415,10 @@ def normalize_call_data(call, transcript):
             "key_points": key_points_str
         }
     except Exception as e:
-        logger.error(f"Normalization error for call {get_field(call.get('metaData', {}), 'id', 'Unknown')}: {str(e)}")
+        call_id = get_field(call.get("metaData", {}), "id", "Unknown")
+        logger.error(f"Normalization error for call '{call_id}': {str(e)}")
         return {
-            "call_id": get_field(call.get("metaData", {}), "id", "Unknown"),
+            "call_id": f"'{call_id}",  # Add leading apostrophe
             "call_title": "N/A",
             "call_date": "N/A",
             "account_name": "Unknown",
@@ -435,11 +444,8 @@ def prepare_utterances_df(calls, selected_products):
     call_tracker_map = {}
     selected_products_lower = [p.lower() for p in selected_products]
     
-    # Manual job title mapping for specific people
-    manual_job_title_map = JOB_TITLE_MAPPINGS
-    
     for call in calls:
-        call_id = call["call_id"]
+        call_id = call["call_id"]  # Already has leading apostrophe
         products = call.get("products", [])
         
         # Skip calls with no products that match the selection
@@ -471,16 +477,40 @@ def prepare_utterances_df(calls, selected_products):
         # Map tracker occurrences to utterances based on time proximity
         for tracker in call.get("tracker_occurrences", []):
             try:
-                tracker_time = float(get_field(tracker, "start", 0))
+                # Convert tracker time to milliseconds (Gong API gives tracker startTime in seconds)
+                tracker_start = float(get_field(tracker, "start", 0))
+                tracker_time = tracker_start * 1000 if tracker_start < 1_000_000 else tracker_start  # Unit check
+                
+                # First attempt: Match within the utterance window
+                matched = False
                 for utterance_key, info in call_tracker_map[call_id].items():
                     utterance_start = float(utterance_key.split('_')[-1])
-                    # Extend the time window to better catch nearby trackers (from 30s to 45s)
-                    utterance_end = utterance_start + 45
+                    utterance_end = utterance_start + 45000  # 45 seconds in milliseconds
                     if utterance_start <= tracker_time <= utterance_end:
                         info["trackers"].append({
                             "tracker_name": get_field(tracker, "tracker_name", ""),
                             "phrase": get_field(tracker, "phrase", "")
                         })
+                        matched = True
+                        break
+                
+                # Fallback: If no match, find the closest utterance within ±5000ms
+                if not matched:
+                    closest_utterance = None
+                    min_distance = float('inf')
+                    for utterance_key, info in call_tracker_map[call_id].items():
+                        utterance_start = float(utterance_key.split('_')[-1])
+                        distance = abs(utterance_start - tracker_time)
+                        if distance <= 5000 and distance < min_distance:
+                            min_distance = distance
+                            closest_utterance = utterance_key
+                    if closest_utterance:
+                        call_tracker_map[call_id][closest_utterance]["trackers"].append({
+                            "tracker_name": get_field(tracker, "tracker_name", ""),
+                            "phrase": get_field(tracker, "phrase", "")
+                        })
+                    else:
+                        logger.debug(f"Tracker at {tracker_time}ms unmatched for call {call_id}")
             except ValueError as e:
                 logger.error(f"Error processing tracker time for call {call_id}: {str(e)}")
                 continue
@@ -490,7 +520,7 @@ def prepare_utterances_df(calls, selected_products):
         
         # Process each utterance for this call
         for utterance in utterances:
-            # Extract utterance text from sentences or text field
+            # Extract utterance text
             if "sentences" in utterance:
                 text = " ".join(s.get("text", "") if isinstance(s, dict) else "" for s in (utterance.get("sentences", []) or []))
             elif "text" in utterance:
@@ -504,14 +534,33 @@ def prepare_utterances_df(calls, selected_products):
             speaker = speaker_info.get(speaker_id, {})
             speaker_name = get_field(speaker, "name", "Unknown")
             
-            # Get speaker job title with fallback to manual mapping
+            # Enhanced job title fallback
             speaker_job_title = get_field(speaker, "jobTitle", None)
             if not speaker_job_title or speaker_job_title == "":
                 speaker_job_title = get_field(speaker, "title", None)
-            if not speaker_job_title or speaker_job_title == "":
-                speaker_job_title = manual_job_title_map.get(speaker_name, "N/A")
-            
+            email = get_field(speaker, "emailAddress", "")
             affiliation = get_field(speaker, "affiliation", "unknown").lower()
+            if not speaker_job_title or speaker_job_title == "":
+                # Email-based mapping
+                speaker_job_title = JOB_TITLE_MAPPINGS.get(email, None)
+                if not speaker_job_title:
+                    # Email pattern inference
+                    email_lower = email.lower()
+                    if "ceo@" in email_lower:
+                        speaker_job_title = "Chief Executive Officer"
+                    elif "vp@" in email_lower:
+                        speaker_job_title = "Vice President"
+                    elif "director@" in email_lower:
+                        speaker_job_title = "Director"
+                    elif "manager@" in email_lower:
+                        speaker_job_title = "Manager"
+                    else:
+                        # Fallback based on affiliation
+                        speaker_job_title = "External Speaker" if affiliation.lower() == "external" else "Unknown"
+            # Log missing job titles
+            if speaker_job_title in ["N/A", "Unknown", "External Speaker"]:
+                logger.info(f"Missing job title for speaker {speaker_name} ({email}) in call {call_id}, affiliation: {affiliation}, assigned: {speaker_job_title}")
+            
             topic = get_field(utterance, "topic", "N/A")
             
             # Get trackers for this utterance
@@ -522,9 +571,13 @@ def prepare_utterances_df(calls, selected_products):
             tracker_names = [t["tracker_name"] for t in triggered_trackers]
             tracker_phrases = [t["phrase"] for t in triggered_trackers]
             
+            # Log if products are assigned but no trackers mapped
+            if not triggered_trackers and products:
+                logger.info(f"Call {call_id}: Products {products} assigned but no tracker occurrences mapped to utterances")
+            
             # Add the utterance data
             data.append({
-                "call_id": call["call_id"],
+                "call_id": call_id,  # Already has leading apostrophe
                 "call_date": call["call_date"],
                 "account_id": call["account_id"],
                 "account_name": call["account_name"],
@@ -534,7 +587,7 @@ def prepare_utterances_df(calls, selected_products):
                 "speaker_name": speaker_name,
                 "speaker_job_title": speaker_job_title,
                 "speaker_affiliation": affiliation,
-                "speaker_email_address": get_field(speaker, "emailAddress", ""),
+                "speaker_email_address": email,
                 "sales_topic": topic,
                 "Product": "|".join(products) if products else "N/A",
                 "Tracker": "|".join(tracker_names) if tracker_names else "",
@@ -550,6 +603,7 @@ def prepare_utterances_df(calls, selected_products):
             "Product", "Tracker", "Keyword", "utterance_text"
         ]
         df = pd.DataFrame(data)[columns]
+        # Ensure call_id retains leading apostrophe in CSV
         df['call_id'] = df['call_id'].astype(str)
         df = df.sort_values(["call_date", "call_id"], ascending=[False, True])
         logger.info(f"Utterances DataFrame: {len(df)} rows, columns: {df.columns.tolist()}")
@@ -564,7 +618,7 @@ def save_utterances_to_csv(df, path):
         logger.warning("Cannot save empty DataFrame to CSV")
         return
         
-    # Ensure call_id is treated as string
+    # Ensure call_id retains leading apostrophe
     df['call_id'] = df['call_id'].astype(str)
     
     # Save with all non-numeric fields quoted
@@ -584,7 +638,7 @@ def prepare_call_summary_df(calls, selected_products):
         filtered_out = "yes" if products and not any(p in selected for p in products_lower) else "no"
         
         data.append({
-            "call_id": call["call_id"],
+            "call_id": call["call_id"],  # Already has leading apostrophe
             "call_date": call["call_date"],
             "filtered_out": filtered_out,
             "product_tags": "|".join(products) if products else "",
@@ -598,7 +652,7 @@ def prepare_call_summary_df(calls, selected_products):
     
     df = pd.DataFrame(data)
     if not df.empty:
-        df['call_id'] = df['call_id'].astype(str)
+        df['call_id'] = df['call_id'].astype(str)  # Ensure leading apostrophe is retained
         df = df.sort_values("call_date", ascending=False)
         logger.info(f"Call summary DataFrame: {len(df)} rows, columns: {df.columns.tolist()}")
     else:
@@ -620,7 +674,7 @@ def prepare_json_output(calls, selected_products):
         products_lower = [p.lower() for p in products if isinstance(p, str)]
         speaker_info = {get_field(p, "speakerId"): p for p in call["parties"]}
         call_data = {
-            "call_id": call["call_id"],
+            "call_id": call["call_id"],  # Already has leading apostrophe
             "call_date": call["call_date"],
             "product_tags": "|".join(products) if products else "",
             "org_type": call["org_type"],
