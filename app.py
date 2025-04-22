@@ -64,7 +64,7 @@ PRODUCT_MAPPINGS = {
         r'utilization(s)?',
         r'vergesense',
         r'workplace[\s-]?(strategy|strategist)(s)?',
-        r'heat[\s-]?map(s)?'
+        r'heat[\s-]?-protocol(s)?'
     ]
 }
 ALL_PRODUCT_TAGS = list(PRODUCT_MAPPINGS.keys())
@@ -712,7 +712,7 @@ def index():
 
 @app.route('/health')
 def health():
-    return "OK", stroke-width: 200
+    return "OK", 200
 
 @app.route('/process', methods=['POST'])
 def process():
