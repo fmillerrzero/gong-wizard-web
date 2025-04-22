@@ -216,8 +216,7 @@ class GongAPIClient:
                         "trackers": True,
                         "trackerOccurrences": True,
                         "brief": True,
-                        "keyPoints": True,
-                        "messages": True
+                        "keyPoints": True
                     },
                     "collaboration": {
                         "publicComments": True
@@ -242,44 +241,22 @@ class GongAPIClient:
             request_body = {"filter": {"callIds": call_ids}}
             if cursor:
                 request_body["cursor"] = cursor
-            for attempt in range(max_attempts):
-                try:
-                    response = self.session.post(endpoint, json=request_body, timeout=60)
-                    if response.status_code == 200:
-                        data = response.json()
-                        transcripts = data.get("callTranscripts", [])
-                        for t in transcripts:
-                            if t.get("callId"):
-                                call_id = str(t["callId"])
-                                result[call_id] = t.get("transcript", [])
-                        cursor = data.get("records", {}).get("cursor")
-                        if not cursor:
-                            logger.info(f"Fetched transcripts for {len(result)} calls")
-                            return result
-                        break
-                    elif response.status_code == 429:
-                        wait_time = int(response.headers.get("Retry-After", (2 ** attempt) * 2))
-                        logger.warning(f"Rate limit hit, waiting {wait_time}s")
-                        time.sleep(wait_time)
-                        continue
-                    else:
-                        logger.warning(f"Transcript fetch failed: {response.status_code} - {response.text}")
-                        return {call_id: [] for call_id in call_ids}
-                except requests.RequestException as e:
-                    if attempt == max_attempts - 1:
-                        logger.warning(f"Error fetching transcripts: {str(e)}")
-                        return {call_id: [] for call_id in call_ids}
-                    time.sleep(2 ** attempt)
+            data = self.api_call("POST", endpoint, json=request_body)
+            transcripts = data.get("callTranscripts", [])
+            for t in transcripts:
+                if t.get("callId"):
+                    call_id = str(t["callId"])
+                    result[call_id] = t.get("transcript", [])
+            cursor = data.get("records", {}).get("cursor")
             if not cursor:
+                logger.info(f"Fetched transcripts for {len(result)} calls")
                 break
         return result
 
 def convert_to_sf_time(utc_time):
     if not utc_time:
-        logger.debug("Empty date received in convert_to_sf_time")
         return "N/A"
     try:
-        logger.debug(f"Converting date: {utc_time}")
         utc_time = utc_time.strip()
         if '.' in utc_time:
             parts = utc_time.split('.')
@@ -301,7 +278,6 @@ def convert_to_sf_time(utc_time):
             utc_dt = datetime.fromisoformat(utc_time + "+00:00")
         sf_dt = utc_dt.astimezone(SF_TZ)
         result = sf_dt.strftime("%m/%d/%y")
-        logger.debug(f"Converted date result: {result}")
         return result
     except ValueError as e:
         logger.error(f"Date conversion error for {utc_time}: {str(e)}")
@@ -309,7 +285,6 @@ def convert_to_sf_time(utc_time):
             utc_dt = datetime.strptime(utc_time, "%Y-%m-%dT%H:%M:%S")
             sf_dt = utc_dt.replace(tzinfo=pytz.UTC).astimezone(SF_TZ)
             result = sf_dt.strftime("%m/%d/%y")
-            logger.debug(f"Fallback converted date result: {result}")
             return result
         except ValueError as e2:
             logger.error(f"Fallback date conversion failed for {utc_time}: {str(e2)}")
@@ -325,35 +300,24 @@ def get_field(data, key, default=""):
 
 def extract_field_values(context, field_name, object_type=None):
     values = []
-    logger.debug(f"Extracting {field_name} from {object_type}, context length: {len(context) if context else 0}")
-    
-    for ctx_idx, ctx in enumerate(context or []):
-        for obj_idx, obj in enumerate(ctx.get("objects", [])):
+    for ctx in context or []:
+        for obj in ctx.get("objects", []):
             obj_type = get_field(obj, "objectType")
             if object_type and obj_type.lower() != object_type.lower():
                 continue
-            
-            logger.debug(f"Found matching object type: {obj_type}")
-            
             if field_name.lower() == "objectid" and "objectId" in obj:
                 value = obj.get("objectId")
                 if value is not None:
-                    logger.debug(f"Found objectId directly in object: {value}")
                     values.append(str(value))
                     continue
-                    
             for field in obj.get("fields", []):
                 if not isinstance(field, dict):
-                    logger.debug(f"Skipping invalid field: {field}")
                     continue
                 field_name_val = get_field(field, "name")
                 if field_name_val.lower() == field_name.lower():
                     value = field.get("value")
                     if value is not None:
-                        logger.debug(f"Found value for {field_name}: {value}")
                         values.append(str(value))
-    
-    logger.debug(f"Extracted values for {field_name}: {values}")
     return values
 
 def apply_occupancy_analytics_tags(call):
@@ -364,7 +328,6 @@ def apply_occupancy_analytics_tags(call):
     ]
     text = " ".join(f for f in fields if f).lower()
     matches = [pattern.pattern for pattern in PRODUCT_MAPPINGS["Occupancy Analytics"] if pattern.search(text)]
-    logger.debug(f"Occupancy Analytics matches for call {get_field(call.get('metaData', {}), 'id', 'Unknown')}: {matches}")
     return bool(matches)
 
 def normalize_call_data(call, transcript):
@@ -373,13 +336,11 @@ def normalize_call_data(call, transcript):
         content = call.get("content", {})
         parties = call.get("parties", [])
         context = call.get("context", [])
-        logger.debug(f"Context data length: {len(context) if context else 0}")
 
         call_id = get_field(meta_data, "id", "Unknown")
         call_title = get_field(meta_data, "title", "N/A")
         call_date = convert_to_sf_time(get_field(meta_data, "started"))
         account_ids = extract_field_values(context, "objectId", "Account")
-        logger.debug(f"Call {call_id}: Extracted account_ids: {account_ids}")
         account_name = extract_field_values(context, "Name", "Account")[0] if extract_field_values(context, "Name", "Account") else "Unknown"
         account_id = account_ids[0] if account_ids else "Unknown"
         account_website = extract_field_values(context, "Website", "Account")[0] if extract_field_values(context, "Website", "Account") else "Unknown"
@@ -387,7 +348,6 @@ def normalize_call_data(call, transcript):
 
         trackers = content.get("trackers", [])
         tracker_counts = {get_field(t, "name").lower(): get_field(t, "count", 0) for t in trackers if get_field(t, "name")}
-        logger.debug(f"Call {call_id}: Tracker counts: {tracker_counts}")
 
         products = []
         for product in PRODUCT_MAPPINGS:
@@ -399,7 +359,6 @@ def normalize_call_data(call, transcript):
                     if tracker_counts.get(tracker.lower(), 0) > 0:
                         products.append(product)
                         break
-        logger.debug(f"Call {call_id}: Assigned products: {products}")
 
         tracker_occurrences = []
         for tracker in content.get("trackerOccurrences", []):
@@ -412,19 +371,13 @@ def normalize_call_data(call, transcript):
         call_summary = get_field(content, "brief", "")
         key_points = []
         key_points_raw = content.get("keyPoints", [])
-        logger.debug(f"Call {call_id}: Raw keyPoints: {key_points_raw}")
         for kp in key_points_raw:
             if not isinstance(kp, dict):
-                logger.debug(f"Call {call_id}: Skipping invalid keyPoint: {kp}")
                 continue
             description = get_field(kp, "description", None)
             if description and isinstance(description, str) and description.strip():
                 key_points.append(description.strip())
-                logger.debug(f"Call {call_id}: Added keyPoint description: {description}")
-            else:
-                logger.debug(f"Call {call_id}: Skipped empty/invalid description: {description}")
         key_points_str = "|".join(key_points) if key_points else ""
-        logger.debug(f"Call {call_id}: Final key_points_str: {key_points_str}")
 
         normalized_website = normalize_domain(account_website)
         org_type = "other"
@@ -433,16 +386,7 @@ def normalize_call_data(call, transcript):
         elif normalized_website in TENANT_DOMAINS:
             org_type = "tenant"
 
-        # Use the separately fetched transcript
         utterances = transcript if transcript is not None else []
-        if not utterances:
-            logger.warning(f"Call {call_id}: Empty transcript data")
-        else:
-            logger.debug(f"Call {call_id}: First utterance structure: {utterances[0] if utterances else 'None'}")
-            if utterances and "sentences" not in utterances[0]:
-                logger.warning(f"Call {call_id}: Utterance does not have 'sentences' field. Keys: {list(utterances[0].keys())}")
-        
-        logger.debug(f"Call {call_id}: Found {len(utterances)} utterances")
 
         return {
             "call_id": call_id,
