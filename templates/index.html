@@ -20,7 +20,7 @@
         </h1>
         
         <!-- Input Form -->
-        <form id="gong-form" action="/process" method="post" class="bg-white p-6 rounded-lg shadow-md mb-6">
+        <form action="/process" method="post" class="bg-white p-6 rounded-lg shadow-md mb-6">
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                 <div>
                     <label for="access_key" class="block text-sm font-medium text-gray-700">Gong Access Key</label>
@@ -205,32 +205,5 @@
         </div>
         {% endif %}
     </div>
-    <script>
-        document.getElementById('gong-form').addEventListener('submit', function(event) {
-            event.preventDefault();
-            console.log('Form submission triggered');
-            const formData = new FormData(this);
-            fetch('/process', {
-                method: 'POST',
-                body: formData
-            })
-            .then(response => {
-                console.log('Response received:', response);
-                if (response.ok) {
-                    return response.text();
-                }
-                throw new Error('Network response was not ok');
-            })
-            .then(html => {
-                console.log('HTML received, updating page');
-                document.open();
-                document.write(html);
-                document.close();
-            })
-            .catch(error => {
-                console.error('Submission error:', error);
-            });
-        });
-    </script>
 </body>
 </html>
