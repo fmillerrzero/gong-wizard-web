@@ -19,6 +19,13 @@
             GongGPT by Forrest
         </h1>
         
+        <!-- Display Message (e.g., validation errors) -->
+        {% if form_state.message %}
+        <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-6" role="alert">
+            <p>{{ form_state.message }}</p>
+        </div>
+        {% endif %}
+
         <!-- Input Form -->
         <form action="/process" method="post" class="bg-white p-6 rounded-lg shadow-md mb-6">
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">

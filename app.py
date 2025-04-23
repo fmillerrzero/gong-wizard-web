@@ -192,9 +192,11 @@ class GongAPIClient:
         for attempt in range(max_attempts):
             try:
                 response = self.session.request(method, url, **kwargs, timeout=30)
+                logger.info(f"API call to {endpoint} - Attempt {attempt + 1}, Status: {response.status_code}")
                 if response.status_code == 200:
                     return response.json()
                 elif response.status_code in (401, 403):
+                    logger.error(f"Authentication failed: {response.status_code} - {response.text}")
                     raise GongAPIError(response.status_code, "Authentication failed")
                 elif response.status_code == 429:
                     wait_time = int(response.headers.get("Retry-After", (2 ** attempt) * 2))
@@ -202,8 +204,10 @@ class GongAPIClient:
                     time.sleep(wait_time)
                     continue
                 else:
+                    logger.error(f"API error: {response.status_code} - {response.text}")
                     raise GongAPIError(response.status_code, f"API error: {response.text}")
             except requests.RequestException as e:
+                logger.error(f"Network error on attempt {attempt + 1}: {str(e)}")
                 if attempt == max_attempts - 1:
                     raise GongAPIError(0, f"Network error: {str(e)}")
                 time.sleep(2 ** attempt)
@@ -343,9 +347,9 @@ def normalize_call_data(call, transcript):
         parties = call.get("parties", [])
         context = call.get("context", [])
 
-        call_id = get_field(meta_data, "id", "")
-        call_title = get_field(meta_data, "title", "")
-        call_date = convert_to_sf_time(get_field(meta_data, "started"))
+        call_id = get_field(metaData, "id", "")
+        call_title = get_field(metaData, "title", "")
+        call_date = convert_to_sf_time(get_field(metaData, "started"))
         account_ids = extract_field_values(context, "objectId", "Account")
         account_name = extract_field_values(context, "Name", "Account")[0] if extract_field_values(context, "Name", "Account") else ""
         account_id = account_ids[0] if account_ids else ""
