@@ -735,7 +735,7 @@ def prepare_utterances_df(calls, selected_products):
             
             if mapped_products:
                 product = "|".join(mapped_products)
-                tracker_counts = {name: count for name, count in tracker_counts.items() if name.lower() not in tracker_names_to_remove}  # Fixed typo here
+                tracker_counts = {name: count for name, count in tracker_counts.items() if name.lower() not in tracker_names_to_remove}
                 tracker_str = "|".join(f"{name}: {count}" for name, count in tracker_counts.items()) if tracker_counts else ""
             
             data.append({
@@ -760,7 +760,12 @@ def prepare_utterances_df(calls, selected_products):
         ]
         df = pd.DataFrame(data)[columns]
         df['call_id'] = df['call_id'].astype(str)
-        df = df.sort_values(["call_date", "call_id"], ascending=[False, True])
+        # Convert call_date to datetime for proper sorting
+        df['call_date'] = pd.to_datetime(df['call_date'], format='%b %d, %Y', errors='coerce')
+        # Sort by call_date in descending order (newest first)
+        df = df.sort_values("call_date", ascending=False)
+        # Convert call_date back to string format for output
+        df['call_date'] = df['call_date'].dt.strftime('%b %d, %Y')
         logger.info(f"Utterances DataFrame: {len(df)} rows, columns: {df.columns.tolist()}")
     else:
         logger.info("Utterances DataFrame is empty after processing")
@@ -879,21 +884,6 @@ def prepare_json_output(calls, selected_products):
             if not speaker_name and speaker_email_address:
                 speaker_name = get_email_local_part(speaker_email_address)
             
-            email_domain = get_email_domain(speaker_email_address)
-            original_affiliation = get_field(speaker, "affiliation", "unknown").lower()
-            if speaker_name in INTERNAL_SPEAKERS or (
-                email_domain and (
-                    any(email_domain.endswith("." + internal_domain) for internal_domain in INTERNAL_DOMAINS) or 
-                    email_domain in INTERNAL_DOMAINS
-                )
-            ):
-                continue  # Skip internal speakers
-            
-            elif original_affiliation.lower() == "unknown" and email_domain and not any(email_domain.endswith("." + internal_domain) for internal_domain in INTERNAL_DOMAINS):
-                speaker_affiliation = "external"
-            else:
-                speaker_affiliation = original_affiliation
-            
             topic = get_field(u, "topic", "").lower()
             if topic in excluded_topics_set:
                 continue
@@ -982,9 +972,19 @@ def prepare_json_output(calls, selected_products):
                     "Other": other_participants
                 }
             },
-            "transcript": "\n\n".join(transcript_lines)
+            "transcript": "\n\n".join(transcript_lines),
+            "started": raw_call_date  # Add started date for sorting
         }
         filtered_calls.append(call_entry)
+    
+    # Sort calls by started date in descending order (newest first)
+    filtered_calls.sort(
+        key=lambda x: datetime.fromisoformat(x["started"].replace("Z", "+00:00")),
+        reverse=True
+    )
+    # Remove the started field from the final output
+    for call_entry in filtered_calls:
+        call_entry.pop("started", None)
     
     logger.info(f"JSON output: {len(filtered_calls)} calls included (aligned with utterances CSV in new format)")
     return filtered_calls
