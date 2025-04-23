@@ -610,7 +610,6 @@ def prepare_utterances_df(calls, selected_products):
                         "tracker_name": get_field(tracker, "tracker_name", "").lower(),
                         "phrase": get_field(tracker, "phrase", "")
                     })
-                    matched = True 4
                     matched = True
                     break
             if not matched:
