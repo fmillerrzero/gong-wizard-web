@@ -225,31 +225,37 @@ class GongAPIClient:
 
     def fetch_call_details(self, call_ids):
         endpoint = "/v2/calls/extensive"
-        data = {
-            "filter": {
-                "callIds": call_ids
-            },
-            "contentSelector": {
-                "exposedFields": {
-                    "parties": True,
-                    "content": {
-                        "trackers": True,
-                        "trackerOccurrences": True,
-                        "brief": True,
-                        "keyPoints": True
-                    },
-                    "collaboration": {
-                        "publicComments": True
-                    }
+        cursor = None
+        while True:
+            data = {
+                "filter": {
+                    "callIds": call_ids
                 },
-                "context": "Extended"
+                "contentSelector": {
+                    "exposedFields": {
+                        "parties": True,
+                        "content": {
+                            "trackers": True,
+                            "trackerOccurrences": True,
+                            "brief": True,
+                            "keyPoints": True
+                        },
+                        "collaboration": {
+                            "publicComments": True
+                        }
+                    },
+                    "context": "Extended"
+                },
+                "cursor": cursor
             }
-        }
-        response = self.api_call("POST", endpoint, json=data)
-        records = response.get("records", {})
-        logger.info(f"Call details page info: totalRecords={records.get('totalRecords')}, currentPageSize={records.get('currentPageSize')}")
-        for call in response.get("calls", []):
-            yield call
+            response = self.api_call("POST", endpoint, json=data)
+            records = response.get("records", {})
+            logger.info(f"Call details page info: totalRecords={records.get('totalRecords')}, currentPageSize={records.get('currentPageSize')}, cursor={cursor}")
+            for call in response.get("calls", []):
+                yield call
+            cursor = records.get("cursor")
+            if not cursor:
+                break
 
     def fetch_transcript(self, call_ids, max_attempts=3):
         endpoint = "/v2/calls/transcript"
@@ -282,7 +288,7 @@ def convert_to_sf_time(utc_time):
         logger.error(f"Date conversion error for {utc_time}: {str(e)}")
         return "N/A"
 
-def get_field(data, key, default="Unknown"):
+def get_field(data, key, default=""):
     if not isinstance(data, dict):
         return default
     for k, v in data.items():
@@ -294,21 +300,21 @@ def extract_field_values(context, field_name, object_type=None):
     values = []
     for ctx in context or []:
         for obj in ctx.get("objects", []):
-            obj_type = get_field(obj, "objectType", "Unknown")
+            obj_type = get_field(obj, "objectType", "")
             if object_type and obj_type.lower() != object_type.lower():
                 continue
             if field_name.lower() == "objectid":
-                value = get_field(obj, "objectId", "Unknown")
-                if value != "Unknown":
+                value = get_field(obj, "objectId", "")
+                if value:
                     values.append(str(value))
                 continue
             for field in obj.get("fields", []):
                 if not isinstance(field, dict):
                     continue
-                field_name_val = get_field(field, "name", "Unknown")
+                field_name_val = get_field(field, "name", "")
                 if field_name_val.lower() == field_name.lower():
-                    value = get_field(field, "value", "Unknown")
-                    if value != "Unknown":
+                    value = get_field(field, "value", "")
+                    if value:
                         values.append(str(value))
     return values
 
@@ -329,21 +335,33 @@ def normalize_call_data(call, transcript):
         parties = call.get("parties", [])
         context = call.get("context", [])
 
-        call_id = get_field(meta_data, "id", "Unknown")
-        call_title = get_field(meta_data, "title", "Unknown")
+        call_id = get_field(meta_data, "id", "")
+        call_title = get_field(meta_data, "title", "")
         call_date = convert_to_sf_time(get_field(meta_data, "started"))
         account_ids = extract_field_values(context, "objectId", "Account")
-        account_name = extract_field_values(context, "Name", "Account")[0] if extract_field_values(context, "Name", "Account") else "Unknown"
-        account_id = account_ids[0] if account_ids else "Unknown"
-        account_website = extract_field_values(context, "Website", "Account")[0] if extract_field_values(context, "Website", "Account") else "Unknown"
-        account_industry = extract_field_values(context, "Industry", "Account")[0] if extract_field_values(context, "Industry", "Account") else "Unknown"
+        account_name = extract_field_values(context, "Name", "Account")[0] if extract_field_values(context, "Name", "Account") else ""
+        account_id = account_ids[0] if account_ids else ""
+        account_website = extract_field_values(context, "Website", "Account")[0] if extract_field_values(context, "Website", "Account") else ""
+        account_industry = extract_field_values(context, "Industry", "Account")[0] if extract_field_values(context, "Industry", "Account") else ""
+
+        # Improve account names: Use website if account_name is ""
+        if not account_name and account_website:
+            account_name = normalize_domain(account_website)
 
         trackers = content.get("trackers", [])
         tracker_counts = {get_field(t, "name").lower(): get_field(t, "count", 0) for t in trackers if get_field(t, "name")}
 
         products = []
+        normalized_website = normalize_domain(account_website)
+        org_type = "other"
+        if normalized_website in TARGET_DOMAINS:
+            org_type = "owner"
+        elif normalized_website in TENANT_DOMAINS:
+            org_type = "tenant"
+            products.append("Occupancy Analytics")  # Auto-tag tenant organizations
+
         for product in PRODUCT_MAPPINGS:
-            if product == "Occupancy Analytics":
+            if product == "Occupancy Analytics" and "Occupancy Analytics" not in products:
                 if apply_occupancy_analytics_tags(call):
                     products.append(product)
             else:
@@ -354,32 +372,25 @@ def normalize_call_data(call, transcript):
 
         tracker_occurrences = []
         for tracker in trackers:
-            tracker_name = get_field(tracker, "name", "Unknown")
+            tracker_name = get_field(tracker, "name", "")
             for occurrence in tracker.get("occurrences", []):
                 tracker_occurrences.append({
                     "tracker_name": tracker_name,
-                    "phrase": get_field(occurrence, "phrase", "Unknown"),
+                    "phrase": get_field(occurrence, "phrase", ""),
                     "start": get_field(occurrence, "startTime", 0),
-                    "speakerId": get_field(occurrence, "speakerId", "Unknown")
+                    "speakerId": get_field(occurrence, "speakerId", "")
                 })
 
-        call_summary = get_field(content, "brief", "Unknown")
+        call_summary = get_field(content, "brief", "")
         key_points = []
         key_points_raw = content.get("keyPoints", [])
         for kp in key_points_raw:
             if not isinstance(kp, dict):
                 continue
-            description = get_field(kp, "description", "Unknown")
-            if description != "Unknown":
+            description = get_field(kp, "description", "")
+            if description:
                 key_points.append(description.strip())
-        key_points_str = "|".join(key_points) if key_points else "Unknown"
-
-        normalized_website = normalize_domain(account_website)
-        org_type = "other"
-        if normalized_website in TARGET_DOMAINS:
-            org_type = "owner"
-        elif normalized_website in TENANT_DOMAINS:
-            org_type = "tenant"
+        key_points_str = "|".join(key_points) if key_points else ""
 
         utterances = transcript if transcript is not None else []
 
@@ -401,24 +412,24 @@ def normalize_call_data(call, transcript):
             "key_points": key_points_str
         }
     except Exception as e:
-        call_id = get_field(call.get("metaData", {}), "id", "Unknown")
+        call_id = get_field(call.get("metaData", {}), "id", "")
         logger.error(f"Normalization error for call '{call_id}': {str(e)}")
         return {
             "call_id": f"'{call_id}",
-            "call_title": "Unknown",
+            "call_title": "",
             "call_date": "N/A",
-            "account_name": "Unknown",
-            "account_id": "Unknown",
-            "account_website": "Unknown",
-            "account_industry": "Unknown",
+            "account_name": "",
+            "account_id": "",
+            "account_website": "",
+            "account_industry": "",
             "products": [],
             "parties": call.get("parties", []),
             "utterances": [],
             "partial_data": True,
-            "org_type": "Unknown",
+            "org_type": "",
             "tracker_occurrences": [],
-            "call_summary": "Unknown",
-            "key_points": "Unknown"
+            "call_summary": "",
+            "key_points": ""
         }
 
 def prepare_utterances_df(calls, selected_products):
@@ -472,8 +483,8 @@ def prepare_utterances_df(calls, selected_products):
                 utterance_end = utterance_start + 60000
                 if utterance_start <= tracker_time <= utterance_end:
                     info["trackers"].append({
-                        "tracker_name": get_field(tracker, "tracker_name", "Unknown"),
-                        "phrase": get_field(tracker, "phrase", "Unknown")
+                        "tracker_name": get_field(tracker, "tracker_name", "").lower(),
+                        "phrase": get_field(tracker, "phrase", "")
                     })
                     matched = True
                     break
@@ -489,11 +500,11 @@ def prepare_utterances_df(calls, selected_products):
                         closest_utterance = utterance_key
                 if closest_utterance:
                     call_tracker_map[call_id][closest_utterance]["trackers"].append({
-                        "tracker_name": get_field(tracker, "tracker_name", "Unknown"),
-                        "phrase": get_field(tracker, "phrase", "Unknown")
+                        "tracker_name": get_field(tracker, "tracker_name", "").lower(),
+                        "phrase": get_field(tracker, "phrase", "")
                     })
         
-        speaker_info = {get_field(p, "speakerId", "Unknown"): p for p in call["parties"]}
+        speaker_info = {get_field(p, "speakerId", ""): p for p in call["parties"]}
         
         for utterance in utterances:
             if "sentences" in utterance:
@@ -504,27 +515,29 @@ def prepare_utterances_df(calls, selected_products):
                 logger.warning(f"Call {call_id}: Unexpected utterance structure: {list(utterance.keys())}")
                 text = str(utterance)
             
-            speaker_id = get_field(utterance, "speakerId", "Unknown")
+            speaker_id = get_field(utterance, "speakerId", "")
             speaker = speaker_info.get(speaker_id, {})
-            speaker_name = get_field(speaker, "name", "Unknown")
+            speaker_name = get_field(speaker, "name", "")
             original_affiliation = get_field(speaker, "affiliation", "unknown").lower()
-            speaker_email_address = get_field(speaker, "emailAddress", "Unknown")
+            speaker_email_address = get_field(speaker, "emailAddress", "")
             email_domain = get_email_domain(speaker_email_address)
+            
+            # Update speaker affiliation logic
             if any(internal_domain == email_domain or email_domain.endswith("." + internal_domain) for internal_domain in INTERNAL_DOMAINS):
                 speaker_affiliation = "internal"
                 if original_affiliation != "internal":
                     logger.info(f"Overrode affiliation from {original_affiliation} to internal for speaker {speaker_name} ({speaker_email_address}) in call {call_id}")
+            elif original_affiliation.lower() == "unknown" and email_domain and not any(email_domain.endswith("." + internal_domain) for internal_domain in INTERNAL_DOMAINS):
+                speaker_affiliation = "external"
             else:
                 speaker_affiliation = original_affiliation
             
-            if speaker_affiliation == "internal":
+            if speaker_affiliation.lower() == "internal":
                 continue
             
-            speaker_job_title = get_field(speaker, "title", "Unknown")
-            if speaker_job_title == "Unknown":
-                logger.debug(f"Missing job title for speaker {speaker_name} in call {call_id}")
+            speaker_job_title = get_field(speaker, "title", "")
             
-            topic = get_field(utterance, "topic", "Unknown").lower()
+            topic = get_field(utterance, "topic", "").lower()
             
             if topic in excluded_topics:
                 continue
@@ -538,23 +551,63 @@ def prepare_utterances_df(calls, selected_products):
             utterance_key = f"{call_id}_{utterance_start}"
             triggered_trackers = call_tracker_map.get(call_id, {}).get(utterance_key, {"trackers": []})["trackers"]
             
-            tracker_names = [t["tracker_name"] for t in triggered_trackers]
-            tracker_phrases = [t["phrase"] for t in triggered_trackers]
+            tracker_names = [t["tracker_name"] for t in triggered_trackers if t["tracker_name"]]
+            if topic and topic not in excluded_topics:
+                tracker_names.append(topic)  # Consolidate sales_topic into tracker
+            
+            # Consolidate tracker names with counts
+            tracker_counts = {}
+            for name in tracker_names:
+                if name:
+                    tracker_counts[name] = tracker_counts.get(name, 0) + 1
+            tracker_str = "|".join(f"{name}: {count}" for name, count in tracker_counts.items()) if tracker_counts else ""
+            
+            # Product column mapping from trackers
+            tracker_set = set(t["tracker_name"].lower() for t in triggered_trackers if t["tracker_name"])
+            product = "|".join(products) if products else ""
+            mapped_products = set()
+            tracker_names_to_remove = set()
+            
+            if "filter" in tracker_set:
+                mapped_products.add("Secure Air")
+                tracker_names_to_remove.add("filter")
+            if "energy savings" in tracker_set and "odcv" not in tracker_set:
+                mapped_products.add("Secure Air")
+                tracker_names_to_remove.add("energy savings")
+            elif "energy savings" in tracker_set and "filter" not in tracker_set:
+                mapped_products.add("ODCV")
+                tracker_names_to_remove.add("energy savings")
+            if "odcv" in tracker_set:
+                mapped_products.add("ODCV")
+                tracker_names_to_remove.add("odcv")
+            if "r-zero competitors" in tracker_set:
+                mapped_products.add("Occupancy Analytics")
+                tracker_names_to_remove.add("r-zero competitors")
+            if "remote work (by gong)" in tracker_set:
+                mapped_products.add("Occupancy Analytics")
+                tracker_names_to_remove.add("remote work (by gong)")
+            if "air quality" in tracker_set:
+                mapped_products.add("IAQ Monitoring")
+                tracker_names_to_remove.add("air quality")
+            
+            if mapped_products:
+                product = "|".join(mapped_products)
+                # Remove mapped tracker names from tracker column
+                tracker_counts = {name: count for name, count in tracker_counts.items() if name.lower() not in tracker_names_to_remove}
+                tracker_str = "|".join(f"{name}: {count}" for name, count in tracker_counts.items()) if tracker_counts else ""
             
             data.append({
                 "call_id": call_id,
                 "call_date": call["call_date"],
                 "account_name": call["account_name"],
                 "account_industry": call["account_industry"],
-                "org_type": call["org_type"],
+                "org_type": "" if call["org_type"] == "other" else call["org_type"],  # Fix org_type
                 "speaker_name": speaker_name,
                 "speaker_job_title": speaker_job_title,
                 "speaker_affiliation": speaker_affiliation,
                 "speaker_email_address": speaker_email_address,
-                "sales_topic": topic,
-                "product": "|".join(products) if products else "N/A",
-                "tracker": "|".join(tracker_names) if tracker_names else "",
-                "keyword": "|".join(tracker_phrases) if tracker_phrases else "",
+                "product": product,
+                "tracker": tracker_str,
                 "utterance_text": text
             })
     
@@ -562,7 +615,7 @@ def prepare_utterances_df(calls, selected_products):
         columns = [
             "call_id", "call_date", "account_name", "account_industry", "org_type",
             "speaker_name", "speaker_job_title", "speaker_affiliation", "speaker_email_address",
-            "sales_topic", "product", "tracker", "keyword", "utterance_text"
+            "product", "tracker", "utterance_text"
         ]
         df = pd.DataFrame(data)[columns]
         df['call_id'] = df['call_id'].astype(str)
@@ -609,8 +662,7 @@ def prepare_call_summary_df(calls, selected_products):
             "account_name": call["account_name"],
             "account_website": call["account_website"],
             "account_industry": call["account_industry"],
-            "call_summary": call.get("call_summary", "Unknown"),
-            "key_points": call.get("key_points", "Unknown")
+            "call_summary": call.get("call_summary", "")
         })
     
     df = pd.DataFrame(data)
@@ -634,7 +686,7 @@ def prepare_json_output(calls, selected_products):
     for call in calls:
         products = call.get("products", [])
         products_lower = [p.lower() for p in products if isinstance(p, str)]
-        speaker_info = {get_field(p, "speakerId", "Unknown"): p for p in call["parties"]}
+        speaker_info = {get_field(p, "speakerId", ""): p for p in call["parties"]}
         call_data = {
             "call_id": call["call_id"],
             "call_date": call["call_date"],
@@ -646,11 +698,11 @@ def prepare_json_output(calls, selected_products):
             "utterances": [
                 {
                     "timestamp": get_field(u, "start", "N/A"),
-                    "speaker_name": get_field(speaker_info.get(get_field(u, "speakerId", "Unknown"), {}), "name", "Unknown"),
-                    "speaker_affiliation": get_field(speaker_info.get(get_field(u, "speakerId", "Unknown"), {}), "affiliation", "Unknown"),
+                    "speaker_name": get_field(speaker_info.get(get_field(u, "speakerId", ""), {}), "name", ""),
+                    "speaker_affiliation": get_field(speaker_info.get(get_field(u, "speakerId", ""), {}), "affiliation", ""),
                     "utterance_text": " ".join(s.get("text", "") if isinstance(s, dict) else "" for s in u.get("sentences", [])),
-                    "sales_topic": get_field(u, "topic", "Unknown")
-                } for u in sorted(call["utterances"] or [], key=lambda x: get_field(x, "start", 0))
+                    "sales_topic": get_field(u, "topic", "")
+                } for u in sorted(call["utterances"] or [], key=lambda x: , get_field(x, "start", 0))
             ]
         }
         if products and any(p in selected_products_lower for p in products_lower):
@@ -740,8 +792,8 @@ def process():
             batch_call_ids = call_ids[i:i + BATCH_SIZE]
             logger.info(f"Processing batch {i // BATCH_SIZE + 1}: calls {i + 1} to {min(i + BATCH_SIZE, len(call_ids))}")
             for call in client.fetch_call_details(batch_call_ids):
-                call_id = get_field(call.get("metaData", {}), "id", "Unknown")
-                if call_id == "Unknown":
+                call_id = get_field(call.get("metaData", {}), "id", "")
+                if not call_id:
                     dropped_calls += 1
                     continue
                 call_transcript = transcripts.get(call_id, [])
