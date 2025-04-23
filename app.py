@@ -749,18 +749,25 @@ def prepare_json_output(calls, selected_products):
     logger.info(f"JSON output: {len(filtered_calls)} filtered, {len(non_filtered_calls)} non-filtered calls")
     return {"filtered_calls": filtered_calls, "non_filtered_calls": non_filtered_calls}
 
-@app.route('/')
+@app.route('/', methods=['GET', 'HEAD'])
 def index():
-    end_date = datetime.now(SF_TZ)
-    start_date = end_date - timedelta(days=7)
-    return render_template('index.html', 
-                          start_date=start_date.strftime('%Y-%m-%d'), 
-                          end_date=end_date.strftime('%Y-%m-%d'), 
-                          products=ALL_PRODUCT_TAGS, 
-                          access_key="", 
-                          secret_key="", 
-                          message="", 
-                          show_download=False)
+    try:
+        logger.debug(f"Handling request to / with method {request.method}")
+        end_date = datetime.now(SF_TZ)
+        start_date = end_date - timedelta(days=7)
+        response = render_template('index.html', 
+                              start_date=start_date.strftime('%Y-%m-%d'), 
+                              end_date=end_date.strftime('%Y-%m-%d'), 
+                              products=ALL_PRODUCT_TAGS, 
+                              access_key="", 
+                              secret_key="", 
+                              message="", 
+                              show_download=False)
+        logger.debug("Successfully rendered index.html for / route")
+        return response
+    except Exception as e:
+        logger.error(f"Error in / route: {str(e)}")
+        return "Internal Server Error", 500
 
 @app.route('/health')
 def health():
