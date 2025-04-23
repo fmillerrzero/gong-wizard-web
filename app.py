@@ -805,7 +805,7 @@ def process():
 
     if not start_date or not end_date:
         form_state["message"] = "Missing start or end date."
-        return render_template('index.html', products=products, **form_state)
+        return render_template('index.html', **form_state)
 
     date_format = '%Y-%m-%d'
     try:
@@ -813,18 +813,18 @@ def process():
         end_dt = datetime.strptime(end_date, date_format).replace(tzinfo=SF_TZ)
         if start_dt > end_dt:
             form_state["message"] = "Start date cannot be after end date."
-            return render_template('index.html', products=products, **form_state)
+            return render_template('index.html', **form_state)
         today = datetime.now(SF_TZ)
         if start_dt > today or end_dt > today:
             form_state["message"] = "Date range cannot include future dates."
-            return render_template('index.html', products=products, **form_state)
+            return render_template('index.html', **form_state)
     except ValueError:
         form_state["message"] = "Invalid date format. Use YYYY-MM-DD."
-        return render_template('index.html', products=products, **form_state)
+        return render_template('index.html', **form_state)
 
     if not access_key or not secret_key:
         form_state["message"] = "Missing API keys."
-        return render_template('index.html', products=products, **form_state)
+        return render_template('index.html', **form_state)
 
     try:
         client = GongAPIClient(access_key, secret_key)
@@ -839,7 +839,7 @@ def process():
         
         if not call_ids:
             form_state["message"] = "No calls found for the selected date range."
-            return render_template('index.html', products=products, **form_state)
+            return render_template('index.html', **form_state)
 
         full_data = []
         dropped_calls = 0
@@ -865,7 +865,7 @@ def process():
 
         if not full_data:
             form_state["message"] = f"No valid call data retrieved. Dropped {dropped_calls} calls."
-            return render_template('index.html', products=products, **form_state)
+            return render_template('index.html', **form_state)
 
         utterances_df, utterance_stats = prepare_utterances_df(full_data, products)
         call_summary_df = prepare_call_summary_df(full_data, products)
@@ -873,7 +873,7 @@ def process():
 
         if utterances_df.empty and call_summary_df.empty:
             form_state["message"] = "No calls matched the selected products."
-            return render_template('index.html', products=products, **form_state)
+            return render_template('index.html', **form_state)
 
         # Compute call processing stats
         total_calls = len(full_data) + dropped_calls
@@ -992,16 +992,16 @@ def process():
         form_state["show_download"] = True
         form_state["stats"] = stats
         form_state["utterance_breakdown"] = utterance_breakdown
-        return render_template('index.html', products=products, **form_state)
+        return render_template('index.html', **form_state)
 
     except GongAPIError as e:
         logger.error(f"API error: {e.message}")
         form_state["message"] = f"API Error: {e.message}"
-        return render_template('index.html', products=products, **form_state)
+        return render_template('index.html', **form_state)
     except Exception as e:
         logger.error(f"Unexpected error: {str(e)}")
         form_state["message"] = f"Unexpected error: {str(e)}"
-        return render_template('index.html', products=products, **form_state)
+        return render_template('index.html', **form_state)
 
 @app.route('/download/utterances')
 def download_utterances():
