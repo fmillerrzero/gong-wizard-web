@@ -189,7 +189,7 @@
                             <tbody class="bg-white divide-y divide-gray-200">
                                 {% if utterance_breakdown.org_type %}
                                 {% for item in utterance_breakdown.org_type[:5] %}
-                                <tr class="{% cycle 'bg-white' 'bg-gray-50' %}">
+                                <tr class="{{ loop.cycle('bg-white', 'bg-gray-50') }}">
                                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ item.value }}</td>
                                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.count }}</td>
                                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.percentage }}%</td>
@@ -206,7 +206,7 @@
                                         <table class="min-w-full divide-y divide-gray-200">
                                             <tbody class="bg-white divide-y divide-gray-200">
                                                 {% for item in utterance_breakdown.org_type[5:] %}
-                                                <tr class="{% cycle 'bg-white' 'bg-gray-50' %}">
+                                                <tr class="{{ loop.cycle('bg-white', 'bg-gray-50') }}">
                                                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ item.value }}</td>
                                                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.count }}</td>
                                                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.percentage }}%</td>
@@ -240,7 +240,7 @@
                             <tbody class="bg-white divide-y divide-gray-200">
                                 {% if utterance_breakdown.account_industry %}
                                 {% for item in utterance_breakdown.account_industry[:5] %}
-                                <tr class="{% cycle 'bg-white' 'bg-gray-50' %}">
+                                <tr class="{{ loop.cycle('bg-white', 'bg-gray-50') }}">
                                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ item.value }}</td>
                                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.count }}</td>
                                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.percentage }}%</td>
@@ -257,7 +257,7 @@
                                         <table class="min-w-full divide-y divide-gray-200">
                                             <tbody class="bg-white divide-y divide-gray-200">
                                                 {% for item in utterance_breakdown.account_industry[5:] %}
-                                                <tr class="{% cycle 'bg-white' 'bg-gray-50' %}">
+                                                <tr class="{{ loop.cycle('bg-white', 'bg-gray-50') }}">
                                                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ item.value }}</td>
                                                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.count }}</td>
                                                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.percentage }}%</td>
@@ -291,7 +291,7 @@
                             <tbody class="bg-white divide-y divide-gray-200">
                                 {% if utterance_breakdown.product %}
                                 {% for item in utterance_breakdown.product[:5] %}
-                                <tr class="{% cycle 'bg-white' 'bg-gray-50' %}">
+                                <tr class="{{ loop.cycle('bg-white', 'bg-gray-50') }}">
                                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ item.value }}</td>
                                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.count }}</td>
                                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.percentage }}%</td>
@@ -308,7 +308,7 @@
                                         <table class="min-w-full divide-y divide-gray-200">
                                             <tbody class="bg-white divide-y divide-gray-200">
                                                 {% for item in utterance_breakdown.product[5:] %}
-                                                <tr class="{% cycle 'bg-white' 'bg-gray-50' %}">
+                                                <tr class="{{ loop.cycle('bg-white', 'bg-gray-50') }}">
                                                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ item.value }}</td>
                                                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.count }}</td>
                                                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.percentage }}%</td>
@@ -329,4 +329,81 @@
                 </div>
                 <!-- Tracker -->
                 <div>
-                    <h3 class="text-lg font-medium text-gray-700 mb
+                    <h3 class="text-lg font-medium text-gray-700 mb-2">By Tracker</h3>
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tracker</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Count</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">%</th>
+                                </tr>
+                            </thead>
+                            <tbody class="bg-white divide-y divide-gray-200">
+                                {% if utterance_breakdown.tracker %}
+                                {% for item in utterance_breakdown.tracker[:5] %}
+                                <tr class="{{ loop.cycle('bg-white', 'bg-gray-50') }}">
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ item.value }}</td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.count }}</td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.percentage }}%</td>
+                                </tr>
+                                {% endfor %}
+                                {% if utterance_breakdown.tracker|length > 5 %}
+                                <tr>
+                                    <td colspan="3" class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                        <button onclick="document.getElementById('tracker-more').classList.toggle('hidden')" class="text-indigo-600 hover:underline">Show More</button>
+                                    </td>
+                                </tr>
+                                <tr id="tracker-more" class="hidden">
+                                    <td colspan="3">
+                                        <table class="min-w-full divide-y divide-gray-200">
+                                            <tbody class="bg-white divide-y divide-gray-200">
+                                                {% for item in utterance_breakdown.tracker[5:] %}
+                                                <tr class="{{ loop.cycle('bg-white', 'bg-gray-50') }}">
+                                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ item.value }}</td>
+                                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.count }}</td>
+                                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.percentage }}%</td>
+                                                </tr>
+                                                {% endfor %}
+                                            </tbody>
+                                        </table>
+                                    </td>
+                                </tr>
+                                {% else %}
+                                <tr>
+                                    <td colspan="3" class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">No data available</td>
+                                </tr>
+                                {% endif %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Download Links -->
+        <div class="bg-white p-6 rounded-lg shadow-md">
+            <h2 class="text-xl font-semibold text-gray-800 mb-4">Download Files</h2>
+            <div class="space-y-2">
+                <a href="/download/utterances" class="flex items-center text-indigo-600 hover:bg-gray-50 hover:scale-105 transition-transform p-2 rounded-md">
+                    <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' class='icon-small' viewBox='0 0 20 20' fill='currentColor'%3E%3Cpath fill-rule='evenodd' d='M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L10 11.586V6a1 1 0 112 0v5.586l2.293-2.293a1 1 0 011.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z' clip-rule='evenodd'/%3E%3C/svg%3E" alt="download icon">
+                    Download Filtered Utterances CSV
+                </a>
+                <a href="/download/call_summary" class="flex items-center text-indigo-600 hover:bg-gray-50 hover:scale-105 transition-transform p-2 rounded-md">
+                    <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' class='icon-small' viewBox='0 0 20 20' fill='currentColor'%3E%3Cpath fill-rule='evenodd' d='M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L10 11.586V6a1 1 0 112 0v5.586l2.293-2.293a1 1 0 011.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z' clip-rule='evenodd'/%3E%3C/svg%3E" alt="download icon">
+                    Download Call Summary CSV
+                </a>
+                <a href="/download/json" class="flex items-center text-indigo-600 hover:bg-gray-50 hover:scale-105 transition-transform p-2 rounded-md">
+                    <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' class='icon-small' viewBox='0 0 20 20' fill='currentColor'%3E%3Cpath fill-rule='evenodd' d='M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L10 11.586V6a1 1 0 112 0v5.586l2.293-2.293a1 1 0 011.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z' clip-rule='evenodd'/%3E%3C/svg%3E" alt="download icon">
+                    Download JSON Data
+                </a>
+                <a href="/download/logs" class="flex items-center text-indigo-600 hover:bg-gray-50 hover:scale-105 transition-transform p-2 rounded-md">
+                    <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' class='icon-small' viewBox='0 0 20 20' fill='currentColor'%3E%3Cpath fill-rule='evenodd' d='M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L10 11.586V6a1 1 0 112 0v5.586l2.293-2.293a1 1 0 011.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z' clip-rule='evenodd'/%3E%3C/svg%3E" alt="download icon">
+                    Download Logs
+                </a>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</body>
+</html>
