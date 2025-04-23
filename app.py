@@ -601,7 +601,7 @@ def prepare_utterances_df(calls, selected_products):
                 "call_date": call["call_date"],
                 "account_name": call["account_name"],
                 "account_industry": call["account_industry"],
-                "org_type": "" if call["org_type"] == "other" else call["org_type"],  # Fix org_type
+                "org_type": "" if call["org_type"] == "other" else call["org_type"],
                 "speaker_name": speaker_name,
                 "speaker_job_title": speaker_job_title,
                 "speaker_affiliation": speaker_affiliation,
@@ -702,7 +702,7 @@ def prepare_json_output(calls, selected_products):
                     "speaker_affiliation": get_field(speaker_info.get(get_field(u, "speakerId", ""), {}), "affiliation", ""),
                     "utterance_text": " ".join(s.get("text", "") if isinstance(s, dict) else "" for s in u.get("sentences", [])),
                     "sales_topic": get_field(u, "topic", "")
-                } for u in sorted(call["utterances"] or [], key=lambda x: , get_field(x, "start", 0))
+                } for u in sorted(call["utterances"] or [], key=lambda x: get_field(x, "start", 0))
             ]
         }
         if products and any(p in selected_products_lower for p in products_lower):
