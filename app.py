@@ -809,8 +809,8 @@ def process():
 
     date_format = '%Y-%m-%d'
     try:
-        start_dt = datetime.strptime(start_date, date_format)
-        end_dt = datetime.strptime(end_date, date_format)
+        start_dt = datetime.strptime(start_date, date_format).replace(tzinfo=SF_TZ)
+        end_dt = datetime.strptime(end_date, date_format).replace(tzinfo=SF_TZ)
         if start_dt > end_dt:
             form_state["message"] = "Start date cannot be after end date."
             return render_template('index.html', products=products, **form_state)
