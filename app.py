@@ -735,7 +735,7 @@ def prepare_utterances_df(calls, selected_products):
             
             if mapped_products:
                 product = "|".join(mapped_products)
-                tracker_counts = {name: count for name, count in tracker_counts.items() if name.lower() not in trackers_names_to_remove}
+                tracker_counts = {name: count for name, count in tracker_counts.items() if name.lower() not in tracker_names_to_remove}  # Fixed typo here
                 tracker_str = "|".join(f"{name}: {count}" for name, count in tracker_counts.items()) if tracker_counts else ""
             
             data.append({
