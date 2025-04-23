@@ -12,7 +12,7 @@ import csv
 import pandas as pd
 import pytz
 import requests
-from flask import Flask, render_template, request, send_file
+from flask import Flask, render_template, request, send_file, jsonify
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', os.urandom(24))
@@ -44,7 +44,7 @@ OUTPUT_DIR = "/tmp/gong_output"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 logger.info(f"Output directory created: {OUTPUT_DIR}")
 PATHS_FILE = os.path.join(OUTPUT_DIR, "file_paths.json")
-BATCH_SIZE = 25  # Reduced from 50 to prevent timeouts
+BATCH_SIZE = 25
 PRODUCT_MAPPINGS = {
     "IAQ Monitoring": ["Air Quality"],
     "ODCV": ["ODCV"],
@@ -70,10 +70,10 @@ PRODUCT_MAPPINGS = {
     ]
 }
 ALL_PRODUCT_TAGS = list(PRODUCT_MAPPINGS.keys())
-INTERNAL_DOMAINS = {"secureaire.com", "rzero.com", "rzerosystems.com"}
+INTERNAL_DOMAINS = {"secureaire.com", "rzero.com", "rzerosystems.com", "globant.com"}
 EXCLUDED_TOPICS = {"call setup", "small talk", "wrap-up"}
-MAX_DATE_RANGE_MONTHS = 12  # Allow up to 12 months
-MAX_PROCESSING_TIME = 270  # 270 seconds (4.5 minutes) to stay under 300-second timeout
+MAX_DATE_RANGE_MONTHS = 12
+MAX_PROCESSING_TIME = 270
 
 # Precompile regex patterns for Occupancy Analytics with case-insensitive flag
 for product in PRODUCT_MAPPINGS:
@@ -99,7 +99,9 @@ def normalize_domain(url):
 def get_email_domain(email):
     if not email or "@" not in email:
         return ""
-    domain = email.split("@")[-1].lower().strip()
+    # Strip whitespace and ensure email is a string
+    email = str(email).strip().lower()
+    domain = email.split("@")[-1].strip()
     return domain
 
 def get_email_local_part(email):
@@ -190,11 +192,12 @@ class GongAPIClient:
 
     def api_call(self, method, endpoint, **kwargs):
         url = f"{self.base_url}/{endpoint}"
-        max_attempts = 3
+        max_attempts = 5
         for attempt in range(max_attempts):
+            logger.info(f"Starting API call to {endpoint} - Attempt {attempt + 1}")
             try:
-                response = self.session.request(method, url, **kwargs, timeout=30)
-                logger.info(f"API call to {endpoint} - Attempt {attempt + 1}, Status: {response.status_code}")
+                response = self.session.request(method, url, **kwargs, timeout=10)
+                logger.info(f"Completed API call to {endpoint} - Attempt {attempt + 1}, Status: {response.status_code}")
                 if response.status_code == 200:
                     return response.json()
                 elif response.status_code in (401, 403):
@@ -270,7 +273,7 @@ class GongAPIClient:
             if not cursor:
                 break
 
-    def fetch_transcript(self, call_ids, max_attempts=3):
+    def fetch_transcript(self, call_ids, max_attempts=5):
         endpoint = "/v2/calls/transcript"
         result = {}
         cursor = None
@@ -294,7 +297,7 @@ def convert_to_sf_time(utc_time):
     try:
         if utc_time.endswith('Z'):
             utc_time = utc_time.replace("Z", "+00:00")
-        utc_time = re.sub(r'(\.\d+)([+-]\d{2}:\d{2})', r'\2', utc_time)  # Remove milliseconds
+        utc_time = re.sub(r'(\.\d+)([+-]\d{2}:\d{2})', r'\2', utc_time)
         utc_dt = datetime.fromisoformat(utc_time)
         sf_dt = utc_dt.astimezone(SF_TZ)
         return sf_dt.strftime("%m/%d/%y")
@@ -366,7 +369,7 @@ def normalize_call_data(call, transcript):
                 if email_domain and not any(email_domain.endswith("." + internal_domain) for internal_domain in INTERNAL_DOMAINS):
                     account_name = email_domain
                     break
-            if not account_name:
+            if not account_name or account_name in INTERNAL_DOMAINS:
                 account_name = ""
 
         trackers = content.get("trackers", [])
@@ -542,9 +545,9 @@ def prepare_utterances_df(calls, selected_products):
             
             email_domain = get_email_domain(speaker_email_address)
             original_affiliation = get_field(speaker, "affiliation", "unknown").lower()
-            if any(internal_domain == email_domain or email_domain.endswith("." + internal_domain) for internal_domain in INTERNAL_DOMAINS):
-                internal_utterances += 1
+            if email_domain and any(email_domain.endswith("." + internal_domain) for internal_domain in INTERNAL_DOMAINS) or email_domain in INTERNAL_DOMAINS:
                 speaker_affiliation = "internal"
+                internal_utterances += 1
                 if original_affiliation != "internal":
                     logger.info(f"Overrode affiliation from {original_affiliation} to internal for speaker {speaker_name} ({speaker_email_address}) in call {call_id}")
                 continue
@@ -619,6 +622,7 @@ def prepare_utterances_df(calls, selected_products):
                 "call_date": call["call_date"],
                 "account_name": call["account_name"],
                 "account_industry": call["account_industry"],
+                "org_type": call["org_type"],  # Added org_type
                 "speaker_name": speaker_name,
                 "speaker_job_title": speaker_job_title,
                 "speaker_affiliation": speaker_affiliation,
@@ -629,7 +633,7 @@ def prepare_utterances_df(calls, selected_products):
     
     if data:
         columns = [
-            "call_id", "call_date", "account_name", "account_industry",
+            "call_id", "call_date", "account_name", "account_industry", "org_type",  # Added org_type
             "speaker_name", "speaker_job_title", "speaker_affiliation",
             "product", "tracker", "utterance_text"
         ]
@@ -809,29 +813,23 @@ def process():
 
     date_format = '%Y-%m-%d'
     try:
-        # Parse dates as naive datetime objects
         start_dt = datetime.strptime(start_date, date_format)
         end_dt = datetime.strptime(end_date, date_format)
-        # Localize to SF_TZ to make them timezone-aware
         start_dt = SF_TZ.localize(start_dt)
         end_dt = SF_TZ.localize(end_dt)
         
-        # Get current date in SF_TZ for comparison (date only)
         today = datetime.now(SF_TZ).date()
         start_date_only = start_dt.date()
         end_date_only = end_dt.date()
         
-        # Log the dates for debugging
         logger.info(f"Comparing dates - start_date: {start_date_only}, end_date: {end_date_only}, today: {today}")
         
-        # Validate date range (max 12 months)
-        delta = (end_dt - start_dt).days / 30.42  # Approximate months
+        delta = (end_dt - start_dt).days / 30.42
         if delta > MAX_DATE_RANGE_MONTHS:
             logger.warning(f"Validation failed: Date range exceeds {MAX_DATE_RANGE_MONTHS} months")
             form_state["message"] = f"Date range cannot exceed {MAX_DATE_RANGE_MONTHS} months. Please select a shorter range."
             return render_template('index.html', form_state=form_state, **form_state)
         
-        # Compare dates (ignoring time)
         if start_date_only > today or end_date_only > today:
             logger.warning("Validation failed: Date range includes future dates")
             form_state["message"] = "Date range cannot include future dates."
@@ -855,7 +853,6 @@ def process():
     try:
         start_time = time.time()
         client = GongAPIClient(access_key, secret_key)
-        # Convert dates to UTC (they are already timezone-aware from SF_TZ.localize)
         start_dt = start_dt.astimezone(pytz.UTC)
         end_dt = end_dt.replace(hour=23, minute=59, second=59).astimezone(pytz.UTC)
         start_date_utc = start_dt.isoformat().replace('+00:00', 'Z')
@@ -870,7 +867,6 @@ def process():
             form_state["message"] = "No calls found for the selected date range."
             return render_template('index.html', form_state=form_state, **form_state)
 
-        # Check elapsed time after fetching call IDs
         elapsed_time = time.time() - start_time
         if elapsed_time > MAX_PROCESSING_TIME:
             logger.error("Processing time exceeded limit after fetching call IDs")
@@ -883,7 +879,6 @@ def process():
         logger.info("Fetching transcripts")
         transcripts = client.fetch_transcript(call_ids)
 
-        # Check elapsed time after fetching transcripts
         elapsed_time = time.time() - start_time
         if elapsed_time > MAX_PROCESSING_TIME:
             logger.error("Processing time exceeded limit after fetching transcripts")
@@ -902,9 +897,8 @@ def process():
                 call_transcript = transcripts.get(call_id, [])
                 normalized = normalize_call_data(call, call_transcript)
                 full_data.append(normalized)
-                if len(full_data) % 5 == 0:  # Log more frequently
+                if len(full_data) % 5 == 0:
                     logger.info(f"Processed {len(full_data)} calls")
-                # Check elapsed time during processing
                 elapsed_time = time.time() - start_time
                 if elapsed_time > MAX_PROCESSING_TIME:
                     logger.error("Processing time exceeded limit during call details")
@@ -921,7 +915,6 @@ def process():
         call_summary_df = prepare_call_summary_df(full_data, products)
         json_data = prepare_json_output(full_data, products)
 
-        # Check elapsed time after preparing dataframes
         elapsed_time = time.time() - start_time
         if elapsed_time > MAX_PROCESSING_TIME:
             logger.error("Processing time exceeded limit after preparing dataframes")
@@ -1028,7 +1021,6 @@ def process():
         logger.info(f"Computed stats: {stats}")
         logger.info(f"Utterance breakdown: {utterance_breakdown}")
 
-        # Check elapsed time before final file operations
         elapsed_time = time.time() - start_time
         if elapsed_time > MAX_PROCESSING_TIME:
             logger.error("Processing time exceeded limit before final file operations")
