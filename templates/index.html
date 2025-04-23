@@ -70,16 +70,47 @@
                 <table class="min-w-full divide-y divide-gray-200">
                     <thead class="bg-gray-50">
                         <tr>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Count</th>
                             <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Percentage</th>
                         </tr>
                     </thead>
                     <tbody class="bg-white divide-y divide-gray-200">
+                        {% if stats.totalCallsRetrieved > 0 %}
                         <tr>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Total Calls Retrieved</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ "{:,}".format(stats.totalCallsRetrieved) }}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Retrieved</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ "{:,}".format(stats.totalCallsRetrieved) }}</td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">100%</td>
                         </tr>
+                        {% endif %}
+                        {% if stats.droppedCalls > 0 %}
+                        <tr>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Excluded (Invalid)</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ "{:,}".format(stats.droppedCalls) }}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ stats.percentDropped | round | int }}%</td>
+                        </tr>
+                        {% endif %}
+                        {% if stats.callsWithNoProducts > 0 %}
+                        <tr>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Excluded (No Product Tag)</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ "{:,}".format(stats.callsWithNoProducts) }}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ stats.percentNoProducts | round | int }}%</td>
+                        </tr>
+                        {% endif %}
+                        {% if stats.callsNotMatchingSelection > 0 %}
+                        <tr>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Excluded (Product Selection)</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ "{:,}".format(stats.callsNotMatchingSelection) }}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ stats.percentNotMatching | round | int }}%</td>
+                        </tr>
+                        {% endif %}
+                        {% if stats.callsIncluded > 0 %}
+                        <tr class="font-bold">
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Included</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ "{:,}".format(stats.callsIncluded) }}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ stats.percentIncluded | round | int }}%</td>
+                        </tr>
+                        {% endif %}
                     </tbody>
                 </table>
             </div>
@@ -126,31 +157,6 @@
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ stats.excluded_topic_percentages[topic] | round | int }}%</td>
                         </tr>
                         {% endif %}
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
-        <!-- Utterances by Account Type Section -->
-        <div class="bg-white p-6 rounded-lg shadow-md mb-6">
-            <h2 class="text-xl font-semibold text-gray-800 mb-4">Utterances by Account Type</h2>
-            <div class="overflow-x-auto">
-                <table class="min-w-full divide-y divide-gray-200">
-                    <thead class="bg-gray-50">
-                        <tr>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
-                            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Count</th>
-                            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Percent</th>
-                        </tr>
-                    </thead>
-                    <tbody class="bg-white divide-y divide-gray-200">
-                        {% for item in utterance_breakdown.org_type %}
-                        <tr class="{{ loop.cycle('bg-white', 'bg-gray-50') }}">
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ item.value | capitalize }}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ "{:,}".format(item.count) }}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ item.percentage | round | int }}%</td>
-                        </tr>
                         {% endfor %}
                     </tbody>
                 </table>

@@ -625,7 +625,6 @@ def prepare_utterances_df(calls, selected_products):
                 "call_date": call["call_date"],
                 "account_name": call["account_name"],
                 "account_industry": call["account_industry"],
-                "org_type": "" if call["org_type"] == "other" else call["org_type"],
                 "speaker_name": speaker_name,
                 "speaker_job_title": speaker_job_title,
                 "speaker_affiliation": speaker_affiliation,
@@ -636,7 +635,7 @@ def prepare_utterances_df(calls, selected_products):
     
     if data:
         columns = [
-            "call_id", "call_date", "account_name", "account_industry", "org_type",
+            "call_id", "call_date", "account_name", "account_industry",
             "speaker_name", "speaker_job_title", "speaker_affiliation",
             "product", "tracker", "utterance_text"
         ]
@@ -816,16 +815,30 @@ def process():
 
     date_format = '%Y-%m-%d'
     try:
-        start_dt = datetime.strptime(start_date, date_format).replace(tzinfo=SF_TZ)
-        end_dt = datetime.strptime(end_date, date_format).replace(tzinfo=SF_TZ)
-        if start_dt > end_dt:
-            logger.warning("Validation failed: Start date after end date")
-            form_state["message"] = "Start date cannot be after end date."
-            return render_template('index.html', form_state=form_state, **form_state)
-        today = datetime.now(SF_TZ)
-        if start_dt > today or end_dt > today:
+        # Parse dates as naive datetime objects
+        start_dt = datetime.strptime(start_date, date_format)
+        end_dt = datetime.strptime(end_date, date_format)
+        # Localize to SF_TZ to make them timezone-aware
+        start_dt = SF_TZ.localize(start_dt)
+        end_dt = SF_TZ.localize(end_dt)
+        
+        # Get current date in SF_TZ for comparison (date only)
+        today = datetime.now(SF_TZ).date()
+        start_date_only = start_dt.date()
+        end_date_only = end_dt.date()
+        
+        # Log the dates for debugging
+        logger.info(f"Comparing dates - start_date: {start_date_only}, end_date: {end_date_only}, today: {today}")
+        
+        # Compare dates (ignoring time)
+        if start_date_only > today or end_date_only > today:
             logger.warning("Validation failed: Date range includes future dates")
             form_state["message"] = "Date range cannot include future dates."
+            return render_template('index.html', form_state=form_state, **form_state)
+        
+        if start_date_only > end_date_only:
+            logger.warning("Validation failed: Start date after end date")
+            form_state["message"] = "Start date cannot be after end date."
             return render_template('index.html', form_state=form_state, **form_state)
     except ValueError as e:
         logger.warning(f"Validation failed: Invalid date format - {str(e)}")
@@ -841,14 +854,15 @@ def process():
     try:
         client = GongAPIClient(access_key, secret_key)
         utc = pytz.UTC
-        start_dt = utc.localize(datetime.strptime(start_date, date_format))
-        end_dt = utc.localize(datetime.strptime(end_date, date_format).replace(hour=23, minute=59, second=59))
+        start_dt = utc.localize(start_dt)
+        end_dt = utc.localize(end_dt.replace(hour=23, minute=59, second=59))
         start_date_utc = start_dt.isoformat().replace('+00:00', 'Z')
         end_date_utc = end_dt.isoformat().replace('+00:00', 'Z')
         
         logger.info(f"Fetching calls from {start_date_utc} to {end_date_utc}")
         call_ids = client.fetch_call_list(start_date_utc, end_date_utc)
         
+        logger.info(f"Retrieved {len(call_ids)} call IDs")
         if not call_ids:
             logger.info("No calls found for the selected date range")
             form_state["message"] = "No calls found for the selected date range."
@@ -897,21 +911,19 @@ def process():
         calls_not_matching = len(call_summary_df[call_summary_df["filtered_out"] == "no matching product"])
         calls_included = len(call_summary_df[call_summary_df["filtered_out"] == "included"])
 
+        logger.info(f"Call summary - total_calls: {total_calls}, calls_with_no_products: {calls_with_no_products}, calls_not_matching: {calls_not_matching}, calls_included: {calls_included}")
+
         total_utterances = utterance_stats["total_utterances"]
         utterance_breakdown = {
-            "org_type": [],
             "account_industry": [],
             "product": [],
             "tracker": []
         }
         if total_utterances > 0:
-            org_type_counts = {}
             industry_counts = {}
             product_counts = {}
             tracker_counts = {}
             for _, row in utterances_df.iterrows():
-                org_type = row['org_type'] if row['org_type'] else "Other"
-                org_type_counts[org_type] = org_type_counts.get(org_type, 0) + 1
                 industry = row['account_industry'] if row['account_industry'] else "Unknown"
                 industry_counts[industry] = industry_counts.get(industry, 0) + 1
                 if row['product']:
@@ -921,22 +933,6 @@ def process():
                     for tracker in row['tracker'].split("|"):
                         tracker_name = tracker.split(":")[0].strip()
                         tracker_counts[tracker_name] = tracker_counts.get(tracker_name, 0) + 1
-            
-            org_type_total = sum(org_type_counts.values())
-            org_type_percentages = {}
-            for org_type, count in org_type_counts.items():
-                percentage = round(count / org_type_total * 100)
-                org_type_percentages[org_type] = percentage
-            total_percentage = sum(org_type_percentages.values())
-            if total_percentage != 100:
-                max_org_type = max(org_type_counts, key=org_type_counts.get)
-                org_type_percentages[max_org_type] += 100 - total_percentage
-            for org_type, count in org_type_counts.items():
-                utterance_breakdown["org_type"].append({
-                    "value": org_type,
-                    "count": count,
-                    "percentage": org_type_percentages[org_type]
-                })
             
             for industry, count in industry_counts.items():
                 percentage = round(count / total_utterances * 100)
@@ -970,7 +966,6 @@ def process():
                     "percentage": percentage
                 })
             
-            utterance_breakdown["org_type"].sort(key=lambda x: x["count"], reverse=True)
             utterance_breakdown["account_industry"].sort(key=lambda x: x["count"], reverse=True)
             utterance_breakdown["product"].sort(key=lambda x: x["count"], reverse=True)
             utterance_breakdown["tracker"].sort(key=lambda x: x["count"], reverse=True)
