@@ -55,7 +55,7 @@ PRODUCT_MAPPINGS = {
         r'coworker(s)?',
         r'densit(y|ies)',
         r'dwell[\s-]?time(s)?',
-        r'group[\s-]?size(s)?',
+        "group[\s-]?size(s)?",
         r'hot[\s-]?desk(s)?',
         r'occupancy[\s-]?analytics',
         r'real[\s-]?time[\s-]?api(s)?',
@@ -75,6 +75,8 @@ INTERNAL_DOMAINS = {
     "4mod.fr", "teamblume.com", "greenkoncepts.com", "dbl.vc"
 }
 EXCLUDED_DOMAINS = {"gmail.com", "outlook.com"}
+EXCLUDED_ACCOUNT_NAMES = {"4MOD Technology", "Green Koncepts"}
+EXCLUDED_TRACKERS = {"product trackers", "covid-19 (by gong)"}
 INTERNAL_SPEAKERS = {
     "Andy Pires", "Anthony Salvatore", "Ben Boyer", "Ben Siegfried", "Benjamin Boyer",
     "Benjamin Green", "Bob Ladue", "Bob Li", "Brenda Quan", "Chad Miller",
@@ -109,8 +111,32 @@ CALL_ID_TO_ACCOUNT_NAME = {
     "453107256614930203": "Hudson Pacific Properties",
     "4978183599069254431": "Cushman & Wakefield",
     "6020208759295664749": "BGO",
-    "7077682709419191760": "Brandywine"
+    "7077682709419191760": "Brandywine REIT",  # Normalized
+    "5800318421597720457": "Tri Properties",
+    "1012640371113456338": "teamblume.com",
+    "8016049473232396330": "SANAS",
+    "3685926123376587680": "Liberty Universal Management",
+    "3693959199474407205": "Robinson, Mills, & Williams",
+    "7029155942116413511": "Echelon Energy",
+    "242882209984690388": "Hudson Pacific Properties",
+    "6165233458620391702": "featsolutions.co",
+    "6311626885008998437": "Windemere Park",
+    "3161981180942379924": "Trebeller",
+    "5539318371463264430": "Heintges",
+    "2583785926492910728": "Wasatch Pediatrics",
+    "8706978918402417625": "R-Zero",
+    "4773313504786316524": "featsolutions.co",
+    "7381136096718703005": "GSA",
+    "5323386923177414850": "featsolutions.co",
+    "1043468188026972306": "Martyn",
+    "3024779093682219637": "Acuity",
+    "3086859059452771835": "Syserco",
+    "731350228371917423": "Syserco",
+    "6730174387046870110": "Syserco"
 }
+
+# Account names that should always have org_type = "owner"
+OWNER_ACCOUNT_NAMES = {"Brandywine REIT", "Crescent Real Estate", "Hudson Pacific Properties"}
 
 # Precompile regex patterns for Occupancy Analytics with case-insensitive flag
 for product in PRODUCT_MAPPINGS:
@@ -403,9 +429,24 @@ def normalize_call_data(call, transcript):
         # Override account_name and org_type for specific call IDs
         if call_id_clean in CALL_ID_TO_ACCOUNT_NAME:
             account_name = CALL_ID_TO_ACCOUNT_NAME[call_id_clean]
-            org_type = "owner"
-            logger.info(f"Overrode account_name to {account_name} and org_type to owner for call {call_id}")
+            org_type = "owner" if call_id_clean in {"5800318421597720457"} else "other"
+            logger.info(f"Overrode account_name to {account_name} and org_type to {org_type} for call {call_id}")
         else:
+            # Normalize account names
+            account_name_mappings = {
+                "Brandywine": "Brandywine REIT",
+                "Crescent Heights": "Crescent Real Estate",
+                "Mayo Foundation for Medical Education and Research": "Mayo Clinic",
+                "Netflix - New York": "Netflix",
+                "Qualcomm Demo": "Qualcomm",
+                "Stanford Health Care - All Sites": "Stanford Health Care"
+            }
+            for old_name, new_name in account_name_mappings.items():
+                if account_name == old_name:
+                    account_name = new_name
+                    logger.info(f"Normalized account_name from {old_name} to {new_name} for call {call_id}")
+                    break
+
             # Fallback logic for account_name
             normalized_domain = normalize_domain(account_website)
             if not account_name and account_website:
@@ -423,12 +464,15 @@ def normalize_call_data(call, transcript):
                 if not account_name or account_name in INTERNAL_DOMAINS or account_name in EXCLUDED_DOMAINS:
                     account_name = ""
 
-            # Determine org_type based on domain
+            # Determine org_type based on domain or account_name
             org_type = "other"
             if normalized_domain in TARGET_DOMAINS:
                 org_type = "owner"
             elif normalized_domain in TENANT_DOMAINS:
                 org_type = "tenant"
+            if account_name in OWNER_ACCOUNT_NAMES:
+                org_type = "owner"
+                logger.info(f"Set org_type to owner for account_name {account_name} in call {call_id}")
 
         trackers = content.get("trackers", [])
         tracker_counts = {get_field(t, "name").lower(): get_field(t, "count", 0) for t in trackers if get_field(t, "name")}
@@ -531,6 +575,12 @@ def prepare_utterances_df(calls, selected_products):
             logger.debug(f"Call {call_id}: Products {products} don't match selection {selected_products}, skipping")
             continue
         logger.debug(f"Call {call_id}: Products assigned: {products}, Selected products: {selected_products}")
+
+        # Skip calls with excluded account names
+        account_name = call["account_name"]
+        if account_name in EXCLUDED_ACCOUNT_NAMES or account_name in INTERNAL_DOMAINS:
+            logger.info(f"Excluded call {call_id} due to account_name {account_name}")
+            continue
         
         utterances = sorted(call["utterances"] or [], key=lambda x: get_field(x, "start", 0))
         if not utterances:
@@ -634,7 +684,18 @@ def prepare_utterances_df(calls, selected_products):
             utterance_key = f"{call_id}_{utterance_start}"
             triggered_trackers = call_tracker_map.get(call_id, {}).get(utterance_key, {"trackers": []})["trackers"]
             
-            tracker_names = [t["tracker_name"] for t in triggered_trackers if t["tracker_name"]]
+            tracker_names = []
+            for t in triggered_trackers:
+                tracker_name = t["tracker_name"].lower()
+                # Skip excluded trackers
+                if tracker_name in EXCLUDED_TRACKERS:
+                    continue
+                # Rename specific trackers
+                if tracker_name == "negative impact (by gong)":
+                    tracker_name = "objection"
+                if tracker_name:
+                    tracker_names.append(tracker_name)
+            
             if topic and topic not in excluded_topics_set:
                 tracker_names.append(topic)
             
@@ -1043,7 +1104,7 @@ def process():
                 percentage = round(count / total_utterances * 100)
                 utterance_breakdown["tracker"].append({
                     "value": tracker,
-                    "count": count,
+                    "count":ifies count,
                     "percentage": percentage
                 })
             
