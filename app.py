@@ -44,7 +44,7 @@ OUTPUT_DIR = "/tmp/gong_output"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 logger.info(f"Output directory created: {OUTPUT_DIR}")
 PATHS_FILE = os.path.join(OUTPUT_DIR, "file_paths.json")
-BATCH_SIZE = 50
+BATCH_SIZE = 25  # Reduced from 50 to prevent timeouts
 PRODUCT_MAPPINGS = {
     "IAQ Monitoring": ["Air Quality"],
     "ODCV": ["ODCV"],
@@ -72,6 +72,8 @@ PRODUCT_MAPPINGS = {
 ALL_PRODUCT_TAGS = list(PRODUCT_MAPPINGS.keys())
 INTERNAL_DOMAINS = {"secureaire.com", "rzero.com", "rzerosystems.com"}
 EXCLUDED_TOPICS = {"call setup", "small talk", "wrap-up"}
+MAX_DATE_RANGE_MONTHS = 12  # Allow up to 12 months
+MAX_PROCESSING_TIME = 270  # 270 seconds (4.5 minutes) to stay under 300-second timeout
 
 # Precompile regex patterns for Occupancy Analytics with case-insensitive flag
 for product in PRODUCT_MAPPINGS:
@@ -333,8 +335,7 @@ def extract_field_values(context, field_name, object_type=None):
 def apply_occupancy_analytics_tags(call):
     fields = [
         get_field(call.get("metaData", {}), "title"),
-        get_field(call.get("content", {}), "brief"),
-        " ".join(str(get_field(kp, "description")) for kp in call.get("content", {}).get("keyPoints", []) if isinstance(kp, dict))
+        get_field(call.get("content", {}), "brief")
     ]
     text = " ".join(f for f in fields if f).lower()
     matches = [pattern.pattern for pattern in PRODUCT_MAPPINGS["Occupancy Analytics"] if pattern.search(text)]
@@ -402,15 +403,6 @@ def normalize_call_data(call, transcript):
                 })
 
         call_summary = get_field(content, "brief", "")
-        key_points = []
-        key_points_raw = content.get("keyPoints", [])
-        for kp in key_points_raw:
-            if not isinstance(kp, dict):
-                continue
-            description = get_field(kp, "description", "")
-            if description:
-                key_points.append(description.strip())
-        key_points_str = "|".join(key_points) if key_points else ""
 
         utterances = transcript if transcript is not None else []
 
@@ -428,8 +420,7 @@ def normalize_call_data(call, transcript):
             "partial_data": False,
             "org_type": org_type,
             "tracker_occurrences": tracker_occurrences,
-            "call_summary": call_summary,
-            "key_points": key_points_str
+            "call_summary": call_summary
         }
     except Exception as e:
         call_id = get_field(call.get("metaData", {}), "id", "")
@@ -448,8 +439,7 @@ def normalize_call_data(call, transcript):
             "partial_data": True,
             "org_type": "",
             "tracker_occurrences": [],
-            "call_summary": "",
-            "key_points": ""
+            "call_summary": ""
         }
 
 def prepare_utterances_df(calls, selected_products):
@@ -834,6 +824,13 @@ def process():
         # Log the dates for debugging
         logger.info(f"Comparing dates - start_date: {start_date_only}, end_date: {end_date_only}, today: {today}")
         
+        # Validate date range (max 12 months)
+        delta = (end_dt - start_dt).days / 30.42  # Approximate months
+        if delta > MAX_DATE_RANGE_MONTHS:
+            logger.warning(f"Validation failed: Date range exceeds {MAX_DATE_RANGE_MONTHS} months")
+            form_state["message"] = f"Date range cannot exceed {MAX_DATE_RANGE_MONTHS} months. Please select a shorter range."
+            return render_template('index.html', form_state=form_state, **form_state)
+        
         # Compare dates (ignoring time)
         if start_date_only > today or end_date_only > today:
             logger.warning("Validation failed: Date range includes future dates")
@@ -856,6 +853,7 @@ def process():
 
     logger.info("All validations passed, proceeding with API call")
     try:
+        start_time = time.time()
         client = GongAPIClient(access_key, secret_key)
         # Convert dates to UTC (they are already timezone-aware from SF_TZ.localize)
         start_dt = start_dt.astimezone(pytz.UTC)
@@ -872,11 +870,25 @@ def process():
             form_state["message"] = "No calls found for the selected date range."
             return render_template('index.html', form_state=form_state, **form_state)
 
+        # Check elapsed time after fetching call IDs
+        elapsed_time = time.time() - start_time
+        if elapsed_time > MAX_PROCESSING_TIME:
+            logger.error("Processing time exceeded limit after fetching call IDs")
+            form_state["message"] = "Processing took too long. Please try a smaller date range."
+            return render_template('index.html', form_state=form_state, **form_state)
+
         full_data = []
         dropped_calls = 0
 
         logger.info("Fetching transcripts")
         transcripts = client.fetch_transcript(call_ids)
+
+        # Check elapsed time after fetching transcripts
+        elapsed_time = time.time() - start_time
+        if elapsed_time > MAX_PROCESSING_TIME:
+            logger.error("Processing time exceeded limit after fetching transcripts")
+            form_state["message"] = "Processing took too long. Please try a smaller date range."
+            return render_template('index.html', form_state=form_state, **form_state)
 
         logger.info("Fetching and normalizing call details")
         for i in range(0, len(call_ids), BATCH_SIZE):
@@ -890,8 +902,14 @@ def process():
                 call_transcript = transcripts.get(call_id, [])
                 normalized = normalize_call_data(call, call_transcript)
                 full_data.append(normalized)
-                if len(full_data) % 10 == 0:
+                if len(full_data) % 5 == 0:  # Log more frequently
                     logger.info(f"Processed {len(full_data)} calls")
+                # Check elapsed time during processing
+                elapsed_time = time.time() - start_time
+                if elapsed_time > MAX_PROCESSING_TIME:
+                    logger.error("Processing time exceeded limit during call details")
+                    form_state["message"] = "Processing took too long. Please try a smaller date range."
+                    return render_template('index.html', form_state=form_state, **form_state)
         logger.info(f"Total calls normalized: {len(full_data)}, dropped: {dropped_calls}")
 
         if not full_data:
@@ -902,6 +920,13 @@ def process():
         utterances_df, utterance_stats = prepare_utterances_df(full_data, products)
         call_summary_df = prepare_call_summary_df(full_data, products)
         json_data = prepare_json_output(full_data, products)
+
+        # Check elapsed time after preparing dataframes
+        elapsed_time = time.time() - start_time
+        if elapsed_time > MAX_PROCESSING_TIME:
+            logger.error("Processing time exceeded limit after preparing dataframes")
+            form_state["message"] = "Processing took too long. Please try a smaller date range."
+            return render_template('index.html', form_state=form_state, **form_state)
 
         if utterances_df.empty and call_summary_df.empty:
             logger.info("No calls matched the selected products")
@@ -1002,6 +1027,13 @@ def process():
         }
         logger.info(f"Computed stats: {stats}")
         logger.info(f"Utterance breakdown: {utterance_breakdown}")
+
+        # Check elapsed time before final file operations
+        elapsed_time = time.time() - start_time
+        if elapsed_time > MAX_PROCESSING_TIME:
+            logger.error("Processing time exceeded limit before final file operations")
+            form_state["message"] = "Processing took too long. Please try a smaller date range."
+            return render_template('index.html', form_state=form_state, **form_state)
 
         unique_id = datetime.now().strftime("%Y%m%d%H%M%S")
         logger.info(f"Using output directory: {OUTPUT_DIR}")
