@@ -347,9 +347,9 @@ def normalize_call_data(call, transcript):
         parties = call.get("parties", [])
         context = call.get("context", [])
 
-        call_id = get_field(metaData, "id", "")
-        call_title = get_field(metaData, "title", "")
-        call_date = convert_to_sf_time(get_field(metaData, "started"))
+        call_id = get_field(meta_data, "id", "")
+        call_title = get_field(meta_data, "title", "")
+        call_date = convert_to_sf_time(get_field(meta_data, "started"))
         account_ids = extract_field_values(context, "objectId", "Account")
         account_name = extract_field_values(context, "Name", "Account")[0] if extract_field_values(context, "Name", "Account") else ""
         account_id = account_ids[0] if account_ids else ""
@@ -857,9 +857,9 @@ def process():
     logger.info("All validations passed, proceeding with API call")
     try:
         client = GongAPIClient(access_key, secret_key)
-        utc = pytz.UTC
-        start_dt = utc.localize(start_dt)
-        end_dt = utc.localize(end_dt.replace(hour=23, minute=59, second=59))
+        # Convert dates to UTC (they are already timezone-aware from SF_TZ.localize)
+        start_dt = start_dt.astimezone(pytz.UTC)
+        end_dt = end_dt.replace(hour=23, minute=59, second=59).astimezone(pytz.UTC)
         start_date_utc = start_dt.isoformat().replace('+00:00', 'Z')
         end_date_utc = end_dt.isoformat().replace('+00:00', 'Z')
         
