@@ -4,64 +4,357 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Gong Data Processor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        body { font-family: Arial, sans-serif; margin: 20px; }
-        .container { max-width: 600px; margin: auto; }
-        .form-group { margin-bottom: 15px; }
-        label { display: block; margin-bottom: 5px; }
-        input, button { width: 100%; padding: 8px; margin-bottom: 10px; box-sizing: border-box; }
-        button { background-color: #007bff; color: white; border: none; cursor: pointer; }
-        button:hover { background-color: #0056b3; }
-        .download-links { margin-top: 20px; }
-        .download-links a { display: block; margin: 5px 0; color: #007bff; text-decoration: none; }
-        .download-links a:hover { text-decoration: underline; }
-        .message { color: #333; margin-top: 10px; }
+        .icon-small { width: 16px; height: 16px; margin-right: 8px; vertical-align: middle; }
+        .header-icon { width: 24px; height: 24px; display: inline-block; margin-right: 8px; vertical-align: middle; }
         .product-checkboxes { max-height: 150px; overflow-y: auto; padding: 5px; border: 1px solid #ccc; }
         .product-checkboxes label { display: block; width: auto; padding: 2px 0; }
         .product-checkboxes input { width: auto; margin-right: 5px; }
     </style>
 </head>
-<body>
-    <div class="container">
-        <h1>📞 Gong Data Processor</h1>
-        <form action="/process" method="post">
-            <div class="form-group">
-                <label for="access_key">Gong Access Key</label>
-                <input type="password" id="access_key" name="access_key" value="{{ access_key }}" required>
-            </div>
-            <div class="form-group">
-                <label for="secret_key">Gong Secret Key</label>
-                <input type="password" id="secret_key" name="secret_key" value="{{ secret_key }}" required>
-            </div>
-            <div class="form-group">
-                <label for="start_date">From Date</label>
-                <input type="date" id="start_date" name="start_date" value="{{ start_date }}" required>
-                <label for="end_date">To Date</label>
-                <input type="date" id="end_date" name="end_date" value="{{ end_date }}" required>
-            </div>
-            <div class="form-group">
-                <label>Products</label>
-                <div class="product-checkboxes">
-                    <label><input type="checkbox" name="products" value="IAQ Monitoring" checked> IAQ Monitoring</label>
-                    <label><input type="checkbox" name="products" value="ODCV" checked> ODCV</label>
-                    <label><input type="checkbox" name="products" value="Secure Air" checked> Secure Air</label>
-                    <label><input type="checkbox" name="products" value="Occupancy Analytics" checked> Occupancy Analytics</label>
+<body class="bg-gray-100 font-sans">
+    <div class="container max-w-4xl mx-auto p-6">
+        <h1 class="text-3xl font-bold text-gray-800 mb-6">
+            <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' class='header-icon' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72 12.84 12.84 0 00.7 2.81 2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 0l1.27-1.27a2 2 0 012.11-.45 12.84 12.84 0 002.81.7A2 2 0 0122 16.92z'%3E%3C/path%3E%3C/svg%3E" alt="">
+            Gong Data Processor
+        </h1>
+        
+        <!-- Input Form -->
+        <form action="/process" method="post" class="bg-white p-6 rounded-lg shadow-md mb-6">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div>
+                    <label for="access_key" class="block text-sm font-medium text-gray-700">Gong Access Key</label>
+                    <input type="password" id="access_key" name="access_key" value="{{ access_key }}" required
+                           class="mt-1 block w-full p-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+                <div>
+                    <label for="secret_key" class="block text-sm font-medium text-gray-700">Gong Secret Key</label>
+                    <input type="password" id="secret_key" name="secret_key" value="{{ secret_key }}" required
+                           class="mt-1 block w-full p-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500">
                 </div>
             </div>
-            <button type="submit">Submit</button>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div>
+                    <label for="start_date" class="block text-sm font-medium text-gray-700">From Date</label>
+                    <input type="date" id="start_date" name="start_date" value="{{ start_date }}" required
+                           class="mt-1 block w-full p-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+                <div>
+                    <label for="end_date" class="block text-sm font-medium text-gray-700">To Date</label>
+                    <input type="date" id="end_date" name="end_date" value="{{ end_date }}" required
+                           class="mt-1 block w-full p-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+            </div>
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-700">Products</label>
+                <div class="product-checkboxes mt-1">
+                    {% for product in products %}
+                    <label class="flex items-center">
+                        <input type="checkbox" name="products" value="{{ product }}" {% if product in form_state.products %}checked{% endif %}
+                               class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded">
+                        <span class="ml-2 text-sm text-gray-700">{{ product }}</span>
+                    </label>
+                    {% endfor %}
+                </div>
+            </div>
+            <button type="submit" class="w-full bg-indigo-600 text-white p-2 rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                Submit
+            </button>
         </form>
+
+        <!-- Processing Results -->
         {% if message %}
-        <p class="message">{{ message }}</p>
-        {% endif %}
-        {% if show_download %}
-        <div class="download-links">
-            <h3>Download Files</h3>
-            <a href="/download/utterances">Download Filtered Utterances CSV</a>
-            <a href="/download/call_summary">Download Call Summary CSV</a>
-            <a href="/download/json">Download JSON Data</a>
-            <a href="/download/logs">Download Logs</a>
+        <div class="bg-white p-6 rounded-lg shadow-md mb-6">
+            <h2 class="text-xl font-semibold text-gray-800 mb-4">Processing Summary</h2>
+            <p class="{% if 'Error' in message %}text-red-600{% else %}text-gray-600{% endif %}">{{ message }}</p>
         </div>
         {% endif %}
-    </div>
-</body>
-</html>
+
+        {% if show_download %}
+        <!-- Call Processing Table -->
+        <div class="bg-white p-6 rounded-lg shadow-md mb-6">
+            <h2 class="text-xl font-semibold text-gray-800 mb-4">Call Processing Statistics</h2>
+            <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Stage</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Count</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">%</th>
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-gray-200">
+                        <tr>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Total Calls Retrieved</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ stats.totalCallsRetrieved }}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">100%</td>
+                        </tr>
+                        <tr>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Invalid Calls</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ stats.droppedCalls }}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ stats.percentDropped }}%</td>
+                        </tr>
+                        <tr>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Valid Calls</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ stats.validCalls }}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ stats.percentValid }}%</td>
+                        </tr>
+                        <tr>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">No Product Tags</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ stats.callsWithNoProducts }}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ stats.percentNoProducts }}%</td>
+                        </tr>
+                        <tr>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Not Matching Selected Products</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ stats.callsNotMatchingSelection }}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ stats.percentNotMatching }}%</td>
+                        </tr>
+                        <tr>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Calls Included</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ stats.callsIncluded }}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ stats.percentIncluded }}%</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            {% if stats.invalidDateCalls > 0 %}
+            <p class="text-sm text-gray-500 mt-2">Note: {{ stats.invalidDateCalls }} call(s) have invalid dates due to API data issues.</p>
+            {% endif %}
+            {% if stats.partialDataCalls > 0 %}
+            <p class="text-sm text-gray-500 mt-2">Note: {{ stats.partialDataCalls }} call(s) have partial data due to normalization issues.</p>
+            {% endif %}
+        </div>
+
+        <!-- Utterance Processing Table -->
+        <div class="bg-white p-6 rounded-lg shadow-md mb-6">
+            <h2 class="text-xl font-semibold text-gray-800 mb-4">Utterance Processing Statistics</h2>
+            <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Stage</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Count</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">%</th>
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-gray-200">
+                        <tr>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Total Utterances</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ stats.total_utterances }}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">100%</td>
+                        </tr>
+                        <tr>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Internal Speakers</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ stats.internal_utterances }}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ stats.percentInternalUtterances }}%</td>
+                        </tr>
+                        <tr>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Too Short</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ stats.short_utterances }}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ stats.percentShortUtterances }}%</td>
+                        </tr>
+                        <tr>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Excluded Topics</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ stats.excluded_topic_utterances }}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ stats.percentExcludedTopics }}%</td>
+                        </tr>
+                        <tr>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Utterances Included</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ stats.included_utterances }}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ stats.percentIncludedUtterances }}%</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <p class="text-sm text-gray-500 mt-2">Note: Speaker job titles may be missing due to unavailable data in the Gong API.</p>
+        </div>
+
+        <!-- Utterance Breakdown -->
+        <div class="bg-white p-6 rounded-lg shadow-md mb-6">
+            <h2 class="text-xl font-semibold text-gray-800 mb-4">Utterance Breakdown</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <!-- Org Type -->
+                <div>
+                    <h3 class="text-lg font-medium text-gray-700 mb-2">By Org Type</h3>
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Org Type</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Count</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">%</th>
+                                </tr>
+                            </thead>
+                            <tbody class="bg-white divide-y divide-gray-200">
+                                {% if utterance_breakdown.org_type %}
+                                {% for item in utterance_breakdown.org_type[:5] %}
+                                <tr class="{% cycle 'bg-white' 'bg-gray-50' %}">
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ item.value }}</td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.count }}</td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.percentage }}%</td>
+                                </tr>
+                                {% endfor %}
+                                {% if utterance_breakdown.org_type|length > 5 %}
+                                <tr>
+                                    <td colspan="3" class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                        <button onclick="document.getElementById('org-type-more').classList.toggle('hidden')" class="text-indigo-600 hover:underline">Show More</button>
+                                    </td>
+                                </tr>
+                                <tr id="org-type-more" class="hidden">
+                                    <td colspan="3">
+                                        <table class="min-w-full divide-y divide-gray-200">
+                                            <tbody class="bg-white divide-y divide-gray-200">
+                                                {% for item in utterance_breakdown.org_type[5:] %}
+                                                <tr class="{% cycle 'bg-white' 'bg-gray-50' %}">
+                                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ item.value }}</td>
+                                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.count }}</td>
+                                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.percentage }}%</td>
+                                                </tr>
+                                                {% endfor %}
+                                            </tbody>
+                                        </table>
+                                    </td>
+                                </tr>
+                                {% else %}
+                                <tr>
+                                    <td colspan="3" class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">No data available</td>
+                                </tr>
+                                {% endif %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <!-- Account Industry -->
+                <div>
+                    <h3 class="text-lg font-medium text-gray-700 mb-2">By Account Industry</h3>
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Industry</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Count</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">%</th>
+                                </tr>
+                            </thead>
+                            <tbody class="bg-white divide-y divide-gray-200">
+                                {% if utterance_breakdown.account_industry %}
+                                {% for item in utterance_breakdown.account_industry[:5] %}
+                                <tr class="{% cycle 'bg-white' 'bg-gray-50' %}">
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ item.value }}</td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.count }}</td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.percentage }}%</td>
+                                </tr>
+                                {% endfor %}
+                                {% if utterance_breakdown.account_industry|length > 5 %}
+                                <tr>
+                                    <td colspan="3" class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                        <button onclick="document.getElementById('industry-more').classList.toggle('hidden')" class="text-indigo-600 hover:underline">Show More</button>
+                                    </td>
+                                </tr>
+                                <tr id="industry-more" class="hidden">
+                                    <td colspan="3">
+                                        <table class="min-w-full divide-y divide-gray-200">
+                                            <tbody class="bg-white divide-y divide-gray-200">
+                                                {% for item in utterance_breakdown.account_industry[5:] %}
+                                                <tr class="{% cycle 'bg-white' 'bg-gray-50' %}">
+                                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ item.value }}</td>
+                                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.count }}</td>
+                                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.percentage }}%</td>
+                                                </tr>
+                                                {% endfor %}
+                                            </tbody>
+                                        </table>
+                                    </td>
+                                </tr>
+                                {% else %}
+                                <tr>
+                                    <td colspan="3" class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">No data available</td>
+                                </tr>
+                                {% endif %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <!-- Product -->
+                <div>
+                    <h3 class="text-lg font-medium text-gray-700 mb-2">By Product</h3>
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Product</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Count</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">%</th>
+                                </tr>
+                            </thead>
+                            <tbody class="bg-white divide-y divide-gray-200">
+                                {% if utterance_breakdown.product %}
+                                {% for item in utterance_breakdown.product[:5] %}
+                                <tr class="{% cycle 'bg-white' 'bg-gray-50' %}">
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ item.value }}</td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.count }}</td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.percentage }}%</td>
+                                </tr>
+                                {% endfor %}
+                                {% if utterance_breakdown.product|length > 5 %}
+                                <tr>
+                                    <td colspan="3" class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                        <button onclick="document.getElementById('product-more').classList.toggle('hidden')" class="text-indigo-600 hover:underline">Show More</button>
+                                    </td>
+                                </tr>
+                                <tr id="product-more" class="hidden">
+                                    <td colspan="3">
+                                        <table class="min-w-full divide-y divide-gray-200">
+                                            <tbody class="bg-white divide-y divide-gray-200">
+                                                {% for item in utterance_breakdown.product[5:] %}
+                                                <tr class="{% cycle 'bg-white' 'bg-gray-50' %}">
+                                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ item.value }}</td>
+                                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.count }}</td>
+                                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.percentage }}%</td>
+                                                </tr>
+                                                {% endfor %}
+                                            </tbody>
+                                        </table>
+                                    </td>
+                                </tr>
+                                {% else %}
+                                <tr>
+                                    <td colspan="3" class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">No data available</td>
+                                </tr>
+                                {% endif %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <!-- Tracker -->
+                <div>
+                    <h3 class="text-lg font-medium text-gray-700 mb-2">By Tracker</h3>
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tracker</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Count</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">%</th>
+                                </tr>
+                            </thead>
+                            <tbody class="bg-white divide-y divide-gray-200">
+                                {% if utterance_breakdown.tracker %}
+                                {% for item in utterance_breakdown.tracker[:5] %}
+                                <tr class="{% cycle 'bg-white' 'bg-gray-50' %}">
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ item.value }}</td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.count }}</td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.percentage }}%</td>
+                                </tr>
+                                {% endfor %}
+                                {% if utterance_breakdown.tracker|length > 5 %}
+                                <tr>
+                                    <td colspan="3" class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                        <button onclick="document.getElementById('tracker-more').classList.toggle('hidden')" class="text-indigo-600 hover:underline">Show More</button>
+                                    </td>
+                                </tr>
+                                <tr id="tracker-more" class="hidden">
+                                    <td colspan="3">
+                                        <table class="min-w-full divide-y divide-gray-200">
+                                            <tbody class="
