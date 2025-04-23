@@ -71,6 +71,7 @@ PRODUCT_MAPPINGS = {
 }
 ALL_PRODUCT_TAGS = list(PRODUCT_MAPPINGS.keys())
 INTERNAL_DOMAINS = {"secureaire.com", "rzero.com", "rzerosystems.com"}
+EXCLUDED_TOPICS = {"call setup", "small talk", "wrap-up"}
 
 # Precompile regex patterns for Occupancy Analytics with case-insensitive flag
 for product in PRODUCT_MAPPINGS:
@@ -363,6 +364,9 @@ def normalize_call_data(call, transcript):
                 if email_domain and not any(email_domain.endswith("." + internal_domain) for internal_domain in INTERNAL_DOMAINS):
                     account_name = email_domain
                     break
+            # If no valid external email domain is found, set account_name to empty
+            if not account_name:
+                account_name = ""
 
         trackers = content.get("trackers", [])
         tracker_counts = {get_field(t, "name").lower(): get_field(t, "count", 0) for t in trackers if get_field(t, "name")}
@@ -456,6 +460,7 @@ def prepare_utterances_df(calls, selected_products):
             "internal_utterances": 0,
             "short_utterances": 0,
             "excluded_topic_utterances": 0,
+            "excluded_topics": {topic: 0 for topic in EXCLUDED_TOPICS},
             "included_utterances": 0
         }
     
@@ -463,10 +468,11 @@ def prepare_utterances_df(calls, selected_products):
     internal_utterances = 0
     short_utterances = 0
     excluded_topic_utterances = 0
+    excluded_topics = {topic: 0 for topic in EXCLUDED_TOPICS}
     data = []
     call_tracker_map = {}
     selected_products_lower = [p.lower() for p in selected_products]
-    excluded_topics = {"call setup", "small talk", "wrap-up"}
+    excluded_topics_set = EXCLUDED_TOPICS
     
     for call in calls:
         call_id = call["call_id"]
@@ -562,8 +568,9 @@ def prepare_utterances_df(calls, selected_products):
                 logger.debug(f"Missing job title for speaker {speaker_name} in call {call_id}")
             
             topic = get_field(utterance, "topic", "").lower()
-            if topic in excluded_topics:
+            if topic in excluded_topics_set:
                 excluded_topic_utterances += 1
+                excluded_topics[topic] += 1
                 continue
             if len(text.split()) < 8:
                 short_utterances += 1
@@ -576,7 +583,7 @@ def prepare_utterances_df(calls, selected_products):
             triggered_trackers = call_tracker_map.get(call_id, {}).get(utterance_key, {"trackers": []})["trackers"]
             
             tracker_names = [t["tracker_name"] for t in triggered_trackers if t["tracker_name"]]
-            if topic and topic not in excluded_topics:
+            if topic and topic not in excluded_topics_set:
                 tracker_names.append(topic)
             
             tracker_counts = {}
@@ -650,6 +657,7 @@ def prepare_utterances_df(calls, selected_products):
         "internal_utterances": internal_utterances,
         "short_utterances": short_utterances,
         "excluded_topic_utterances": excluded_topic_utterances,
+        "excluded_topics": excluded_topics,
         "included_utterances": len(df)
     }
 
@@ -754,9 +762,9 @@ def index():
     try:
         logger.debug(f"Handling request to / with method {request.method}")
         end_date = datetime.now(SF_TZ)
-        start_date = end_date - timedelta(days=7)
+        start_date = end_date - timedelta(days=30)  # Changed to 30 days
         form_state = {
-            "products": [],  # Initialize products as empty list
+            "products": ALL_PRODUCT_TAGS,  # Check all products by default
             "access_key": "",
             "secret_key": "",
             "start_date": start_date.strftime('%Y-%m-%d'),
@@ -909,29 +917,52 @@ def process():
                         tracker_name = tracker.split(":")[0].strip()
                         tracker_counts[tracker_name] = tracker_counts.get(tracker_name, 0) + 1
             
+            # Normalize Org Type percentages to sum to 100%
+            org_type_total = sum(org_type_counts.values())
+            org_type_percentages = {}
             for org_type, count in org_type_counts.items():
-                percentage = round(count / total_utterances * 100, 1)
+                percentage = round(count / org_type_total * 100)
+                org_type_percentages[org_type] = percentage
+            # Adjust percentages to ensure they sum to 100%
+            total_percentage = sum(org_type_percentages.values())
+            if total_percentage != 100:
+                max_org_type = max(org_type_counts, key=org_type_counts.get)
+                org_type_percentages[max_org_type] += 100 - total_percentage
+            for org_type, count in org_type_counts.items():
                 utterance_breakdown["org_type"].append({
                     "value": org_type,
                     "count": count,
-                    "percentage": percentage
+                    "percentage": org_type_percentages[org_type]
                 })
+            
             for industry, count in industry_counts.items():
-                percentage = round(count / total_utterances * 100, 1)
+                percentage = round(count / total_utterances * 100)
                 utterance_breakdown["account_industry"].append({
                     "value": industry,
                     "count": count,
                     "percentage": percentage
                 })
+            
+            # Normalize Product percentages to sum to 100%
+            product_total = sum(product_counts.values())
+            product_percentages = {}
             for product, count in product_counts.items():
-                percentage = round(count / total_utterances * 100, 1)
+                percentage = round(count / product_total * 100)
+                product_percentages[product] = percentage
+            # Adjust percentages to ensure they sum to 100%
+            total_percentage = sum(product_percentages.values())
+            if total_percentage != 100:
+                max_product = max(product_counts, key=product_counts.get)
+                product_percentages[max_product] += 100 - total_percentage
+            for product, count in product_counts.items():
                 utterance_breakdown["product"].append({
                     "value": product,
                     "count": count,
-                    "percentage": percentage
+                    "percentage": product_percentages[product]
                 })
+            
             for tracker, count in tracker_counts.items():
-                percentage = round(count / total_utterances * 100, 1)
+                percentage = round(count / total_utterances * 100)
                 utterance_breakdown["tracker"].append({
                     "value": tracker,
                     "count": count,
@@ -943,6 +974,12 @@ def process():
             utterance_breakdown["product"].sort(key=lambda x: x["count"], reverse=True)
             utterance_breakdown["tracker"].sort(key=lambda x: x["count"], reverse=True)
 
+        # Compute percentages for excluded topics
+        excluded_topic_percentages = {}
+        for topic, count in utterance_stats["excluded_topics"].items():
+            percentage = round(count / total_utterances * 100) if total_utterances > 0 else 0
+            excluded_topic_percentages[topic] = percentage
+
         stats = {
             "totalCallsRetrieved": total_calls,
             "droppedCalls": dropped_calls,
@@ -952,16 +989,17 @@ def process():
             "callsIncluded": calls_included,
             "partialDataCalls": partial_data_calls,
             "invalidDateCalls": invalid_date_calls,
-            "percentDropped": round(dropped_calls / total_calls * 100, 1) if total_calls > 0 else 0,
-            "percentValid": round(len(full_data) / total_calls * 100, 1) if total_calls > 0 else 0,
-            "percentNoProducts": round(calls_with_no_products / total_calls * 100, 1) if total_calls > 0 else 0,
-            "percentNotMatching": round(calls_not_matching / total_calls * 100, 1) if total_calls > 0 else 0,
-            "percentIncluded": round(calls_included / total_calls * 100, 1) if total_calls > 0 else 0,
+            "percentDropped": round(dropped_calls / total_calls * 100) if total_calls > 0 else 0,
+            "percentValid": round(len(full_data) / total_calls * 100) if total_calls > 0 else 0,
+            "percentNoProducts": round(calls_with_no_products / total_calls * 100) if total_calls > 0 else 0,
+            "percentNotMatching": round(calls_not_matching / total_calls * 100) if total_calls > 0 else 0,
+            "percentIncluded": round(calls_included / total_calls * 100) if total_calls > 0 else 0,
             **utterance_stats,
-            "percentInternalUtterances": round(utterance_stats["internal_utterances"] / utterance_stats["total_utterances"] * 100, 1) if utterance_stats["total_utterances"] > 0 else 0,
-            "percentShortUtterances": round(utterance_stats["short_utterances"] / utterance_stats["total_utterances"] * 100, 1) if utterance_stats["total_utterances"] > 0 else 0,
-            "percentExcludedTopics": round(utterance_stats["excluded_topic_utterances"] / utterance_stats["total_utterances"] * 100, 1) if utterance_stats["total_utterances"] > 0 else 0,
-            "percentIncludedUtterances": round(utterance_stats["included_utterances"] / utterance_stats["total_utterances"] * 100, 1) if utterance_stats["total_utterances"] > 0 else 0
+            "excluded_topic_percentages": excluded_topic_percentages,
+            "percentInternalUtterances": round(utterance_stats["internal_utterances"] / utterance_stats["total_utterances"] * 100) if utterance_stats["total_utterances"] > 0 else 0,
+            "percentShortUtterances": round(utterance_stats["short_utterances"] / utterance_stats["total_utterances"] * 100) if utterance_stats["total_utterances"] > 0 else 0,
+            "percentExcludedTopics": round(utterance_stats["excluded_topic_utterances"] / utterance_stats["total_utterances"] * 100) if utterance_stats["total_utterances"] > 0 else 0,
+            "percentIncludedUtterances": round(utterance_stats["included_utterances"] / utterance_stats["total_utterances"] * 100) if utterance_stats["total_utterances"] > 0 else 0
         }
         logger.info(f"Computed stats: {stats}")
         logger.info(f"Utterance breakdown: {utterance_breakdown}")
