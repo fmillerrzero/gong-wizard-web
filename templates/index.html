@@ -20,28 +20,28 @@
         </h1>
         
         <!-- Input Form -->
-        <form action="/process" method="post" class="bg-white p-6 rounded-lg shadow-md mb-6">
+        <form id="gong-form" action="/process" method="post" class="bg-white p-6 rounded-lg shadow-md mb-6">
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                 <div>
                     <label for="access_key" class="block text-sm font-medium text-gray-700">Gong Access Key</label>
-                    <input type="password" id="access_key" name="access_key" value="{{ access_key }}" required
+                    <input type="password" id="access_key" name="access_key" value="{{ access_key }}"
                            class="mt-1 block w-full p-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500">
                 </div>
                 <div>
                     <label for="secret_key" class="block text-sm font-medium text-gray-700">Gong Secret Key</label>
-                    <input type="password" id="secret_key" name="secret_key" value="{{ secret_key }}" required
+                    <input type="password" id="secret_key" name="secret_key" value="{{ secret_key }}"
                            class="mt-1 block w-full p-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500">
                 </div>
             </div>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                 <div>
                     <label for="start_date" class="block text-sm font-medium text-gray-700">From Date</label>
-                    <input type="date" id="start_date" name="start_date" value="{{ start_date }}" required
+                    <input type="date" id="start_date" name="start_date" value="{{ start_date }}"
                            class="mt-1 block w-full p-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500">
                 </div>
                 <div>
                     <label for="end_date" class="block text-sm font-medium text-gray-700">To Date</label>
-                    <input type="date" id="end_date" name="end_date" value="{{ end_date }}" required
+                    <input type="date" id="end_date" name="end_date" value="{{ end_date }}"
                            class="mt-1 block w-full p-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500">
                 </div>
             </div>
@@ -205,5 +205,32 @@
         </div>
         {% endif %}
     </div>
+    <script>
+        document.getElementById('gong-form').addEventListener('submit', function(event) {
+            event.preventDefault();
+            console.log('Form submission triggered');
+            const formData = new FormData(this);
+            fetch('/process', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => {
+                console.log('Response received:', response);
+                if (response.ok) {
+                    return response.text();
+                }
+                throw new Error('Network response was not ok');
+            })
+            .then(html => {
+                console.log('HTML received, updating page');
+                document.open();
+                document.write(html);
+                document.close();
+            })
+            .catch(error => {
+                console.error('Submission error:', error);
+            });
+        });
+    </script>
 </body>
 </html>
