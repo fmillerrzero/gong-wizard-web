@@ -835,39 +835,101 @@ def prepare_json_output(calls, selected_products):
         return {"filtered_calls": [], "non_filtered_calls": []}
     
     filtered_calls = []
-    non_filtered_calls = []
     selected_products_lower = [p.lower() for p in selected_products]
+    excluded_topics_set = EXCLUDED_TOPICS
+    
     for call in calls:
+        call_id = call["call_id"]
         products = call.get("products", [])
+        if not products:
+            logger.debug(f"Call {call_id}: No products assigned, skipping for JSON")
+            continue
         products_lower = [p.lower() for p in products if isinstance(p, str)]
+        if not any(p in selected_products_lower for p in products_lower):
+            logger.debug(f"Call {call_id}: Products {products} don't match selection {selected_products}, skipping for JSON")
+            continue
+        
+        # Skip calls with excluded account names
+        account_name = call["account_name"]
+        if account_name in EXCLUDED_ACCOUNT_NAMES or account_name in INTERNAL_DOMAINS:
+            logger.info(f"Excluded call {call_id} from JSON due to account_name {account_name}")
+            continue
+        
+        utterances = sorted(call["utterances"] or [], key=lambda x: get_field(x, "start", 0))
+        if not utterances:
+            logger.debug(f"Call {call_id}: No utterances found, skipping for JSON")
+            continue
+        
         speaker_info = {get_field(p, "speakerId", ""): p for p in call["parties"]}
+        filtered_utterances = []
+        
+        for u in utterances:
+            # Apply the same filters as in prepare_utterances_df
+            if "sentences" in u:
+                text = " ".join(s.get("text", "") if isinstance(s, dict) else "" for s in u.get("sentences", []))
+            elif "text" in u:
+                text = u.get("text", "")
+            else:
+                logger.warning(f"Call {call_id}: Unexpected utterance structure: {list(u.keys())}")
+                text = str(u)
+            
+            speaker_id = get_field(u, "speakerId", "")
+            speaker = speaker_info.get(speaker_id, {})
+            speaker_name = get_field(speaker, "name", "")
+            speaker_email_address = get_field(speaker, "emailAddress", "")
+            if not speaker_name and speaker_email_address:
+                speaker_name = get_email_local_part(speaker_email_address)
+            
+            email_domain = get_email_domain(speaker_email_address)
+            original_affiliation = get_field(speaker, "affiliation", "unknown").lower()
+            if speaker_name in INTERNAL_SPEAKERS or (
+                email_domain and (
+                    any(email_domain.endswith("." + internal_domain) for internal_domain in INTERNAL_DOMAINS) or 
+                    email_domain in INTERNAL_DOMAINS
+                )
+            ):
+                continue
+            
+            elif original_affiliation.lower() == "unknown" and email_domain and not any(email_domain.endswith("." + internal_domain) for internal_domain in INTERNAL_DOMAINS):
+                speaker_affiliation = "external"
+            else:
+                speaker_affiliation = original_affiliation
+            
+            topic = get_field(u, "topic", "").lower()
+            if topic in excluded_topics_set:
+                continue
+            if len(text.split()) < 8:
+                continue
+            
+            # If the utterance passes all filters, include it
+            filtered_utterances.append({
+                "timestamp": get_field(u, "start", "N/A"),
+                "speaker_name": speaker_name,
+                "speaker_affiliation": speaker_affiliation,
+                "utterance_text": text,
+                "sales_topic": topic
+            })
+        
+        # Only include the call in the JSON if it has at least one filtered utterance
+        if not filtered_utterances:
+            logger.debug(f"Call {call_id}: No utterances passed filters, skipping for JSON")
+            continue
+        
         call_data = {
-            "call_id": call["call_id"],
+            "call_id": call_id,
             "call_date": call["call_date"],
             "product_tags": "|".join(products) if products else "",
             "org_type": call["org_type"],
-            "account_name": call["account_name"],
+            "account_name": account_name,
             "account_website": call["account_website"],
             "account_industry": call["account_industry"],
-            "utterances": [
-                {
-                    "timestamp": get_field(u, "start", "N/A"),
-                    "speaker_name": get_field(speaker_info.get(get_field(u, "speakerId", ""), {}), "name", ""),
-                    "speaker_affiliation": get_field(speaker_info.get(get_field(u, "speakerId", ""), {}), "affiliation", ""),
-                    "utterance_text": " ".join(s.get("text", "") if isinstance(s, dict) else "" for s in u.get("sentences", [])),
-                    "sales_topic": get_field(u, "topic", "")
-                } for u in sorted(call["utterances"] or [], key=lambda x: get_field(x, "start", 0))
-            ]
+            "utterances": filtered_utterances
         }
-        if products and any(p in selected_products_lower for p in products_lower):
-            filtered_calls.append(call_data)
-        else:
-            non_filtered_calls.append(call_data)
+        filtered_calls.append(call_data)
     
     filtered_calls = sorted(filtered_calls, key=lambda x: datetime.strptime(x["call_date"], "%m/%d/%y") if x["call_date"] != "N/A" else datetime.min, reverse=True)
-    non_filtered_calls = sorted(non_filtered_calls, key=lambda x: datetime.strptime(x["call_date"], "%m/%d/%y") if x["call_date"] != "N/A" else datetime.min, reverse=True)
-    logger.info(f"JSON output: {len(filtered_calls)} filtered, {len(non_filtered_calls)} non-filtered calls")
-    return {"filtered_calls": filtered_calls, "non_filtered_calls": non_filtered_calls}
+    logger.info(f"JSON output: {len(filtered_calls)} filtered calls included (aligned with utterances CSV)")
+    return {"filtered_calls": filtered_calls, "non_filtered_calls": []}  # Only include filtered calls
 
 @app.route('/', methods=['GET', 'HEAD'])
 def index():
