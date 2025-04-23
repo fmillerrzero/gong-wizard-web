@@ -610,6 +610,7 @@ def prepare_utterances_df(calls, selected_products):
                         "tracker_name": get_field(tracker, "tracker_name", "").lower(),
                         "phrase": get_field(tracker, "phrase", "")
                     })
+                    matched = True 4
                     matched = True
                     break
             if not matched:
@@ -707,7 +708,6 @@ def prepare_utterances_df(calls, selected_products):
             tracker_str = "|".join(f"{name}: {count}" for name, count in tracker_counts.items()) if tracker_counts else ""
             
             tracker_set = set(t["tracker_name"].lower() for t in triggered_trackers if t["tracker_name"])
-            product -1
             product = "|".join(products) if products else ""
             mapped_products = set()
             tracker_names_to_remove = set()
