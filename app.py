@@ -363,7 +363,7 @@ def convert_to_sf_time(utc_time):
         utc_time = re.sub(r'(\.\d+)([+-]\d{2}:\d{2})', r'\2', utc_time)
         utc_dt = datetime.fromisoformat(utc_time)
         sf_dt = utc_dt.astimezone(SF_TZ)
-        return sf_dt.strftime("%m/%d/%y")
+        return sf_dt.strftime("%b %d, %Y")
     except ValueError as e:
         logger.error(f"Date conversion error for {utc_time}: {str(e)}")
         return "N/A"
@@ -520,7 +520,8 @@ def normalize_call_data(call, transcript):
             "partial_data": False,
             "org_type": org_type,
             "tracker_occurrences": tracker_occurrences,
-            "call_summary": call_summary
+            "call_summary": call_summary,
+            "metaData": meta_data  # Preserve metaData for raw date access
         }
     except Exception as e:
         call_id = get_field(call.get("metaData", {}), "id", "")
@@ -734,7 +735,7 @@ def prepare_utterances_df(calls, selected_products):
             
             if mapped_products:
                 product = "|".join(mapped_products)
-                tracker_counts = {name: count for name, count in tracker_counts.items() if name.lower() not in tracker_names_to_remove}
+                tracker_counts = {name: count for name, count in tracker_counts.items() if name.lower() not in trackers_names_to_remove}
                 tracker_str = "|".join(f"{name}: {count}" for name, count in tracker_counts.items()) if tracker_counts else ""
             
             data.append({
@@ -832,7 +833,7 @@ def prepare_call_summary_df(calls, selected_products):
 def prepare_json_output(calls, selected_products):
     if not calls:
         logger.info("No calls to process for JSON output")
-        return {"filtered_calls": [], "non_filtered_calls": []}
+        return []
     
     filtered_calls = []
     selected_products_lower = [p.lower() for p in selected_products]
@@ -855,24 +856,22 @@ def prepare_json_output(calls, selected_products):
             logger.info(f"Excluded call {call_id} from JSON due to account_name {account_name}")
             continue
         
-        utterances = sorted(call["utterances"] or [], key=lambda x: get_field(x, "start", 0))
+        utterances = call["utterances"] or []
         if not utterances:
             logger.debug(f"Call {call_id}: No utterances found, skipping for JSON")
             continue
         
+        # Sort monologues by the start time of their first sentence
+        utterances = sorted(
+            utterances,
+            key=lambda x: float(get_field(x.get("sentences", [{}])[0] if x.get("sentences") else {}, "start", 0))
+        )
+        
         speaker_info = {get_field(p, "speakerId", ""): p for p in call["parties"]}
-        filtered_utterances = []
+        transcript_lines = []
+        first_speaker = None
         
         for u in utterances:
-            # Apply the same filters as in prepare_utterances_df
-            if "sentences" in u:
-                text = " ".join(s.get("text", "") if isinstance(s, dict) else "" for s in u.get("sentences", []))
-            elif "text" in u:
-                text = u.get("text", "")
-            else:
-                logger.warning(f"Call {call_id}: Unexpected utterance structure: {list(u.keys())}")
-                text = str(u)
-            
             speaker_id = get_field(u, "speakerId", "")
             speaker = speaker_info.get(speaker_id, {})
             speaker_name = get_field(speaker, "name", "")
@@ -888,7 +887,7 @@ def prepare_json_output(calls, selected_products):
                     email_domain in INTERNAL_DOMAINS
                 )
             ):
-                continue
+                continue  # Skip internal speakers
             
             elif original_affiliation.lower() == "unknown" and email_domain and not any(email_domain.endswith("." + internal_domain) for internal_domain in INTERNAL_DOMAINS):
                 speaker_affiliation = "external"
@@ -898,38 +897,97 @@ def prepare_json_output(calls, selected_products):
             topic = get_field(u, "topic", "").lower()
             if topic in excluded_topics_set:
                 continue
-            if len(text.split()) < 8:
+            
+            # Process each sentence in the monologue in its given order
+            sentences = u.get("sentences", [])
+            if not sentences:
+                logger.debug(f"Call {call_id}: Monologue has no sentences, skipping")
                 continue
             
-            # If the utterance passes all filters, include it
-            filtered_utterances.append({
-                "timestamp": get_field(u, "start", "N/A"),
-                "speaker_name": speaker_name,
-                "speaker_affiliation": speaker_affiliation,
-                "utterance_text": text,
-                "sales_topic": topic
-            })
+            # Get the start time from the first sentence
+            start_time_ms = float(get_field(sentences[0], "start", 0))
+            if start_time_ms == 0:
+                logger.warning(f"Call {call_id}: Start time is 0 for monologue, possible data issue")
+                continue  # Skip if start time is invalid
+            
+            # Concatenate sentences that pass the length filter
+            filtered_text_parts = []
+            for s in sentences:
+                if not isinstance(s, dict):
+                    continue
+                text = s.get("text", "")
+                if len(text.split()) < 8:
+                    continue  # Skip short sentences
+                filtered_text_parts.append(text)
+            
+            if not filtered_text_parts:
+                continue  # Skip monologue if no sentences pass the filter
+            
+            text = " ".join(filtered_text_parts)
+            minutes = int(start_time_ms // 60000)
+            seconds = int((start_time_ms % 60000) // 1000)
+            timestamp = f"{minutes}:{seconds:02d}"
+            transcript_line = f"{timestamp} | {speaker_name}\n{text}"
+            transcript_lines.append(transcript_line)
+            
+            if not first_speaker:
+                first_speaker = speaker_name
         
         # Only include the call in the JSON if it has at least one filtered utterance
-        if not filtered_utterances:
+        if not transcript_lines:
             logger.debug(f"Call {call_id}: No utterances passed filters, skipping for JSON")
             continue
         
-        call_data = {
-            "call_id": call_id,
-            "call_date": call["call_date"],
-            "product_tags": "|".join(products) if products else "",
-            "org_type": call["org_type"],
-            "account_name": account_name,
-            "account_website": call["account_website"],
-            "account_industry": call["account_industry"],
-            "utterances": filtered_utterances
+        # Calculate duration from the last sentence of the last monologue
+        last_monologue = utterances[-1] if utterances else {}
+        last_sentences = last_monologue.get("sentences", [])
+        duration_ms = float(get_field(last_sentences[-1] if last_sentences else {}, "start", 0))
+        duration_minutes = int(duration_ms // 60000) + 1  # Round up to the nearest minute
+        duration_str = f"{duration_minutes}m"
+        
+        # Get the raw started date from the original call data
+        raw_call_date = call.get("metaData", {}).get("started", "N/A")
+        
+        # Categorize participants
+        rzero_participants = []
+        other_participants = []
+        for speaker_id, speaker in speaker_info.items():
+            speaker_name = get_field(speaker, "name", "")
+            speaker_email_address = get_field(speaker, "emailAddress", "")
+            if not speaker_name and speaker_email_address:
+                speaker_name = get_email_local_part(speaker_email_address)
+            speaker_title = get_field(speaker, "title", "")
+            email_domain = get_email_domain(speaker_email_address)
+            is_internal = speaker_name in INTERNAL_SPEAKERS or (
+                email_domain and (
+                    any(email_domain.endswith("." + internal_domain) for internal_domain in INTERNAL_DOMAINS) or 
+                    email_domain in INTERNAL_DOMAINS
+                )
+            )
+            participant_entry = speaker_name if not speaker_title else f"{speaker_name}, {speaker_title}"
+            if is_internal:
+                rzero_participants.append(participant_entry)
+            else:
+                other_participants.append(participant_entry)
+        
+        # Construct the call entry in the requested format
+        call_entry = {
+            "metadata": {
+                "call_id": call_id,  # Include call_id with leading quote
+                "title": call["call_title"],
+                "host": first_speaker or "Unknown",
+                "recording_details": f"Recorded on {raw_call_date} via Zoom, {duration_str}",
+                "participants": {
+                    "R-Zero": rzero_participants,
+                    "Other": other_participants
+                }
+            },
+            "transcript": "\n\n".join(transcript_lines)
         }
-        filtered_calls.append(call_data)
+        filtered_calls.append(call_entry)
     
-    filtered_calls = sorted(filtered_calls, key=lambda x: datetime.strptime(x["call_date"], "%m/%d/%y") if x["call_date"] != "N/A" else datetime.min, reverse=True)
-    logger.info(f"JSON output: {len(filtered_calls)} filtered calls included (aligned with utterances CSV)")
-    return {"filtered_calls": filtered_calls, "non_filtered_calls": []}  # Only include filtered calls
+    logger.info(f"JSON output: {len(filtered_calls)} calls included (aligned with utterances CSV in new format)")
+    return filtered_calls
 
 @app.route('/', methods=['GET', 'HEAD'])
 def index():
