@@ -19,9 +19,9 @@
             GongGPT by Forrest
         </h1>
         
-        <!-- Display Message (e.g., validation errors) -->
+        <!-- Display Message (e.g., validation errors or success) -->
         {% if form_state.message %}
-        <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-6" role="alert">
+        <div class="{% if 'Processed' in form_state.message %}bg-green-100 border-l-4 border-green-500 text-green-700{% else %}bg-red-100 border-l-4 border-red-500 text-red-700{% endif %} p-4 mb-6" role="alert">
             <p>{{ form_state.message }}</p>
         </div>
         {% endif %}
@@ -109,13 +109,6 @@
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Excluded (Product Selection)</td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ "{:,}".format(stats.callsNotMatchingSelection) }}</td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ stats.percentNotMatching | round | int }}%</td>
-                        </tr>
-                        {% endif %}
-                        {% if stats.callsIncluded > 0 %}
-                        <tr class="font-bold">
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Included</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ "{:,}".format(stats.callsIncluded) }}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ stats.percentIncluded | round | int }}%</td>
                         </tr>
                         {% endif %}
                     </tbody>
