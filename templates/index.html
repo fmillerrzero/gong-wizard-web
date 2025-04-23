@@ -63,53 +63,23 @@
         </form>
 
         {% if show_download %}
-        <!-- Calls Table -->
+        <!-- Calls Section -->
         <div class="bg-white p-6 rounded-lg shadow-md mb-6">
-            <h2 class="text-xl font-semibold text-gray-800 mb-4">Calls</h2>
+            <h2 class="text-xl font-semibold text-gray-800 mb-4">Calls: {{ stats.callsIncluded }} included ({{ stats.percentIncluded | round | int }}%)</h2>
             <div class="overflow-x-auto">
                 <table class="min-w-full divide-y divide-gray-200">
                     <thead class="bg-gray-50">
                         <tr>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Count</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">%</th>
+                            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Percentage</th>
                         </tr>
                     </thead>
                     <tbody class="bg-white divide-y divide-gray-200">
-                        {% if stats.totalCallsRetrieved > 0 %}
                         <tr>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Total Calls Retrieved</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ "{:,}".format(stats.totalCallsRetrieved) }}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">100%</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ "{:,}".format(stats.totalCallsRetrieved) }}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">100%</td>
                         </tr>
-                        {% endif %}
-                        {% if stats.droppedCalls > 0 %}
-                        <tr>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Invalid Calls</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ "{:,}".format(stats.droppedCalls) }}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ stats.percentDropped | round | int }}%</td>
-                        </tr>
-                        {% endif %}
-                        {% if stats.callsWithNoProducts > 0 %}
-                        <tr>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">No Product Tags</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ "{:,}".format(stats.callsWithNoProducts) }}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ stats.percentNoProducts | round | int }}%</td>
-                        </tr>
-                        {% endif %}
-                        {% if stats.callsNotMatchingSelection > 0 %}
-                        <tr>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Not Matching Selected Products</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ "{:,}".format(stats.callsNotMatchingSelection) }}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ stats.percentNotMatching | round | int }}%</td>
-                        </tr>
-                        {% endif %}
-                        {% if stats.callsIncluded > 0 %}
-                        <tr class="font-bold">
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Calls Included</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ "{:,}".format(stats.callsIncluded) }}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ stats.percentIncluded | round | int }}%</td>
-                        </tr>
-                        {% endif %}
                     </tbody>
                 </table>
             </div>
@@ -121,164 +91,94 @@
             {% endif %}
         </div>
 
-        <!-- Utterances Table -->
+        <!-- Utterances Section -->
         <div class="bg-white p-6 rounded-lg shadow-md mb-6">
-            <h2 class="text-xl font-semibold text-gray-800 mb-4">Utterances</h2>
+            <h2 class="text-xl font-semibold text-gray-800 mb-4">Utterances: {{ stats.included_utterances }} included ({{ stats.percentIncludedUtterances | round | int }}%)</h2>
             <div class="overflow-x-auto">
                 <table class="min-w-full divide-y divide-gray-200">
                     <thead class="bg-gray-50">
                         <tr>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Count</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">%</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Exclusion</th>
+                            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Count</th>
+                            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Percent</th>
                         </tr>
                     </thead>
                     <tbody class="bg-white divide-y divide-gray-200">
                         {% if stats.internal_utterances > 0 %}
                         <tr>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Internal Speakers</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ "{:,}".format(stats.internal_utterances) }}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ stats.percentInternalUtterances | round | int }}%</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ "{:,}".format(stats.internal_utterances) }}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ stats.percentInternalUtterances | round | int }}%</td>
                         </tr>
                         {% endif %}
                         {% if stats.short_utterances > 0 %}
                         <tr>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Under 8 words</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ "{:,}".format(stats.short_utterances) }}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ stats.percentShortUtterances | round | int }}%</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ "{:,}".format(stats.short_utterances) }}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ stats.percentShortUtterances | round | int }}%</td>
                         </tr>
                         {% endif %}
                         {% for topic, count in stats.excluded_topics.items() %}
                         {% if count > 0 %}
                         <tr>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ topic | capitalize }}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ "{:,}".format(count) }}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ stats.excluded_topic_percentages[topic] | round | int }}%</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ "{:,}".format(count) }}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ stats.excluded_topic_percentages[topic] | round | int }}%</td>
                         </tr>
                         {% endif %}
                         {% endfor %}
-                        {% if stats.included_utterances > 0 %}
-                        <tr class="font-bold">
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Utterances Included</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ "{:,}".format(stats.included_utterances) }}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ stats.percentIncludedUtterances | round | int }}%</td>
-                        </tr>
-                        {% endif %}
                     </tbody>
                 </table>
             </div>
         </div>
 
-        <!-- Utterance Breakdown -->
+        <!-- Accounts Section -->
         <div class="bg-white p-6 rounded-lg shadow-md mb-6">
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <!-- Org Type -->
-                <div>
-                    <div class="overflow-x-auto">
-                        <table class="min-w-full divide-y divide-gray-200">
-                            <tbody class="bg-white divide-y divide-gray-200">
-                                {% for item in utterance_breakdown.org_type %}
-                                <tr class="{{ loop.cycle('bg-white', 'bg-gray-50') }}">
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ item.value | capitalize }}</td>
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ "{:,}".format(item.count) }}</td>
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.percentage | round | int }}%</td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-                <!-- Account Industry -->
-                <div>
-                    <div class="overflow-x-auto">
-                        <table class="min-w-full divide-y divide-gray-200">
-                            <tbody class="bg-white divide-y divide-gray-200">
-                                {% for item in utterance_breakdown.account_industry[:5] %}
-                                <tr class="{{ loop.cycle('bg-white', 'bg-gray-50') }}">
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ item.value }}</td>
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ "{:,}".format(item.count) }}</td>
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.percentage | round | int }}%</td>
-                                </tr>
-                                {% endfor %}
-                                {% if utterance_breakdown.account_industry|length > 5 %}
-                                <tr>
-                                    <td colspan="3" class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                        <button onclick="document.getElementById('industry-more').classList.toggle('hidden')" class="text-indigo-600 hover:underline">Show More</button>
-                                    </td>
-                                </tr>
-                                <tr id="industry-more" class="hidden">
-                                    <td colspan="3">
-                                        <table class="min-w-full divide-y divide-gray-200">
-                                            <tbody class="bg-white divide-y divide-gray-200">
-                                                {% for item in utterance_breakdown.account_industry[5:] %}
-                                                <tr class="{{ loop.cycle('bg-white', 'bg-gray-50') }}">
-                                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ item.value }}</td>
-                                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ "{:,}".format(item.count) }}</td>
-                                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.percentage | round | int }}%</td>
-                                                </tr>
-                                                {% endfor %}
-                                            </tbody>
-                                        </table>
-                                    </td>
-                                </tr>
-                                {% endif %}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-                <!-- Product -->
-                <div>
-                    <div class="overflow-x-auto">
-                        <table class="min-w-full divide-y divide-gray-200">
-                            <tbody class="bg-white divide-y divide-gray-200">
-                                {% for item in utterance_breakdown.product %}
-                                <tr class="{{ loop.cycle('bg-white', 'bg-gray-50') }}">
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ item.value }}</td>
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ "{:,}".format(item.count) }}</td>
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.percentage | round | int }}%</td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-                <!-- Tracker -->
-                <div>
-                    <div class="overflow-x-auto">
-                        <table class="min-w-full divide-y divide-gray-200">
-                            <tbody class="bg-white divide-y divide-gray-200">
-                                {% for item in utterance_breakdown.tracker[:5] %}
-                                <tr class="{{ loop.cycle('bg-white', 'bg-gray-50') }}">
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ item.value }}</td>
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ "{:,}".format(item.count) }}</td>
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.percentage | round | int }}%</td>
-                                </tr>
-                                {% endfor %}
-                                {% if utterance_breakdown.tracker|length > 5 %}
-                                <tr>
-                                    <td colspan="3" class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                        <button onclick="document.getElementById('tracker-more').classList.toggle('hidden')" class="text-indigo-600 hover:underline">Show More</button>
-                                    </td>
-                                </tr>
-                                <tr id="tracker-more" class="hidden">
-                                    <td colspan="3">
-                                        <table class="min-w-full divide-y divide-gray-200">
-                                            <tbody class="bg-white divide-y divide-gray-200">
-                                                {% for item in utterance_breakdown.tracker[5:] %}
-                                                <tr class="{{ loop.cycle('bg-white', 'bg-gray-50') }}">
-                                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ item.value }}</td>
-                                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ "{:,}".format(item.count) }}</td>
-                                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.percentage | round | int }}%</td>
-                                                </tr>
-                                                {% endfor %}
-                                            </tbody>
-                                        </table>
-                                    </td>
-                                </tr>
-                                {% endif %}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
+            <h2 class="text-xl font-semibold text-gray-800 mb-4">Accounts</h2>
+            <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+                            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Count</th>
+                            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Percent</th>
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-gray-200">
+                        {% for item in utterance_breakdown.org_type %}
+                        <tr class="{{ loop.cycle('bg-white', 'bg-gray-50') }}">
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ item.value | capitalize }}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ "{:,}".format(item.count) }}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ item.percentage | round | int }}%</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Products Section -->
+        <div class="bg-white p-6 rounded-lg shadow-md mb-6">
+            <h2 class="text-xl font-semibold text-gray-800 mb-4">Products</h2>
+            <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+                            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Count</th>
+                            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Percent</th>
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-gray-200">
+                        {% for item in utterance_breakdown.product %}
+                        <tr class="{{ loop.cycle('bg-white', 'bg-gray-50') }}">
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ item.value }}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ "{:,}".format(item.count) }}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ item.percentage | round | int }}%</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
             </div>
         </div>
 
@@ -293,7 +193,7 @@
                     Call Summary CSV
                 </a>
                 <a href="/download/json" class="flex items-center text-indigo-600 hover:bg-gray-50 hover:scale-105 transition-transform p-2 rounded-md">
-                    JSON Data
+                    Transcripts JSON
                 </a>
                 <a href="/download/logs" class="flex items-center text-indigo-600 hover:bg-gray-50 hover:scale-105 transition-transform p-2 rounded-md">
                     Logs
@@ -305,5 +205,5 @@
         </div>
         {% endif %}
     </div>
-<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'934a8291fbbeaff8',t:'MTc0NTM4MTQxNC4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</body>
 </html>
