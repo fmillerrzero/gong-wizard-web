@@ -5,6 +5,7 @@ import os
 import re
 import time
 import glob
+import unicodedata
 from datetime import datetime, timedelta
 from io import StringIO
 import csv
@@ -97,6 +98,11 @@ def get_email_domain(email):
         return ""
     domain = email.split("@")[-1].lower().strip()
     return domain
+
+def get_email_local_part(email):
+    if not email or "@" not in email:
+        return ""
+    return email.split("@")[0].strip()
 
 def load_domains_from_sheet(sheet_id, target_set, label):
     url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
@@ -281,6 +287,8 @@ def convert_to_sf_time(utc_time):
     try:
         if utc_time.endswith('Z'):
             utc_time = utc_time.replace("Z", "+00:00")
+        # Handle formats like '2025-04-09T09:01:34.2-07:00'
+        utc_time = re.sub(r'(\.\d+)([+-]\d{2}:\d{2})', r'\2', utc_time)  # Remove milliseconds
         utc_dt = datetime.fromisoformat(utc_time)
         sf_dt = utc_dt.astimezone(SF_TZ)
         return sf_dt.strftime("%m/%d/%y")
@@ -344,9 +352,17 @@ def normalize_call_data(call, transcript):
         account_website = extract_field_values(context, "Website", "Account")[0] if extract_field_values(context, "Website", "Account") else ""
         account_industry = extract_field_values(context, "Industry", "Account")[0] if extract_field_values(context, "Industry", "Account") else ""
 
-        # Improve account names: Use website if account_name is ""
+        # Improve account names: Use website if account_name is "", then use speaker email domain if both are missing
         if not account_name and account_website:
             account_name = normalize_domain(account_website)
+        if not account_name and not account_website:
+            # Look for the first non-internal speaker email
+            for party in parties:
+                email = get_field(party, "emailAddress", "")
+                email_domain = get_email_domain(email)
+                if email_domain and not any(email_domain.endswith("." + internal_domain) for internal_domain in INTERNAL_DOMAINS):
+                    account_name = email_domain
+                    break
 
         trackers = content.get("trackers", [])
         tracker_counts = {get_field(t, "name").lower(): get_field(t, "count", 0) for t in trackers if get_field(t, "name")}
@@ -366,7 +382,7 @@ def normalize_call_data(call, transcript):
                     products.append(product)
             else:
                 for tracker in PRODUCT_MAPPINGS[product]:
-                    if tracker_counts.get(tracker.lower(), 0) > 0:
+                    if isinstance(tracker, str) and tracker_counts.get(tracker.lower(), 0) > 0:
                         products.append(product)
                         break
 
@@ -518,8 +534,14 @@ def prepare_utterances_df(calls, selected_products):
             speaker_id = get_field(utterance, "speakerId", "")
             speaker = speaker_info.get(speaker_id, {})
             speaker_name = get_field(speaker, "name", "")
-            original_affiliation = get_field(speaker, "affiliation", "unknown").lower()
             speaker_email_address = get_field(speaker, "emailAddress", "")
+            
+            # Populate speaker_name with email address (local part) if blank
+            if not speaker_name and speaker_email_address:
+                speaker_name = get_email_local_part(speaker_email_address)
+                logger.debug(f"Populated missing speaker name with email local part: {speaker_name} in call {call_id}")
+            
+            original_affiliation = get_field(speaker, "affiliation", "unknown").lower()
             email_domain = get_email_domain(speaker_email_address)
             
             # Update speaker affiliation logic
@@ -536,6 +558,8 @@ def prepare_utterances_df(calls, selected_products):
                 continue
             
             speaker_job_title = get_field(speaker, "title", "")
+            if not speaker_job_title:
+                logger.debug(f"Missing job title for speaker {speaker_name} in call {call_id}")
             
             topic = get_field(utterance, "topic", "").lower()
             
@@ -605,7 +629,6 @@ def prepare_utterances_df(calls, selected_products):
                 "speaker_name": speaker_name,
                 "speaker_job_title": speaker_job_title,
                 "speaker_affiliation": speaker_affiliation,
-                "speaker_email_address": speaker_email_address,
                 "product": product,
                 "tracker": tracker_str,
                 "utterance_text": text
@@ -614,7 +637,7 @@ def prepare_utterances_df(calls, selected_products):
     if data:
         columns = [
             "call_id", "call_date", "account_name", "account_industry", "org_type",
-            "speaker_name", "speaker_job_title", "speaker_affiliation", "speaker_email_address",
+            "speaker_name", "speaker_job_title", "speaker_affiliation",
             "product", "tracker", "utterance_text"
         ]
         df = pd.DataFrame(data)[columns]
@@ -632,8 +655,15 @@ def save_utterances_to_csv(df, path):
         logger.warning("Cannot save empty DataFrame to CSV")
         return
         
+    # Clean text data to handle special characters
+    if 'utterance_text' in df.columns:
+        df['utterance_text'] = df['utterance_text'].apply(lambda x: 
+            unicodedata.normalize('NFKD', str(x))
+            .encode('ascii', 'ignore')
+            .decode('ascii') if x else '')
+    
     df['call_id'] = df['call_id'].astype(str)
-    df.to_csv(path, index=False, quoting=csv.QUOTE_NONNUMERIC)
+    df.to_csv(path, index=False, quoting=csv.QUOTE_NONNUMERIC, encoding='utf-8')
     logger.info(f"Saved utterances DataFrame to {path}")
 
 def prepare_call_summary_df(calls, selected_products):
@@ -655,6 +685,7 @@ def prepare_call_summary_df(calls, selected_products):
         
         data.append({
             "call_id": call["call_id"],
+            "call_title": call["call_title"],
             "call_date": call["call_date"],
             "filtered_out": filtered_out,
             "product_tags": "|".join(products) if products else "",
@@ -833,7 +864,7 @@ def process():
         save_file_paths(paths)
 
         save_utterances_to_csv(utterances_df, utterances_path)
-        call_summary_df.to_csv(call_summary_path, index=False, quoting=csv.QUOTE_NONNUMERIC)
+        call_summary_df.to_csv(call_summary_path, index=False, quoting=csv.QUOTE_NONNUMERIC, encoding='utf-8')
         with open(json_path, 'w') as f:
             json.dump(json_data, f, indent=2)
 
