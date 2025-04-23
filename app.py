@@ -55,7 +55,7 @@ PRODUCT_MAPPINGS = {
         r'coworker(s)?',
         r'densit(y|ies)',
         r'dwell[\s-]?time(s)?',
-        "group[\s-]?size(s)?",
+        r'group[\s-]?size(s)?',
         r'hot[\s-]?desk(s)?',
         r'occupancy[\s-]?analytics',
         r'real[\s-]?time[\s-]?api(s)?',
@@ -1104,7 +1104,7 @@ def process():
                 percentage = round(count / total_utterances * 100)
                 utterance_breakdown["tracker"].append({
                     "value": tracker,
-                    "count":ifies count,
+                    "count": count,
                     "percentage": percentage
                 })
             
