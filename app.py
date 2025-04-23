@@ -70,10 +70,47 @@ PRODUCT_MAPPINGS = {
     ]
 }
 ALL_PRODUCT_TAGS = list(PRODUCT_MAPPINGS.keys())
-INTERNAL_DOMAINS = {"secureaire.com", "rzero.com", "rzerosystems.com", "globant.com"}
+INTERNAL_DOMAINS = {
+    "secureaire.com", "rzero.com", "rzerosystems.com", "globant.com",
+    "4mod.fr", "teamblume.com", "greenkoncepts.com", "dbl.vc"
+}
+EXCLUDED_DOMAINS = {"gmail.com", "outlook.com"}
+INTERNAL_SPEAKERS = {
+    "Andy Pires", "Anthony Salvatore", "Ben Boyer", "Ben Siegfried", "Benjamin Boyer",
+    "Benjamin Green", "Bob Ladue", "Bob Li", "Brenda Quan", "Chad Miller",
+    "Chandrika Arya", "Chelsea Sutherland", "Christopher Tulabut", "Dana DuFrane",
+    "Dana Karnon", "Dana Mor Karnon", "Danielle Duhon", "Dave Cox", "David Nuno",
+    "David Schlaifer", "David Seniawski", "Don Hess", "Drew Oliner", "Elizabeth Redmond",
+    "Eric Foster", "Fabian Echevarria", "Forrest Miller", "Francis Stamatatos",
+    "Frank Stamatatos", "Hannah Sverdlik", "Ian Leshinsky", "Ilya Gendelman",
+    "James Rollins", "Jennifer Nuckles", "Jim Hine", "Jorge Quiros", "Julio Munoz",
+    "Kayla Wilson", "Kevin Baxter", "Kim Neff", "Kristen Alexander", "Lee Oshnock",
+    "Lou Preston", "Luis Aguilar", "Manali Kulkarni", "Martyn R. Buffler", "Matt Arneson",
+    "Mehak Dharmani", "Michael Chu", "Michael Dever", "Michael Hopps", "Mohamed El-afifi",
+    "Molly Chen", "Monique Barash", "Nelson Alvarado", "Nestor Turizo", "Nick Viscuso",
+    "Nicolaas Van Nuil", "Nicole Dianne Banta", "Olivia Cvitanic", "Patrick Gerding",
+    "Priscilla Pan", "Rick Martin", "Roger Baker", "Ryan Aman", "Sanjil Karki",
+    "Stas Kurgansky", "Stephanie Snow", "Steven Lee", "Suman Bharadwaj", "Thomas Reznik",
+    "Tim Lombardi", "Trish Pearce", "Uri Kogan", "Varun Shroff", "Veronica Herico",
+    "Wiley Wang", "Will Musat"
+}
 EXCLUDED_TOPICS = {"call setup", "small talk", "wrap-up"}
 MAX_DATE_RANGE_MONTHS = 12
 MAX_PROCESSING_TIME = 270
+
+# Mapping of call IDs to account names (without leading quote in input)
+CALL_ID_TO_ACCOUNT_NAME = {
+    "1846318168516521453": "Skanska",
+    "3516974213942229787": "Polinger",
+    "3748506113741127946": "Low Tide",
+    "3778553613579836966": "BGO",
+    "3975541205726528077": "SHI",
+    "4043412895308886662": "Skanska",
+    "453107256614930203": "Hudson Pacific Properties",
+    "4978183599069254431": "Cushman & Wakefield",
+    "6020208759295664749": "BGO",
+    "7077682709419191760": "Brandywine"
+}
 
 # Precompile regex patterns for Occupancy Analytics with case-insensitive flag
 for product in PRODUCT_MAPPINGS:
@@ -360,28 +397,44 @@ def normalize_call_data(call, transcript):
         account_website = extract_field_values(context, "Website", "Account")[0] if extract_field_values(context, "Website", "Account") else ""
         account_industry = extract_field_values(context, "Industry", "Account")[0] if extract_field_values(context, "Industry", "Account") else ""
 
-        if not account_name and account_website:
-            account_name = normalize_domain(account_website)
-        if not account_name and not account_website:
-            for party in parties:
-                email = get_field(party, "emailAddress", "")
-                email_domain = get_email_domain(email)
-                if email_domain and not any(email_domain.endswith("." + internal_domain) for internal_domain in INTERNAL_DOMAINS):
-                    account_name = email_domain
-                    break
-            if not account_name or account_name in INTERNAL_DOMAINS:
-                account_name = ""
+        # Strip the leading quote from call_id for mapping comparison
+        call_id_clean = call_id.lstrip("'")
+
+        # Override account_name and org_type for specific call IDs
+        if call_id_clean in CALL_ID_TO_ACCOUNT_NAME:
+            account_name = CALL_ID_TO_ACCOUNT_NAME[call_id_clean]
+            org_type = "owner"
+            logger.info(f"Overrode account_name to {account_name} and org_type to owner for call {call_id}")
+        else:
+            # Fallback logic for account_name
+            normalized_domain = normalize_domain(account_website)
+            if not account_name and account_website:
+                account_name = normalized_domain
+            if not account_name and not account_website:
+                for party in parties:
+                    email = get_field(party, "emailAddress", "")
+                    email_domain = get_email_domain(email)
+                    # Skip if email_domain is internal or in excluded domains (gmail.com, outlook.com)
+                    if (email_domain and 
+                        not any(email_domain.endswith("." + internal_domain) for internal_domain in INTERNAL_DOMAINS) and
+                        email_domain not in EXCLUDED_DOMAINS):
+                        account_name = email_domain
+                        break
+                if not account_name or account_name in INTERNAL_DOMAINS or account_name in EXCLUDED_DOMAINS:
+                    account_name = ""
+
+            # Determine org_type based on domain
+            org_type = "other"
+            if normalized_domain in TARGET_DOMAINS:
+                org_type = "owner"
+            elif normalized_domain in TENANT_DOMAINS:
+                org_type = "tenant"
 
         trackers = content.get("trackers", [])
         tracker_counts = {get_field(t, "name").lower(): get_field(t, "count", 0) for t in trackers if get_field(t, "name")}
 
         products = []
-        normalized_website = normalize_domain(account_website)
-        org_type = "other"
-        if normalized_website in TARGET_DOMAINS:
-            org_type = "owner"
-        elif normalized_website in TENANT_DOMAINS:
-            org_type = "tenant"
+        if org_type == "tenant" and "Occupancy Analytics" not in products:
             products.append("Occupancy Analytics")
 
         for product in PRODUCT_MAPPINGS:
@@ -545,7 +598,13 @@ def prepare_utterances_df(calls, selected_products):
             
             email_domain = get_email_domain(speaker_email_address)
             original_affiliation = get_field(speaker, "affiliation", "unknown").lower()
-            if email_domain and any(email_domain.endswith("." + internal_domain) for internal_domain in INTERNAL_DOMAINS) or email_domain in INTERNAL_DOMAINS:
+            # Check if speaker is internal by name or email domain
+            if speaker_name in INTERNAL_SPEAKERS or (
+                email_domain and (
+                    any(email_domain.endswith("." + internal_domain) for internal_domain in INTERNAL_DOMAINS) or 
+                    email_domain in INTERNAL_DOMAINS
+                )
+            ):
                 speaker_affiliation = "internal"
                 internal_utterances += 1
                 if original_affiliation != "internal":
@@ -622,7 +681,7 @@ def prepare_utterances_df(calls, selected_products):
                 "call_date": call["call_date"],
                 "account_name": call["account_name"],
                 "account_industry": call["account_industry"],
-                "org_type": call["org_type"],  # Added org_type
+                "org_type": call["org_type"],
                 "speaker_name": speaker_name,
                 "speaker_job_title": speaker_job_title,
                 "speaker_affiliation": speaker_affiliation,
@@ -633,7 +692,7 @@ def prepare_utterances_df(calls, selected_products):
     
     if data:
         columns = [
-            "call_id", "call_date", "account_name", "account_industry", "org_type",  # Added org_type
+            "call_id", "call_date", "account_name", "account_industry", "org_type",
             "speaker_name", "speaker_job_title", "speaker_affiliation",
             "product", "tracker", "utterance_text"
         ]
