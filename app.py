@@ -707,6 +707,7 @@ def prepare_utterances_df(calls, selected_products):
             tracker_str = "|".join(f"{name}: {count}" for name, count in tracker_counts.items()) if tracker_counts else ""
             
             tracker_set = set(t["tracker_name"].lower() for t in triggered_trackers if t["tracker_name"])
+            product -1
             product = "|".join(products) if products else ""
             mapped_products = set()
             tracker_names_to_remove = set()
@@ -855,7 +856,6 @@ def prepare_json_output(calls, selected_products):
             logger.debug(f"Call {call_id}: Products {products} don't match selection {selected_products}, skipping for JSON")
             continue
         
-        # Skip calls with excluded account names
         account_name = call["account_name"]
         if account_name in EXCLUDED_ACCOUNT_NAMES or account_name in INTERNAL_DOMAINS:
             logger.info(f"Excluded call {call_id} from JSON due to account_name {account_name}")
@@ -866,7 +866,6 @@ def prepare_json_output(calls, selected_products):
             logger.debug(f"Call {call_id}: No utterances found, skipping for JSON")
             continue
         
-        # Sort monologues by the start time of their first sentence
         utterances = sorted(
             utterances,
             key=lambda x: float(get_field(x.get("sentences", [{}])[0] if x.get("sentences") else {}, "start", 0))
@@ -888,30 +887,27 @@ def prepare_json_output(calls, selected_products):
             if topic in excluded_topics_set:
                 continue
             
-            # Process each sentence in the monologue in its given order
             sentences = u.get("sentences", [])
             if not sentences:
                 logger.debug(f"Call {call_id}: Monologue has no sentences, skipping")
                 continue
             
-            # Get the start time from the first sentence
             start_time_ms = float(get_field(sentences[0], "start", 0))
             if start_time_ms == 0:
-                logger.warning(f"Call {call_id}: Start time is 0 for monologue, possible data issue")
-                continue  # Skip if start time is invalid
+                logger.warning(f"Call {call_id}: Start time is 0 for monologue, using default value")
+                start_time_ms = 1  # Small default to include monologue
             
-            # Concatenate sentences that pass the length filter
             filtered_text_parts = []
             for s in sentences:
                 if not isinstance(s, dict):
                     continue
                 text = s.get("text", "")
                 if len(text.split()) < 8:
-                    continue  # Skip short sentences
+                    continue
                 filtered_text_parts.append(text)
             
             if not filtered_text_parts:
-                continue  # Skip monologue if no sentences pass the filter
+                continue
             
             text = " ".join(filtered_text_parts)
             minutes = int(start_time_ms // 60000)
@@ -923,22 +919,18 @@ def prepare_json_output(calls, selected_products):
             if not first_speaker:
                 first_speaker = speaker_name
         
-        # Only include the call in the JSON if it has at least one filtered utterance
         if not transcript_lines:
             logger.debug(f"Call {call_id}: No utterances passed filters, skipping for JSON")
             continue
         
-        # Calculate duration from the last sentence of the last monologue
         last_monologue = utterances[-1] if utterances else {}
         last_sentences = last_monologue.get("sentences", [])
         duration_ms = float(get_field(last_sentences[-1] if last_sentences else {}, "start", 0))
-        duration_minutes = int(duration_ms // 60000) + 1  # Round up to the nearest minute
+        duration_minutes = int(duration_ms // 60000) + 1
         duration_str = f"{duration_minutes}m"
         
-        # Get the raw started date from the original call data
         raw_call_date = call.get("metaData", {}).get("started", "N/A")
         
-        # Categorize participants
         rzero_participants = []
         other_participants = []
         for speaker_id, speaker in speaker_info.items():
@@ -960,10 +952,9 @@ def prepare_json_output(calls, selected_products):
             else:
                 other_participants.append(participant_entry)
         
-        # Construct the call entry in the requested format
         call_entry = {
             "metadata": {
-                "call_id": call_id,  # Include call_id with leading quote
+                "call_id": call_id,
                 "title": call["call_title"],
                 "host": first_speaker or "Unknown",
                 "recording_details": f"Recorded on {raw_call_date} via Zoom, {duration_str}",
@@ -973,18 +964,29 @@ def prepare_json_output(calls, selected_products):
                 }
             },
             "transcript": "\n\n".join(transcript_lines),
-            "started": raw_call_date  # Add started date for sorting
+            "started": raw_call_date
         }
         filtered_calls.append(call_entry)
     
-    # Sort calls by started date in descending order (newest first)
-    filtered_calls.sort(
-        key=lambda x: datetime.fromisoformat(x["started"].replace("Z", "+00:00")),
-        reverse=True
-    )
-    # Remove the started field from the final output
+    # Clean and parse the started date for sorting
+    for call_entry in filtered_calls:
+        started = call_entry["started"]
+        try:
+            # Remove milliseconds and normalize timezone
+            started_cleaned = re.sub(r'\.\d+', '', started)  # Remove milliseconds
+            started_cleaned = re.sub(r'([+-]\d{2}):(\d{2})', r'\1\2', started_cleaned)  # Normalize timezone (e.g., -07:00 to -0700)
+            call_entry["started_dt"] = datetime.fromisoformat(started_cleaned)
+        except ValueError as e:
+            logger.error(f"Failed to parse started date {started} for call {call_entry['metadata']['call_id']}: {str(e)}")
+            call_entry["started_dt"] = datetime.now(pytz.UTC)  # Fallback to current time
+    
+    # Sort calls by started date in descending order
+    filtered_calls.sort(key=lambda x: x["started_dt"], reverse=True)
+    
+    # Remove temporary fields
     for call_entry in filtered_calls:
         call_entry.pop("started", None)
+        call_entry.pop("started_dt", None)
     
     logger.info(f"JSON output: {len(filtered_calls)} calls included (aligned with utterances CSV in new format)")
     return filtered_calls
