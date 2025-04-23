@@ -755,14 +755,24 @@ def index():
         logger.debug(f"Handling request to / with method {request.method}")
         end_date = datetime.now(SF_TZ)
         start_date = end_date - timedelta(days=7)
+        form_state = {
+            "products": [],  # Initialize products as empty list
+            "access_key": "",
+            "secret_key": "",
+            "start_date": start_date.strftime('%Y-%m-%d'),
+            "end_date": end_date.strftime('%Y-%m-%d'),
+            "message": "",
+            "show_download": False
+        }
         response = render_template('index.html', 
-                              start_date=start_date.strftime('%Y-%m-%d'), 
-                              end_date=end_date.strftime('%Y-%m-%d'), 
-                              products=ALL_PRODUCT_TAGS, 
-                              access_key="", 
-                              secret_key="", 
-                              message="", 
-                              show_download=False)
+                                 start_date=start_date.strftime('%Y-%m-%d'), 
+                                 end_date=end_date.strftime('%Y-%m-%d'), 
+                                 products=ALL_PRODUCT_TAGS, 
+                                 access_key="", 
+                                 secret_key="", 
+                                 message="", 
+                                 show_download=False,
+                                 form_state=form_state)
         logger.debug("Successfully rendered index.html for / route")
         return response
     except Exception as e:
