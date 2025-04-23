@@ -188,34 +188,39 @@
                             </thead>
                             <tbody class="bg-white divide-y divide-gray-200">
                                 {% if utterance_breakdown.org_type %}
-                                {% for item in utterance_breakdown.org_type[:5] %}
-                                <tr class="{{ loop.cycle('bg-white', 'bg-gray-50') }}">
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ item.value }}</td>
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.count }}</td>
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.percentage }}%</td>
-                                </tr>
-                                {% endfor %}
-                                {% if utterance_breakdown.org_type|length > 5 %}
-                                <tr>
-                                    <td colspan="3" class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                        <button onclick="document.getElementById('org-type-more').classList.toggle('hidden')" class="text-indigo-600 hover:underline">Show More</button>
-                                    </td>
-                                </tr>
-                                <tr id="org-type-more" class="hidden">
-                                    <td colspan="3">
-                                        <table class="min-w-full divide-y divide-gray-200">
-                                            <tbody class="bg-white divide-y divide-gray-200">
-                                                {% for item in utterance_breakdown.org_type[5:] %}
-                                                <tr class="{{ loop.cycle('bg-white', 'bg-gray-50') }}">
-                                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ item.value }}</td>
-                                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.count }}</td>
-                                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.percentage }}%</td>
-                                                </tr>
-                                                {% endfor %}
-                                            </tbody>
-                                        </table>
-                                    </td>
-                                </tr>
+                                    {% for item in utterance_breakdown.org_type[:5] %}
+                                    <tr class="{{ loop.cycle('bg-white', 'bg-gray-50') }}">
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ item.value }}</td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.count }}</td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.percentage }}%</td>
+                                    </tr>
+                                    {% endfor %}
+                                    {% if utterance_breakdown.org_type|length > 5 %}
+                                    <tr>
+                                        <td colspan="3" class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                            <button onclick="document.getElementById('org-type-more').classList.toggle('hidden')" class="text-indigo-600 hover:underline">Show More</button>
+                                        </td>
+                                    </tr>
+                                    <tr id="org-type-more" class="hidden">
+                                        <td colspan="3">
+                                            <table class="min-w-full divide-y divide-gray-200">
+                                                <tbody class="bg-white divide-y divide-gray-200">
+                                                    {% for item in utterance_breakdown.org_type[5:] %}
+                                                    <tr class="{{ loop.cycle('bg-white', 'bg-gray-50') }}">
+                                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ item.value }}</td>
+                                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.count }}</td>
+                                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.percentage }}%</td>
+                                                    </tr>
+                                                    {% endfor %}
+                                                </tbody>
+                                            </table>
+                                        </td>
+                                    </tr>
+                                    {% else %}
+                                    <tr>
+                                        <td colspan="3" class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">No more data available</td>
+                                    </tr>
+                                    {% endif %}
                                 {% else %}
                                 <tr>
                                     <td colspan="3" class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">No data available</td>
@@ -239,34 +244,39 @@
                             </thead>
                             <tbody class="bg-white divide-y divide-gray-200">
                                 {% if utterance_breakdown.account_industry %}
-                                {% for item in utterance_breakdown.account_industry[:5] %}
-                                <tr class="{{ loop.cycle('bg-white', 'bg-gray-50') }}">
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ item.value }}</td>
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.count }}</td>
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.percentage }}%</td>
-                                </tr>
-                                {% endfor %}
-                                {% if utterance_breakdown.account_industry|length > 5 %}
-                                <tr>
-                                    <td colspan="3" class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                        <button onclick="document.getElementById('industry-more').classList.toggle('hidden')" class="text-indigo-600 hover:underline">Show More</button>
-                                    </td>
-                                </tr>
-                                <tr id="industry-more" class="hidden">
-                                    <td colspan="3">
-                                        <table class="min-w-full divide-y divide-gray-200">
-                                            <tbody class="bg-white divide-y divide-gray-200">
-                                                {% for item in utterance_breakdown.account_industry[5:] %}
-                                                <tr class="{{ loop.cycle('bg-white', 'bg-gray-50') }}">
-                                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ item.value }}</td>
-                                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.count }}</td>
-                                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.percentage }}%</td>
-                                                </tr>
-                                                {% endfor %}
-                                            </tbody>
-                                        </table>
-                                    </td>
-                                </tr>
+                                    {% for item in utterance_breakdown.account_industry[:5] %}
+                                    <tr class="{{ loop.cycle('bg-white', 'bg-gray-50') }}">
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ item.value }}</td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.count }}</td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.percentage }}%</td>
+                                    </tr>
+                                    {% endfor %}
+                                    {% if utterance_breakdown.account_industry|length > 5 %}
+                                    <tr>
+                                        <td colspan="3" class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                            <button onclick="document.getElementById('industry-more').classList.toggle('hidden')" class="text-indigo-600 hover:underline">Show More</button>
+                                        </td>
+                                    </tr>
+                                    <tr id="industry-more" class="hidden">
+                                        <td colspan="3">
+                                            <table class="min-w-full divide-y divide-gray-200">
+                                                <tbody class="bg-white divide-y divide-gray-200">
+                                                    {% for item in utterance_breakdown.account_industry[5:] %}
+                                                    <tr class="{{ loop.cycle('bg-white', 'bg-gray-50') }}">
+                                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ item.value }}</td>
+                                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.count }}</td>
+                                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.percentage }}%</td>
+                                                    </tr>
+                                                    {% endfor %}
+                                                </tbody>
+                                            </table>
+                                        </td>
+                                    </tr>
+                                    {% else %}
+                                    <tr>
+                                        <td colspan="3" class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">No more data available</td>
+                                    </tr>
+                                    {% endif %}
                                 {% else %}
                                 <tr>
                                     <td colspan="3" class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">No data available</td>
@@ -290,34 +300,39 @@
                             </thead>
                             <tbody class="bg-white divide-y divide-gray-200">
                                 {% if utterance_breakdown.product %}
-                                {% for item in utterance_breakdown.product[:5] %}
-                                <tr class="{{ loop.cycle('bg-white', 'bg-gray-50') }}">
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ item.value }}</td>
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.count }}</td>
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.percentage }}%</td>
-                                </tr>
-                                {% endfor %}
-                                {% if utterance_breakdown.product|length > 5 %}
-                                <tr>
-                                    <td colspan="3" class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                        <button onclick="document.getElementById('product-more').classList.toggle('hidden')" class="text-indigo-600 hover:underline">Show More</button>
-                                    </td>
-                                </tr>
-                                <tr id="product-more" class="hidden">
-                                    <td colspan="3">
-                                        <table class="min-w-full divide-y divide-gray-200">
-                                            <tbody class="bg-white divide-y divide-gray-200">
-                                                {% for item in utterance_breakdown.product[5:] %}
-                                                <tr class="{{ loop.cycle('bg-white', 'bg-gray-50') }}">
-                                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ item.value }}</td>
-                                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.count }}</td>
-                                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.percentage }}%</td>
-                                                </tr>
-                                                {% endfor %}
-                                            </tbody>
-                                        </table>
-                                    </td>
-                                </tr>
+                                    {% for item in utterance_breakdown.product[:5] %}
+                                    <tr class="{{ loop.cycle('bg-white', 'bg-gray-50') }}">
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ item.value }}</td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.count }}</td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.percentage }}%</td>
+                                    </tr>
+                                    {% endfor %}
+                                    {% if utterance_breakdown.product|length > 5 %}
+                                    <tr>
+                                        <td colspan="3" class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                            <button onclick="document.getElementById('product-more').classList.toggle('hidden')" class="text-indigo-600 hover:underline">Show More</button>
+                                        </td>
+                                    </tr>
+                                    <tr id="product-more" class="hidden">
+                                        <td colspan="3">
+                                            <table class="min-w-full divide-y divide-gray-200">
+                                                <tbody class="bg-white divide-y divide-gray-200">
+                                                    {% for item in utterance_breakdown.product[5:] %}
+                                                    <tr class="{{ loop.cycle('bg-white', 'bg-gray-50') }}">
+                                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ item.value }}</td>
+                                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.count }}</td>
+                                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.percentage }}%</td>
+                                                    </tr>
+                                                    {% endfor %}
+                                                </tbody>
+                                            </table>
+                                        </td>
+                                    </tr>
+                                    {% else %}
+                                    <tr>
+                                        <td colspan="3" class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">No more data available</td>
+                                    </tr>
+                                    {% endif %}
                                 {% else %}
                                 <tr>
                                     <td colspan="3" class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">No data available</td>
@@ -341,39 +356,43 @@
                             </thead>
                             <tbody class="bg-white divide-y divide-gray-200">
                                 {% if utterance_breakdown.tracker %}
-                                {% for item in utterance_breakdown.tracker[:5] %}
-                                <tr class="{{ loop.cycle('bg-white', 'bg-gray-50') }}">
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ item.value }}</td>
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.count }}</td>
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.percentage }}%</td>
-                                </tr>
-                                {% endfor %}
-                                {% if utterance_breakdown.tracker|length > 5 %}
-                                <tr>
-                                    <td colspan="3" class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                        <button onclick="document.getElementById('tracker-more').classList.toggle('hidden')" class="text-indigo-600 hover:underline">Show More</button>
-                                    </td>
-                                </tr>
-                                <tr id="tracker-more" class="hidden">
-                                    <td colspan="3">
-                                        <table class="min-w-full divide-y divide-gray-200">
-                                            <tbody class="bg-white divide-y divide-gray-200">
-                                                {% for item in utterance_breakdown.tracker[5:] %}
-                                                <tr class="{{ loop.cycle('bg-white', 'bg-gray-50') }}">
-                                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ item.value }}</td>
-                                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.count }}</td>
-                                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.percentage }}%</td>
-                                                </tr>
-                                                {% endfor %}
-                                            </tbody>
-                                        </table>
-                                    </td>
-                                </tr>
+                                    {% for item in utterance_breakdown.tracker[:5] %}
+                                    <tr class="{{ loop.cycle('bg-white', 'bg-gray-50') }}">
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ item.value }}</td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.count }}</td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.percentage }}%</td>
+                                    </tr>
+                                    {% endfor %}
+                                    {% if utterance_breakdown.tracker|length > 5 %}
+                                    <tr>
+                                        <td colspan="3" class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                            <button onclick="document.getElementById('tracker-more').classList.toggle('hidden')" class="text-indigo-600 hover:underline">Show More</button>
+                                        </td>
+                                    </tr>
+                                    <tr id="tracker-more" class="hidden">
+                                        <td colspan="3">
+                                            <table class="min-w-full divide-y divide-gray-200">
+                                                <tbody class="bg-white divide-y divide-gray-200">
+                                                    {% for item in utterance_breakdown.tracker[5:] %}
+                                                    <tr class="{{ loop.cycle('bg-white', 'bg-gray-50') }}">
+                                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ item.value }}</td>
+                                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.count }}</td>
+                                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ item.percentage }}%</td>
+                                                    </tr>
+                                                    {% endfor %}
+                                                </tbody>
+                                            </table>
+                                        </td>
+                                    </tr>
+                                    {% else %}
+                                    <tr>
+                                        <td colspan="3" class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">No more data available</td>
+                                    </tr>
+                                    {% endif %}
                                 {% else %}
                                 <tr>
                                     <td colspan="3" class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">No data available</td>
                                 </tr>
-                                {% endif %}
                                 {% endif %}
                             </tbody>
                         </table>
