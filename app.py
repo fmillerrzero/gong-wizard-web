@@ -288,7 +288,6 @@ def convert_to_sf_time(utc_time):
     try:
         if utc_time.endswith('Z'):
             utc_time = utc_time.replace("Z", "+00:00")
-        # Handle formats like '2025-04-09T09:01:34.2-07:00'
         utc_time = re.sub(r'(\.\d+)([+-]\d{2}:\d{2})', r'\2', utc_time)  # Remove milliseconds
         utc_dt = datetime.fromisoformat(utc_time)
         sf_dt = utc_dt.astimezone(SF_TZ)
@@ -353,18 +352,15 @@ def normalize_call_data(call, transcript):
         account_website = extract_field_values(context, "Website", "Account")[0] if extract_field_values(context, "Website", "Account") else ""
         account_industry = extract_field_values(context, "Industry", "Account")[0] if extract_field_values(context, "Industry", "Account") else ""
 
-        # Improve account names: Use website if account_name is "", then use speaker email domain if both are missing
         if not account_name and account_website:
             account_name = normalize_domain(account_website)
         if not account_name and not account_website:
-            # Look for the first non-internal speaker email
             for party in parties:
                 email = get_field(party, "emailAddress", "")
                 email_domain = get_email_domain(email)
                 if email_domain and not any(email_domain.endswith("." + internal_domain) for internal_domain in INTERNAL_DOMAINS):
                     account_name = email_domain
                     break
-            # If no valid external email domain is found, set account_name to empty
             if not account_name:
                 account_name = ""
 
@@ -378,7 +374,7 @@ def normalize_call_data(call, transcript):
             org_type = "owner"
         elif normalized_website in TENANT_DOMAINS:
             org_type = "tenant"
-            products.append("Occupancy Analytics")  # Auto-tag tenant organizations
+            products.append("Occupancy Analytics")
 
         for product in PRODUCT_MAPPINGS:
             if product == "Occupancy Analytics" and "Occupancy Analytics" not in products:
@@ -666,7 +662,6 @@ def save_utterances_to_csv(df, path):
         logger.warning("Cannot save empty DataFrame to CSV")
         return
         
-    # Clean text data to handle special characters
     if 'utterance_text' in df.columns:
         df['utterance_text'] = df['utterance_text'].apply(lambda x: 
             unicodedata.normalize('NFKD', str(x))
@@ -762,9 +757,9 @@ def index():
     try:
         logger.debug(f"Handling request to / with method {request.method}")
         end_date = datetime.now(SF_TZ)
-        start_date = end_date - timedelta(days=30)  # Changed to 30 days
+        start_date = end_date - timedelta(days=30)
         form_state = {
-            "products": ALL_PRODUCT_TAGS,  # Check all products by default
+            "products": ALL_PRODUCT_TAGS,
             "access_key": "",
             "secret_key": "",
             "start_date": start_date.strftime('%Y-%m-%d'),
@@ -793,11 +788,14 @@ def health():
 
 @app.route('/process', methods=['POST'])
 def process():
+    logger.info("Received POST request to /process")
     access_key = request.form.get('access_key', '')
     secret_key = request.form.get('secret_key', '')
     products = request.form.getlist('products') or ALL_PRODUCT_TAGS
     start_date = request.form.get('start_date')
     end_date = request.form.get('end_date')
+
+    logger.info(f"Form data - access_key: {access_key}, secret_key: {'[REDACTED]' if secret_key else ''}, products: {products}, start_date: {start_date}, end_date: {end_date}")
 
     form_state = {
         "start_date": start_date,
@@ -812,6 +810,7 @@ def process():
     }
 
     if not start_date or not end_date:
+        logger.warning("Validation failed: Missing start or end date")
         form_state["message"] = "Missing start or end date."
         return render_template('index.html', form_state=form_state, **form_state)
 
@@ -820,20 +819,25 @@ def process():
         start_dt = datetime.strptime(start_date, date_format).replace(tzinfo=SF_TZ)
         end_dt = datetime.strptime(end_date, date_format).replace(tzinfo=SF_TZ)
         if start_dt > end_dt:
+            logger.warning("Validation failed: Start date after end date")
             form_state["message"] = "Start date cannot be after end date."
             return render_template('index.html', form_state=form_state, **form_state)
         today = datetime.now(SF_TZ)
         if start_dt > today or end_dt > today:
+            logger.warning("Validation failed: Date range includes future dates")
             form_state["message"] = "Date range cannot include future dates."
             return render_template('index.html', form_state=form_state, **form_state)
-    except ValueError:
+    except ValueError as e:
+        logger.warning(f"Validation failed: Invalid date format - {str(e)}")
         form_state["message"] = "Invalid date format. Use YYYY-MM-DD."
         return render_template('index.html', form_state=form_state, **form_state)
 
     if not access_key or not secret_key:
+        logger.warning("Validation failed: Missing API keys")
         form_state["message"] = "Missing API keys."
         return render_template('index.html', form_state=form_state, **form_state)
 
+    logger.info("All validations passed, proceeding with API call")
     try:
         client = GongAPIClient(access_key, secret_key)
         utc = pytz.UTC
@@ -846,6 +850,7 @@ def process():
         call_ids = client.fetch_call_list(start_date_utc, end_date_utc)
         
         if not call_ids:
+            logger.info("No calls found for the selected date range")
             form_state["message"] = "No calls found for the selected date range."
             return render_template('index.html', form_state=form_state, **form_state)
 
@@ -872,6 +877,7 @@ def process():
         logger.info(f"Total calls normalized: {len(full_data)}, dropped: {dropped_calls}")
 
         if not full_data:
+            logger.info(f"No valid call data retrieved. Dropped {dropped_calls} calls")
             form_state["message"] = f"No valid call data retrieved. Dropped {dropped_calls} calls."
             return render_template('index.html', form_state=form_state, **form_state)
 
@@ -880,10 +886,10 @@ def process():
         json_data = prepare_json_output(full_data, products)
 
         if utterances_df.empty and call_summary_df.empty:
+            logger.info("No calls matched the selected products")
             form_state["message"] = "No calls matched the selected products."
             return render_template('index.html', form_state=form_state, **form_state)
 
-        # Compute call processing stats
         total_calls = len(full_data) + dropped_calls
         partial_data_calls = sum(1 for call in full_data if call["partial_data"])
         invalid_date_calls = sum(1 for call in full_data if call["call_date"] == "N/A")
@@ -891,7 +897,6 @@ def process():
         calls_not_matching = len(call_summary_df[call_summary_df["filtered_out"] == "no matching product"])
         calls_included = len(call_summary_df[call_summary_df["filtered_out"] == "included"])
 
-        # Compute utterance breakdown
         total_utterances = utterance_stats["total_utterances"]
         utterance_breakdown = {
             "org_type": [],
@@ -917,13 +922,11 @@ def process():
                         tracker_name = tracker.split(":")[0].strip()
                         tracker_counts[tracker_name] = tracker_counts.get(tracker_name, 0) + 1
             
-            # Normalize Org Type percentages to sum to 100%
             org_type_total = sum(org_type_counts.values())
             org_type_percentages = {}
             for org_type, count in org_type_counts.items():
                 percentage = round(count / org_type_total * 100)
                 org_type_percentages[org_type] = percentage
-            # Adjust percentages to ensure they sum to 100%
             total_percentage = sum(org_type_percentages.values())
             if total_percentage != 100:
                 max_org_type = max(org_type_counts, key=org_type_counts.get)
@@ -943,13 +946,11 @@ def process():
                     "percentage": percentage
                 })
             
-            # Normalize Product percentages to sum to 100%
             product_total = sum(product_counts.values())
             product_percentages = {}
             for product, count in product_counts.items():
                 percentage = round(count / product_total * 100)
                 product_percentages[product] = percentage
-            # Adjust percentages to ensure they sum to 100%
             total_percentage = sum(product_percentages.values())
             if total_percentage != 100:
                 max_product = max(product_counts, key=product_counts.get)
@@ -974,7 +975,6 @@ def process():
             utterance_breakdown["product"].sort(key=lambda x: x["count"], reverse=True)
             utterance_breakdown["tracker"].sort(key=lambda x: x["count"], reverse=True)
 
-        # Compute percentages for excluded topics
         excluded_topic_percentages = {}
         for topic, count in utterance_stats["excluded_topics"].items():
             percentage = round(count / total_utterances * 100) if total_utterances > 0 else 0
@@ -1026,6 +1026,7 @@ def process():
         with open(json_path, 'w') as f:
             json.dump(json_data, f, indent=2)
 
+        logger.info(f"Processed {len(full_data)} calls. Dropped {dropped_calls} calls. Filtered utterances: {len(utterances_df)}")
         form_state["message"] = f"Processed {len(full_data)} calls. Dropped {dropped_calls} calls. Filtered utterances: {len(utterances_df)}."
         form_state["show_download"] = True
         form_state["stats"] = stats
@@ -1034,11 +1035,11 @@ def process():
 
     except GongAPIError as e:
         logger.error(f"API error: {e.message}")
-        form_state["message"] = f"API Error: {e.message}"
+        form_state["message"] = f"API Error: {e.message}. Please check your API keys and try again."
         return render_template('index.html', form_state=form_state, **form_state)
     except Exception as e:
         logger.error(f"Unexpected error: {str(e)}")
-        form_state["message"] = f"Unexpected error: {str(e)}"
+        form_state["message"] = f"Unexpected error: {str(e)}. Please try again or check the logs for details."
         return render_template('index.html', form_state=form_state, **form_state)
 
 @app.route('/download/utterances')
