@@ -17,6 +17,7 @@ import requests
 from flask import Flask, render_template, request, send_file, jsonify
 
 app = Flask(__name__)
+app.jinja_env.add_extension('jinja2.ext.loopcontrols')  # Enable cycle tag
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', os.urandom(24))
 logger = logging.getLogger(__name__)
 
@@ -223,12 +224,12 @@ def load_file_paths():
         return {}
 
 _initialization_done = False
-_init_lock = threading.Lock()  # Added for Change 1: Thread-safety
+_init_lock = threading.Lock()
 
 @app.before_request
 def initialize():
     global TARGET_DOMAINS, TENANT_DOMAINS, _initialization_done
-    with _init_lock:  # Change 1: Ensure thread-safety
+    with _init_lock:
         if not _initialization_done:
             logger.info("Starting initialization of domains")
             try:
@@ -286,20 +287,19 @@ class GongAPIClient:
     def fetch_call_list(self, from_date, to_date):
         endpoint = "/v2/calls"
         call_ids = []
-        page = 1  # Change 9: Use page-based pagination
+        page = 1
         while True:
             params = {
                 "fromDateTime": from_date,
                 "toDateTime": to_date,
-                "page": page,  # Change 9: Use page parameter
-                "perPage": 100  # Gong API default is often 100, adjust as needed
+                "page": page,
+                "perPage": 100
             }
             response = self.api_call("GET", endpoint, params=params)
             calls = response.get("calls", [])
             call_ids.extend([str(call.get("id")) for call in calls])
             records = response.get("records", {})
             logger.info(f"Page info: totalRecords={records.get('totalRecords')}, currentPageSize={records.get('currentPageSize')}, page={page}")
-            # Check if there are more pages
             total_records = records.get('totalRecords', 0)
             if len(call_ids) >= total_records:
                 break
@@ -323,7 +323,7 @@ class GongAPIClient:
                             "trackerOccurrences": True,
                             "brief": True,
                             "keyPoints": True,
-                            "highlights": True  # Change 8: Include highlights
+                            "highlights": True
                         },
                         "collaboration": {
                             "publicComments": True
@@ -366,7 +366,6 @@ def convert_to_sf_time(utc_time):
     try:
         if utc_time.endswith('Z'):
             utc_time = utc_time.replace("Z", "+00:00")
-        # Change 5: More robust regex for fractional seconds
         utc_time = re.sub(r'\.\d+(?=[+-]\d{2}:\d{2})', '', utc_time)
         utc_dt = datetime.fromisoformat(utc_time)
         sf_dt = utc_dt.astimezone(SF_TZ)
@@ -410,9 +409,7 @@ def apply_occupancy_analytics_tags(call):
         get_field(call.get("metaData", {}), "title"),
         get_field(call.get("content", {}), "brief")
     ]
-    # Include key points in tag check (Change 11)
     fields.append(" ".join(kp.get("text", "") for kp in call.get("content", {}).get("keyPoints", [])))
-    # Change 12: Include highlights in word search
     fields.append(" ".join(h.get("text", "") for h in call.get("content", {}).get("highlights", [])))
     text = " ".join(f for f in fields if f).lower()
     matches = [pattern.pattern for pattern in PRODUCT_MAPPINGS["Occupancy Analytics"] if pattern.search(text)]
@@ -503,14 +500,13 @@ def normalize_call_data(call, transcript):
                 tracker_occurrences.append({
                     "tracker_name": tracker_name,
                     "phrase": get_field(occurrence, "phrase", ""),
-                    "start": int(get_field(occurrence, "startTime", 0)),  # Change 2: Ensure integer type
+                    "start": int(get_field(occurrence, "startTime", 0)),
                     "speakerId": get_field(occurrence, "speakerId", "")
                 })
 
         call_summary = get_field(content, "brief", "")
-        # Extract key_points and highlights for the summary CSV
-        key_points = " | ".join(kp.get("text", "") for kp in content.get("keyPoints", []))  # Change 11: Extract key_points
-        highlights = " | ".join(h.get("text", "") for h in content.get("highlights", []))  # Change 8: Extract highlights
+        key_points = " | ".join(kp.get("text", "") for kp in content.get("keyPoints", []))
+        highlights = " | ".join(h.get("text", "") for h in content.get("highlights", []))
 
         utterances = transcript if transcript is not None else []
 
@@ -529,8 +525,8 @@ def normalize_call_data(call, transcript):
             "org_type": org_type,
             "tracker_occurrences": tracker_occurrences,
             "call_summary": call_summary,
-            "key_points": key_points,  # Change 11: Add key_points to call data
-            "highlights": highlights,  # Change 8: Add highlights to call data
+            "key_points": key_points,
+            "highlights": highlights,
             "metaData": meta_data
         }
     except Exception as e:
@@ -551,8 +547,8 @@ def normalize_call_data(call, transcript):
             "org_type": "",
             "tracker_occurrences": [],
             "call_summary": "",
-            "key_points": "",  # Change 11: Ensure consistency
-            "highlights": ""   # Change 8: Ensure consistency
+            "key_points": "",
+            "highlights": ""
         }
 
 def prepare_utterances_df(calls, selected_products):
@@ -589,7 +585,6 @@ def prepare_utterances_df(calls, selected_products):
             continue
         logger.debug(f"Call {call_id}: Products assigned: {products}, Selected products: {selected_products}")
 
-        # Skip calls with excluded account names
         account_name = call["account_name"]
         if account_name in EXCLUDED_ACCOUNT_NAMES or account_name in INTERNAL_DOMAINS:
             logger.info(f"Excluded call {call_id} due to account_name {account_name}")
@@ -778,7 +773,6 @@ def save_utterances_to_csv(df, path):
             .decode('ascii') if x else '')
     
     df['call_id'] = df['call_id'].astype(str)
-    # Change 3: Add encoding protection
     df.to_csv(path, index=False, quoting=csv.QUOTE_NONNUMERIC, encoding='utf-8', errors='replace')
     logger.info(f"Saved utterances DataFrame to {path}")
 
@@ -810,8 +804,8 @@ def prepare_call_summary_df(calls, selected_products):
             "account_website": call["account_website"],
             "account_industry": call["account_industry"],
             "call_summary": call.get("call_summary", ""),
-            "key_points": call.get("key_points", ""),  # Change 11: Add key_points to CSV
-            "highlights": call.get("highlights", "")   # Change 8: Add highlights to CSV
+            "key_points": call.get("key_points", ""),
+            "highlights": call.get("highlights", "")
         })
     
     df = pd.DataFrame(data)
@@ -915,7 +909,7 @@ def prepare_json_output(calls, selected_products):
         if not duration_seconds and utterances:
             duration_ms = float(utterances[-1].get("sentences", [{}])[-1].get("end", 0))
         else:
-            duration_ms = duration_seconds * 1000  # Assuming duration in seconds
+            duration_ms = duration_seconds * 1000
         duration_minutes = int(duration_ms // 60000)
         duration_str = f"{duration_minutes}m"
         
@@ -958,7 +952,6 @@ def prepare_json_output(calls, selected_products):
         }
         filtered_calls.append(call_entry)
     
-    # Clean and parse the started date for sorting
     for call_entry in filtered_calls:
         started = call_entry["started"]
         try:
@@ -984,7 +977,6 @@ def index():
         logger.debug(f"Handling request to / with method {request.method}")
         end_date = datetime.now(pytz.UTC)
         start_date = end_date - timedelta(days=30)
-        # Change 4: Compute max_date for template
         max_date = (end_date - timedelta(days=1)).strftime('%Y-%m-%d')
         form_state = {
             "products": ALL_PRODUCT_TAGS,
@@ -1005,7 +997,7 @@ def index():
                                  show_download=False,
                                  form_state=form_state,
                                  current_date=end_date,
-                                 max_date=max_date)  # Change 4: Pass max_date
+                                 max_date=max_date)
         logger.debug("Successfully rendered index.html for / route")
         return response
     except Exception as e:
@@ -1229,7 +1221,6 @@ def process():
         form_state["utterance_breakdown"] = utterance_breakdown
         logger.info("Rendering index.html with download links")
 
-        # Change 4: Compute max_date for template
         current_date = datetime.now(pytz.UTC)
         max_date = (current_date - timedelta(days=1)).strftime('%Y-%m-%d')
         return render_template('index.html',
@@ -1244,7 +1235,7 @@ def process():
                              stats=stats,
                              utterance_breakdown=utterance_breakdown,
                              current_date=current_date,
-                             max_date=max_date)  # Change 4: Pass max_date
+                             max_date=max_date)
 
     except GongAPIError as e:
         logger.error(f"Gong API error: {str(e)}\n{traceback.format_exc()}")
