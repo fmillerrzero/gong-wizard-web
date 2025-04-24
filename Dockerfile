@@ -15,8 +15,12 @@ RUN pip install --upgrade pip && pip install -r requirements.txt
 # Copy the rest of the app
 COPY . /app/
 
+# Copy the entrypoint script and make it executable
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
 # Expose the port Render uses (it sets $PORT at runtime)
 EXPOSE 10000
 
-# Use gunicorn to serve the app, binding to $PORT (Render requirement)
-CMD ["gunicorn", "--bind", "0.0.0.0:$PORT", "app:app"]
+# Use the entrypoint script to start the app
+ENTRYPOINT ["/app/entrypoint.sh"]
