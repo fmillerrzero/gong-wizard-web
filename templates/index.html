@@ -60,7 +60,7 @@
                                name="end_date" 
                                type="date" 
                                value="{{ end_date }}"
-                               max="{{ max_date }}"  <!-- Change 4: Use max_date -->
+                               max="{{ max_date }}"
                                placeholder="mm/dd/yyyy">
                     </div>
                 </div>
@@ -107,7 +107,7 @@
                 ({{ stats.totalCallsRetrieved }}) retrieved 
                 {% if stats.droppedCalls > 0 %}({{ stats.percentDropped }}% dropped) {% endif %}
                 {% if stats.callsWithNoProducts > 0 %}({{ stats.percentNoProducts }}% no product tags) {% endif %}
-                {% if stats.callsNotMatchingSelection > 0 %}({{ stats.percentNotMatching }}% not matching selection) {% endif %}
+ clicksNotMatchingSelection > 0 %}({{ stats.percentNotMatching }}% not matching selection) {% endif %}
             </p>
             <p class="text-sm text-gray-500 mb-4">
                 Note: ({{ stats.invalidDateCalls }}) calls have invalid dates due to API issues.<br>
@@ -192,7 +192,7 @@
                     </thead>
                     <tbody>
                         {% for topic, percentage in stats.excluded_topic_percentages.items() %}
-                        <tr class="{% cycle 'bg-white' 'bg-gray-50' %}">
+                        <tr class="{% if loop.index0 % 2 == 0 %}bg-white{% else %}bg-gray-50{% endif %}">
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ topic }}</td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ "{:,}".format(stats.excluded_topics[topic]) }}</td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ percentage }}%</td>
@@ -214,7 +214,7 @@
                     </thead>
                     <tbody>
                         {% for item in utterance_breakdown.product %}
-                        <tr class="{% cycle 'bg-white' 'bg-gray-50' %}">
+                        <tr class="{% if loop.index0 % 2 == 0 %}bg-white{% else %}bg-gray-50{% endif %}">
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ item.value }}</td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ "{:,}".format(item.count) }}</td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ item.percentage }}%</td>
@@ -231,7 +231,7 @@
                 <a href="/download/utterances" class="block text-indigo-500 hover:underline">Utterances CSV</a>
                 <a href="/download/call_summary" class="block text-indigo-500 hover:underline">Call Summary CSV</a>
                 <a href="/download/json" class="block text-indigo-500 hover:underline">Transcripts JSON</a>
-                <a href="/download/logs" class="block text-indigo-500 hover:underline">App Log</a> <!-- Change 6: Fix to /download/logs -->
+                <a href="/download/logs" class="block text-indigo-500 hover:underline">App Log</a>
             </div>
         </div>
         {% endif %}
