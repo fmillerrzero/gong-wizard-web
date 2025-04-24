@@ -1,17 +1,22 @@
-FROM python:3.9-slim
+# Use official Python image
+FROM python:3.11-slim
 
+# Prevent Python from writing .pyc files and buffering stdout/stderr
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+# Set working directory
 WORKDIR /app
 
-COPY packages.txt .
+# Install dependencies
+COPY requirements.txt /app/
+RUN pip install --upgrade pip && pip install -r requirements.txt
 
-RUN if [ -s packages.txt ]; then apt-get update && xargs -a packages.txt apt-get install -y; fi
+# Copy the rest of the app
+COPY . /app/
 
-COPY requirements.txt .
-
-RUN pip install --no-cache-dir -r requirements.txt
-
-COPY . .
-
+# Expose the port Render uses (it sets $PORT at runtime)
 EXPOSE 10000
 
-CMD ["sh", "-c", "exec gunicorn --bind 0.0.0.0:${PORT:-10000} app:app --workers 2 --timeout 120"]
+# Use gunicorn to serve the app, binding to $PORT (Render requirement)
+CMD ["gunicorn", "--bind", "0.0.0.0:$PORT", "app:app"]

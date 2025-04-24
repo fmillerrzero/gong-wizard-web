@@ -5,6 +5,8 @@ import os
 import re
 import time
 import glob
+import threading
+import traceback
 import unicodedata
 from datetime import datetime, timedelta
 from io import StringIO
@@ -98,7 +100,6 @@ INTERNAL_SPEAKERS = {
 }
 EXCLUDED_TOPICS = {"call setup", "small talk", "wrap-up"}
 MAX_DATE_RANGE_MONTHS = 12
-MAX_PROCESSING_TIME = 270
 
 # Mapping of call IDs to account names (without leading quote in input)
 CALL_ID_TO_ACCOUNT_NAME = {
@@ -111,7 +112,7 @@ CALL_ID_TO_ACCOUNT_NAME = {
     "453107256614930203": "Hudson Pacific Properties",
     "4978183599069254431": "Cushman & Wakefield",
     "6020208759295664749": "BGO",
-    "7077682709419191760": "Brandywine REIT",  # Normalized
+    "7077682709419191760": "Brandywine REIT",
     "5800318421597720457": "Tri Properties",
     "1012640371113456338": "teamblume.com",
     "8016049473232396330": "SANAS",
@@ -148,7 +149,7 @@ def safe_operation(operation, default_value=None, log_message=None, *args, **kwa
         return operation(*args, **kwargs)
     except Exception as e:
         if log_message:
-            logger.error(f"{log_message}: {str(e)}")
+            logger.error(f"{log_message}: {str(e)}\n{traceback.format_exc()}")
         return default_value
 
 def normalize_domain(url):
@@ -162,7 +163,6 @@ def normalize_domain(url):
 def get_email_domain(email):
     if not email or "@" not in email:
         return ""
-    # Strip whitespace and ensure email is a string
     email = str(email).strip().lower()
     domain = email.split("@")[-1].strip()
     return domain
@@ -201,7 +201,7 @@ def cleanup_old_files():
                 os.remove(file_path)
                 logger.info(f"Removed old file: {file_path}")
             except Exception as e:
-                logger.error(f"Error removing old file {file_path}: {str(e)}")
+                logger.error(f"Error removing old file {file_path}: {str(e)}\n{traceback.format_exc()}")
 
 def save_file_paths(paths):
     try:
@@ -209,7 +209,7 @@ def save_file_paths(paths):
             json.dump(paths, f)
         logger.info(f"Saved file paths to {PATHS_FILE}")
     except Exception as e:
-        logger.error(f"Failed to save file paths to {PATHS_FILE}: {str(e)}")
+        logger.error(f"Failed to save file paths to {PATHS_FILE}: {str(e)}\n{traceback.format_exc()}")
 
 def load_file_paths():
     if not os.path.exists(PATHS_FILE):
@@ -219,26 +219,28 @@ def load_file_paths():
         with open(PATHS_FILE, 'r') as f:
             return json.load(f)
     except Exception as e:
-        logger.error(f"Error loading paths file {PATHS_FILE}: {str(e)}")
+        logger.error(f"Error loading paths file {PATHS_FILE}: {str(e)}\n{traceback.format_exc()}")
         return {}
 
 _initialization_done = False
+_init_lock = threading.Lock()  # Added for Change 1: Thread-safety
 
 @app.before_request
 def initialize():
     global TARGET_DOMAINS, TENANT_DOMAINS, _initialization_done
-    if not _initialization_done:
-        logger.info("Starting initialization of domains")
-        try:
-            load_domains_from_sheet("1HMAQ3eNhXhCAfcxPqQwds1qn1ZW8j6Sc1oCM9_TLjtQ", TARGET_DOMAINS, "owner")
-            load_domains_from_sheet("19WrPxtEZV59_irXRm36TJGRNJFRoYsi0KnrOUDIDBVM", TENANT_DOMAINS, "tenant")
-            logger.info(f"Initialized with {len(TARGET_DOMAINS)} owner domains and {len(TENANT_DOMAINS)} tenant domains")
-            cleanup_old_files()
-            _initialization_done = True
-            logger.info("Initialization completed successfully")
-        except Exception as e:
-            logger.error(f"Initialization failed: {str(e)}")
-            raise
+    with _init_lock:  # Change 1: Ensure thread-safety
+        if not _initialization_done:
+            logger.info("Starting initialization of domains")
+            try:
+                load_domains_from_sheet("1HMAQ3eNhXhCAfcxPqQwds1qn1ZW8j6Sc1oCM9_TLjtQ", TARGET_DOMAINS, "owner")
+                load_domains_from_sheet("19WrPxtEZV59_irXRm36TJGRNJFRoYsi0KnrOUDIDBVM", TENANT_DOMAINS, "tenant")
+                logger.info(f"Initialized with {len(TARGET_DOMAINS)} owner domains and {len(TENANT_DOMAINS)} tenant domains")
+                cleanup_old_files()
+                _initialization_done = True
+                logger.info("Initialization completed successfully")
+            except Exception as e:
+                logger.error(f"Initialization failed: {str(e)}\n{traceback.format_exc()}")
+                raise
 
 class GongAPIError(Exception):
     def __init__(self, status_code, message):
@@ -275,7 +277,7 @@ class GongAPIClient:
                     logger.error(f"API error: {response.status_code} - {response.text}")
                     raise GongAPIError(response.status_code, f"API error: {response.text}")
             except requests.RequestException as e:
-                logger.error(f"Network error on attempt {attempt + 1}: {str(e)}")
+                logger.error(f"Network error on attempt {attempt + 1}: {str(e)}\n{traceback.format_exc()}")
                 if attempt == max_attempts - 1:
                     raise GongAPIError(0, f"Network error: {str(e)}")
                 time.sleep(2 ** attempt)
@@ -284,21 +286,24 @@ class GongAPIClient:
     def fetch_call_list(self, from_date, to_date):
         endpoint = "/v2/calls"
         call_ids = []
-        cursor = None
+        page = 1  # Change 9: Use page-based pagination
         while True:
             params = {
                 "fromDateTime": from_date,
                 "toDateTime": to_date,
-                "cursor": cursor
+                "page": page,  # Change 9: Use page parameter
+                "perPage": 100  # Gong API default is often 100, adjust as needed
             }
             response = self.api_call("GET", endpoint, params=params)
             calls = response.get("calls", [])
             call_ids.extend([str(call.get("id")) for call in calls])
             records = response.get("records", {})
-            logger.info(f"Page info: totalRecords={records.get('totalRecords')}, currentPageSize={records.get('currentPageSize')}, cursor={cursor}")
-            cursor = records.get("cursor")
-            if not cursor:
+            logger.info(f"Page info: totalRecords={records.get('totalRecords')}, currentPageSize={records.get('currentPageSize')}, page={page}")
+            # Check if there are more pages
+            total_records = records.get('totalRecords', 0)
+            if len(call_ids) >= total_records:
                 break
+            page += 1
         logger.info(f"Fetched {len(call_ids)} call IDs")
         return call_ids
 
@@ -317,7 +322,8 @@ class GongAPIClient:
                             "trackers": True,
                             "trackerOccurrences": True,
                             "brief": True,
-                            "keyPoints": True
+                            "keyPoints": True,
+                            "highlights": True  # Change 8: Include highlights
                         },
                         "collaboration": {
                             "publicComments": True
@@ -360,12 +366,13 @@ def convert_to_sf_time(utc_time):
     try:
         if utc_time.endswith('Z'):
             utc_time = utc_time.replace("Z", "+00:00")
-        utc_time = re.sub(r'(\.\d+)([+-]\d{2}:\d{2})', r'\2', utc_time)
+        # Change 5: More robust regex for fractional seconds
+        utc_time = re.sub(r'\.\d+(?=[+-]\d{2}:\d{2})', '', utc_time)
         utc_dt = datetime.fromisoformat(utc_time)
         sf_dt = utc_dt.astimezone(SF_TZ)
         return sf_dt.strftime("%b %d, %Y")
     except ValueError as e:
-        logger.error(f"Date conversion error for {utc_time}: {str(e)}")
+        logger.error(f"Date conversion error for {utc_time}: {str(e)}\n{traceback.format_exc()}")
         return "N/A"
 
 def get_field(data, key, default=""):
@@ -403,6 +410,10 @@ def apply_occupancy_analytics_tags(call):
         get_field(call.get("metaData", {}), "title"),
         get_field(call.get("content", {}), "brief")
     ]
+    # Include key points in tag check (Change 11)
+    fields.append(" ".join(kp.get("text", "") for kp in call.get("content", {}).get("keyPoints", [])))
+    # Change 12: Include highlights in word search
+    fields.append(" ".join(h.get("text", "") for h in call.get("content", {}).get("highlights", [])))
     text = " ".join(f for f in fields if f).lower()
     matches = [pattern.pattern for pattern in PRODUCT_MAPPINGS["Occupancy Analytics"] if pattern.search(text)]
     return bool(matches)
@@ -423,16 +434,13 @@ def normalize_call_data(call, transcript):
         account_website = extract_field_values(context, "Website", "Account")[0] if extract_field_values(context, "Website", "Account") else ""
         account_industry = extract_field_values(context, "Industry", "Account")[0] if extract_field_values(context, "Industry", "Account") else ""
 
-        # Strip the leading quote from call_id for mapping comparison
         call_id_clean = call_id.lstrip("'")
 
-        # Override account_name and org_type for specific call IDs
         if call_id_clean in CALL_ID_TO_ACCOUNT_NAME:
             account_name = CALL_ID_TO_ACCOUNT_NAME[call_id_clean]
             org_type = "owner" if call_id_clean in {"5800318421597720457"} else "other"
             logger.info(f"Overrode account_name to {account_name} and org_type to {org_type} for call {call_id}")
         else:
-            # Normalize account names
             account_name_mappings = {
                 "Brandywine": "Brandywine REIT",
                 "Crescent Heights": "Crescent Real Estate",
@@ -447,7 +455,6 @@ def normalize_call_data(call, transcript):
                     logger.info(f"Normalized account_name from {old_name} to {new_name} for call {call_id}")
                     break
 
-            # Fallback logic for account_name
             normalized_domain = normalize_domain(account_website)
             if not account_name and account_website:
                 account_name = normalized_domain
@@ -455,7 +462,6 @@ def normalize_call_data(call, transcript):
                 for party in parties:
                     email = get_field(party, "emailAddress", "")
                     email_domain = get_email_domain(email)
-                    # Skip if email_domain is internal or in excluded domains (gmail.com, outlook.com)
                     if (email_domain and 
                         not any(email_domain.endswith("." + internal_domain) for internal_domain in INTERNAL_DOMAINS) and
                         email_domain not in EXCLUDED_DOMAINS):
@@ -464,7 +470,6 @@ def normalize_call_data(call, transcript):
                 if not account_name or account_name in INTERNAL_DOMAINS or account_name in EXCLUDED_DOMAINS:
                     account_name = ""
 
-            # Determine org_type based on domain or account_name
             org_type = "other"
             if normalized_domain in TARGET_DOMAINS:
                 org_type = "owner"
@@ -498,11 +503,14 @@ def normalize_call_data(call, transcript):
                 tracker_occurrences.append({
                     "tracker_name": tracker_name,
                     "phrase": get_field(occurrence, "phrase", ""),
-                    "start": get_field(occurrence, "startTime", 0),
+                    "start": int(get_field(occurrence, "startTime", 0)),  # Change 2: Ensure integer type
                     "speakerId": get_field(occurrence, "speakerId", "")
                 })
 
         call_summary = get_field(content, "brief", "")
+        # Extract key_points and highlights for the summary CSV
+        key_points = " | ".join(kp.get("text", "") for kp in content.get("keyPoints", []))  # Change 11: Extract key_points
+        highlights = " | ".join(h.get("text", "") for h in content.get("highlights", []))  # Change 8: Extract highlights
 
         utterances = transcript if transcript is not None else []
 
@@ -521,11 +529,13 @@ def normalize_call_data(call, transcript):
             "org_type": org_type,
             "tracker_occurrences": tracker_occurrences,
             "call_summary": call_summary,
-            "metaData": meta_data  # Preserve metaData for raw date access
+            "key_points": key_points,  # Change 11: Add key_points to call data
+            "highlights": highlights,  # Change 8: Add highlights to call data
+            "metaData": meta_data
         }
     except Exception as e:
         call_id = get_field(call.get("metaData", {}), "id", "")
-        logger.error(f"Normalization error for call '{call_id}': {str(e)}")
+        logger.error(f"Normalization error for call '{call_id}': {str(e)}\n{traceback.format_exc()}")
         return {
             "call_id": f"'{call_id}",
             "call_title": "",
@@ -540,7 +550,9 @@ def normalize_call_data(call, transcript):
             "partial_data": True,
             "org_type": "",
             "tracker_occurrences": [],
-            "call_summary": ""
+            "call_summary": "",
+            "key_points": "",  # Change 11: Ensure consistency
+            "highlights": ""   # Change 8: Ensure consistency
         }
 
 def prepare_utterances_df(calls, selected_products):
@@ -583,61 +595,46 @@ def prepare_utterances_df(calls, selected_products):
             logger.info(f"Excluded call {call_id} due to account_name {account_name}")
             continue
         
-        utterances = sorted(call["utterances"] or [], key=lambda x: get_field(x, "start", 0))
+        utterances = call["utterances"] or []
         if not utterances:
             logger.debug(f"Call {call_id}: No utterances found, skipping")
             continue
         
         call_tracker_map[call_id] = {}
         for utterance in utterances:
-            start_time = safe_operation(
-                lambda: float(get_field(utterance, "start", 0)), 0, f"Invalid utterance start time for call {call_id}"
-            )
-            utterance_key = f"{call_id}_{start_time}"
-            call_tracker_map[call_id][utterance_key] = {"trackers": []}
+            sentences = utterance.get("sentences", [])
+            if not sentences or not all(isinstance(s, dict) and "start" in s and "end" in s and s["start"] <= s["end"] for s in sentences):
+                logger.debug(f"Call {call_id}: Utterance skipped due to missing or invalid sentence data")
+                continue
+            start_time = min(int(s.get("start", 0)) for s in sentences if s.get("start"))
+            end_time = max(int(s.get("end", 0)) for s in sentences if s.get("end"))
+            utterance_key = f"{call_id}_{start_time}_{end_time}"
+            call_tracker_map[call_id][utterance_key] = {"trackers": [], "start_time": start_time, "end_time": end_time}
         
         for tracker in call.get("tracker_occurrences", []):
-            tracker_start = safe_operation(
-                lambda: float(get_field(tracker, "start", 0)), 0, f"Invalid tracker start time for call {call_id}"
-            )
-            tracker_time = tracker_start * 1000 if tracker_start < 1000 else tracker_start
-            matched = False
+            tracker_start = tracker.get("start")
+            if not tracker_start or tracker_start < 0:
+                logger.debug(f"Call {call_id}: Tracker skipped due to missing or invalid timestamp")
+                continue
+            tracker_time = int(tracker_start)
+            tracker_name = get_field(tracker, "tracker_name", "").lower()
+            if tracker_name in EXCLUDED_TRACKERS:
+                continue
             for utterance_key, info in call_tracker_map[call_id].items():
-                utterance_start = float(utterance_key.split('_')[-1])
-                utterance_end = utterance_start + 60000
+                utterance_start = info["start_time"]
+                utterance_end = info["end_time"]
                 if utterance_start <= tracker_time <= utterance_end:
-                    info["trackers"].append({
-                        "tracker_name": get_field(tracker, "tracker_name", "").lower(),
-                        "phrase": get_field(tracker, "phrase", "")
-                    })
-                    matched = True
-                    break
-            if not matched:
-                closest_utterance = None
-                min_distance = float('inf')
-                for utterance_key, info in call_tracker_map[call_id].items():
-                    utterance_start = float(utterance_key.split('_')[-1])
-                    distance = abs(utterance_start - tracker_time)
-                    if distance <= 10000 and distance < min_distance:
-                        min_distance = distance
-                        closest_utterance = utterance_key
-                if closest_utterance:
-                    call_tracker_map[call_id][closest_utterance]["trackers"].append({
-                        "tracker_name": get_field(tracker, "tracker_name", "").lower(),
-                        "phrase": get_field(tracker, "phrase", "")
-                    })
+                    info["trackers"].append({"tracker_name": tracker_name})
         
         speaker_info = {get_field(p, "speakerId", ""): p for p in call["parties"]}
         
         for utterance in utterances:
             total_utterances += 1
-            if "sentences" in utterance:
-                text = " ".join(s.get("text", "") if isinstance(s, dict) else "" for s in utterance.get("sentences", []))
-            elif "text" in utterance:
-                text = utterance.get("text", "")
-            else:
+            sentences = utterance.get("sentences", [])
+            if not sentences:
                 logger.warning(f"Call {call_id}: Unexpected utterance structure: {list(utterance.keys())}")
-                text = str(utterance)
+                continue
+            text = " ".join(s.get("text", "") if isinstance(s, dict) else "" for s in sentences)
             
             speaker_id = get_field(utterance, "speakerId", "")
             speaker = speaker_info.get(speaker_id, {})
@@ -649,7 +646,6 @@ def prepare_utterances_df(calls, selected_products):
             
             email_domain = get_email_domain(speaker_email_address)
             original_affiliation = get_field(speaker, "affiliation", "unknown").lower()
-            # Check if speaker is internal by name or email domain
             if speaker_name in INTERNAL_SPEAKERS or (
                 email_domain and (
                     any(email_domain.endswith("." + internal_domain) for internal_domain in INTERNAL_DOMAINS) or 
@@ -661,8 +657,6 @@ def prepare_utterances_df(calls, selected_products):
                 if original_affiliation != "internal":
                     logger.info(f"Overrode affiliation from {original_affiliation} to internal for speaker {speaker_name} ({speaker_email_address}) in call {call_id}")
                 continue
-            elif original_affiliation.lower() == "unknown" and email_domain and not any(email_domain.endswith("." + internal_domain) for internal_domain in INTERNAL_DOMAINS):
-                speaker_affiliation = "external"
             else:
                 speaker_affiliation = original_affiliation
             
@@ -679,19 +673,14 @@ def prepare_utterances_df(calls, selected_products):
                 short_utterances += 1
                 continue
             
-            utterance_start = safe_operation(
-                lambda: float(get_field(utterance, "start", 0)), 0, f"Invalid utterance start time for call {call_id}"
-            )
-            utterance_key = f"{call_id}_{utterance_start}"
+            start_time = min(int(s.get("start", 0)) for s in sentences if s.get("start"))
+            end_time = max(int(s.get("end", 0)) for s in sentences if s.get("end"))
+            utterance_key = f"{call_id}_{start_time}_{end_time}"
             triggered_trackers = call_tracker_map.get(call_id, {}).get(utterance_key, {"trackers": []})["trackers"]
             
             tracker_names = []
             for t in triggered_trackers:
                 tracker_name = t["tracker_name"].lower()
-                # Skip excluded trackers
-                if tracker_name in EXCLUDED_TRACKERS:
-                    continue
-                # Rename specific trackers
                 if tracker_name == "negative impact (by gong)":
                     tracker_name = "objection"
                 if tracker_name:
@@ -707,7 +696,7 @@ def prepare_utterances_df(calls, selected_products):
             tracker_str = "|".join(f"{name}: {count}" for name, count in tracker_counts.items()) if tracker_counts else ""
             
             tracker_set = set(t["tracker_name"].lower() for t in triggered_trackers if t["tracker_name"])
-            product = "|".join(products) if products else ""
+            product = ""
             mapped_products = set()
             tracker_names_to_remove = set()
             
@@ -760,11 +749,8 @@ def prepare_utterances_df(calls, selected_products):
         ]
         df = pd.DataFrame(data)[columns]
         df['call_id'] = df['call_id'].astype(str)
-        # Convert call_date to datetime for proper sorting
         df['call_date'] = pd.to_datetime(df['call_date'], format='%b %d, %Y', errors='coerce')
-        # Sort by call_date in descending order (newest first)
         df = df.sort_values("call_date", ascending=False)
-        # Convert call_date back to string format for output
         df['call_date'] = df['call_date'].dt.strftime('%b %d, %Y')
         logger.info(f"Utterances DataFrame: {len(df)} rows, columns: {df.columns.tolist()}")
     else:
@@ -792,7 +778,8 @@ def save_utterances_to_csv(df, path):
             .decode('ascii') if x else '')
     
     df['call_id'] = df['call_id'].astype(str)
-    df.to_csv(path, index=False, quoting=csv.QUOTE_NONNUMERIC, encoding='utf-8')
+    # Change 3: Add encoding protection
+    df.to_csv(path, index=False, quoting=csv.QUOTE_NONNUMERIC, encoding='utf-8', errors='replace')
     logger.info(f"Saved utterances DataFrame to {path}")
 
 def prepare_call_summary_df(calls, selected_products):
@@ -822,7 +809,9 @@ def prepare_call_summary_df(calls, selected_products):
             "account_name": call["account_name"],
             "account_website": call["account_website"],
             "account_industry": call["account_industry"],
-            "call_summary": call.get("call_summary", "")
+            "call_summary": call.get("call_summary", ""),
+            "key_points": call.get("key_points", ""),  # Change 11: Add key_points to CSV
+            "highlights": call.get("highlights", "")   # Change 8: Add highlights to CSV
         })
     
     df = pd.DataFrame(data)
@@ -894,7 +883,7 @@ def prepare_json_output(calls, selected_products):
             start_time_ms = float(get_field(sentences[0], "start", 0))
             if start_time_ms == 0:
                 logger.warning(f"Call {call_id}: Start time is 0 for monologue, using default value")
-                start_time_ms = 1  # Small default to include monologue
+                start_time_ms = 1
             
             filtered_text_parts = []
             for s in sentences:
@@ -922,10 +911,12 @@ def prepare_json_output(calls, selected_products):
             logger.debug(f"Call {call_id}: No utterances passed filters, skipping for JSON")
             continue
         
-        last_monologue = utterances[-1] if utterances else {}
-        last_sentences = last_monologue.get("sentences", [])
-        duration_ms = float(get_field(last_sentences[-1] if last_sentences else {}, "start", 0))
-        duration_minutes = int(duration_ms // 60000) + 1
+        duration_seconds = call.get("metaData", {}).get("duration", 0)
+        if not duration_seconds and utterances:
+            duration_ms = float(utterances[-1].get("sentences", [{}])[-1].get("end", 0))
+        else:
+            duration_ms = duration_seconds * 1000  # Assuming duration in seconds
+        duration_minutes = int(duration_ms // 60000)
         duration_str = f"{duration_minutes}m"
         
         raw_call_date = call.get("metaData", {}).get("started", "N/A")
@@ -971,31 +962,30 @@ def prepare_json_output(calls, selected_products):
     for call_entry in filtered_calls:
         started = call_entry["started"]
         try:
-            # Remove milliseconds and normalize timezone
-            started_cleaned = re.sub(r'\.\d+', '', started)  # Remove milliseconds
-            started_cleaned = re.sub(r'([+-]\d{2}):(\d{2})', r'\1\2', started_cleaned)  # Normalize timezone (e.g., -07:00 to -0700)
+            started_cleaned = re.sub(r'\.\d+', '', started)
+            started_cleaned = re.sub(r'([+-]\d{2}):(\d{2})', r'\1\2', started_cleaned)
             call_entry["started_dt"] = datetime.fromisoformat(started_cleaned)
         except ValueError as e:
-            logger.error(f"Failed to parse started date {started} for call {call_entry['metadata']['call_id']}: {str(e)}")
-            call_entry["started_dt"] = datetime.now(pytz.UTC)  # Fallback to current time
+            logger.error(f"Failed to parse started date {started} for call {call_entry['metadata']['call_id']}: {str(e)}\n{traceback.format_exc()}")
+            call_entry["started_dt"] = datetime.now(pytz.UTC)
     
-    # Sort calls by started date in descending order
     filtered_calls.sort(key=lambda x: x["started_dt"], reverse=True)
     
-    # Remove temporary fields
     for call_entry in filtered_calls:
         call_entry.pop("started", None)
         call_entry.pop("started_dt", None)
     
-    logger.info(f"JSON output: {len(filtered_calls)} calls included (aligned with utterances CSV in new format)")
+    logger.info(f"JSON output: {len(filtered_calls)} calls included")
     return filtered_calls
 
 @app.route('/', methods=['GET', 'HEAD'])
 def index():
     try:
         logger.debug(f"Handling request to / with method {request.method}")
-        end_date = datetime.now(SF_TZ)
+        end_date = datetime.now(pytz.UTC)
         start_date = end_date - timedelta(days=30)
+        # Change 4: Compute max_date for template
+        max_date = (end_date - timedelta(days=1)).strftime('%Y-%m-%d')
         form_state = {
             "products": ALL_PRODUCT_TAGS,
             "access_key": "",
@@ -1013,11 +1003,13 @@ def index():
                                  secret_key="", 
                                  message="", 
                                  show_download=False,
-                                 form_state=form_state)
+                                 form_state=form_state,
+                                 current_date=end_date,
+                                 max_date=max_date)  # Change 4: Pass max_date
         logger.debug("Successfully rendered index.html for / route")
         return response
     except Exception as e:
-        logger.error(f"Error in / route: {str(e)}")
+        logger.error(f"Error in / route: {str(e)}\n{traceback.format_exc()}")
         return "Internal Server Error", 500
 
 @app.route('/health')
@@ -1054,12 +1046,10 @@ def process():
 
     date_format = '%Y-%m-%d'
     try:
-        start_dt = datetime.strptime(start_date, date_format)
-        end_dt = datetime.strptime(end_date, date_format)
-        start_dt = SF_TZ.localize(start_dt)
-        end_dt = SF_TZ.localize(end_dt)
+        start_dt = datetime.strptime(start_date, date_format).replace(tzinfo=pytz.UTC)
+        end_dt = datetime.strptime(end_date, date_format).replace(tzinfo=pytz.UTC)
         
-        today = datetime.now(SF_TZ).date()
+        today = datetime.now(pytz.UTC).date()
         start_date_only = start_dt.date()
         end_date_only = end_dt.date()
         
@@ -1081,7 +1071,7 @@ def process():
             form_state["message"] = "Start date cannot be after end date."
             return render_template('index.html', form_state=form_state, **form_state)
     except ValueError as e:
-        logger.warning(f"Validation failed: Invalid date format - {str(e)}")
+        logger.warning(f"Validation failed: Invalid date format - {str(e)}\n{traceback.format_exc()}")
         form_state["message"] = "Invalid date format. Use YYYY-MM-DD."
         return render_template('index.html', form_state=form_state, **form_state)
 
@@ -1092,7 +1082,6 @@ def process():
 
     logger.info("All validations passed, proceeding with API call")
     try:
-        start_time = time.time()
         client = GongAPIClient(access_key, secret_key)
         start_dt = start_dt.astimezone(pytz.UTC)
         end_dt = end_dt.replace(hour=23, minute=59, second=59).astimezone(pytz.UTC)
@@ -1108,23 +1097,11 @@ def process():
             form_state["message"] = "No calls found for the selected date range."
             return render_template('index.html', form_state=form_state, **form_state)
 
-        elapsed_time = time.time() - start_time
-        if elapsed_time > MAX_PROCESSING_TIME:
-            logger.error("Processing time exceeded limit after fetching call IDs")
-            form_state["message"] = "Processing took too long. Please try a smaller date range."
-            return render_template('index.html', form_state=form_state, **form_state)
-
         full_data = []
         dropped_calls = 0
 
         logger.info("Fetching transcripts")
         transcripts = client.fetch_transcript(call_ids)
-
-        elapsed_time = time.time() - start_time
-        if elapsed_time > MAX_PROCESSING_TIME:
-            logger.error("Processing time exceeded limit after fetching transcripts")
-            form_state["message"] = "Processing took too long. Please try a smaller date range."
-            return render_template('index.html', form_state=form_state, **form_state)
 
         logger.info("Fetching and normalizing call details")
         for i in range(0, len(call_ids), BATCH_SIZE):
@@ -1140,11 +1117,6 @@ def process():
                 full_data.append(normalized)
                 if len(full_data) % 5 == 0:
                     logger.info(f"Processed {len(full_data)} calls")
-                elapsed_time = time.time() - start_time
-                if elapsed_time > MAX_PROCESSING_TIME:
-                    logger.error("Processing time exceeded limit during call details")
-                    form_state["message"] = "Processing took too long. Please try a smaller date range."
-                    return render_template('index.html', form_state=form_state, **form_state)
         logger.info(f"Total calls normalized: {len(full_data)}, dropped: {dropped_calls}")
 
         if not full_data:
@@ -1155,12 +1127,6 @@ def process():
         utterances_df, utterance_stats = prepare_utterances_df(full_data, products)
         call_summary_df = prepare_call_summary_df(full_data, products)
         json_data = prepare_json_output(full_data, products)
-
-        elapsed_time = time.time() - start_time
-        if elapsed_time > MAX_PROCESSING_TIME:
-            logger.error("Processing time exceeded limit after preparing dataframes")
-            form_state["message"] = "Processing took too long. Please try a smaller date range."
-            return render_template('index.html', form_state=form_state, **form_state)
 
         if utterances_df.empty and call_summary_df.empty:
             logger.info("No calls matched the selected products")
@@ -1178,40 +1144,22 @@ def process():
 
         total_utterances = utterance_stats["total_utterances"]
         utterance_breakdown = {
-            "account_industry": [],
-            "product": [],
-            "tracker": []
+            "product": []
         }
         if total_utterances > 0:
-            industry_counts = {}
             product_counts = {}
-            tracker_counts = {}
             for _, row in utterances_df.iterrows():
-                industry = row['account_industry'] if row['account_industry'] else "Unknown"
-                industry_counts[industry] = industry_counts.get(industry, 0) + 1
                 if row['product']:
                     for product in row['product'].split("|"):
                         product_counts[product] = product_counts.get(product, 0) + 1
-                if row['tracker']:
-                    for tracker in row['tracker'].split("|"):
-                        tracker_name = tracker.split(":")[0].strip()
-                        tracker_counts[tracker_name] = tracker_counts.get(tracker_name, 0) + 1
-            
-            for industry, count in industry_counts.items():
-                percentage = round(count / total_utterances * 100)
-                utterance_breakdown["account_industry"].append({
-                    "value": industry,
-                    "count": count,
-                    "percentage": percentage
-                })
             
             product_total = sum(product_counts.values())
             product_percentages = {}
             for product, count in product_counts.items():
-                percentage = round(count / product_total * 100)
+                percentage = round(count / product_total * 100) if product_total > 0 else 0
                 product_percentages[product] = percentage
             total_percentage = sum(product_percentages.values())
-            if total_percentage != 100:
+            if total_percentage != 100 and product_total > 0:
                 max_product = max(product_counts, key=product_counts.get)
                 product_percentages[max_product] += 100 - total_percentage
             for product, count in product_counts.items():
@@ -1221,17 +1169,7 @@ def process():
                     "percentage": product_percentages[product]
                 })
             
-            for tracker, count in tracker_counts.items():
-                percentage = round(count / total_utterances * 100)
-                utterance_breakdown["tracker"].append({
-                    "value": tracker,
-                    "count": count,
-                    "percentage": percentage
-                })
-            
-            utterance_breakdown["account_industry"].sort(key=lambda x: x["count"], reverse=True)
             utterance_breakdown["product"].sort(key=lambda x: x["count"], reverse=True)
-            utterance_breakdown["tracker"].sort(key=lambda x: x["count"], reverse=True)
 
         excluded_topic_percentages = {}
         for topic, count in utterance_stats["excluded_topics"].items():
@@ -1262,12 +1200,6 @@ def process():
         logger.info(f"Computed stats: {stats}")
         logger.info(f"Utterance breakdown: {utterance_breakdown}")
 
-        elapsed_time = time.time() - start_time
-        if elapsed_time > MAX_PROCESSING_TIME:
-            logger.error("Processing time exceeded limit before final file operations")
-            form_state["message"] = "Processing took too long. Please try a smaller date range."
-            return render_template('index.html', form_state=form_state, **form_state)
-
         unique_id = datetime.now().strftime("%Y%m%d%H%M%S")
         logger.info(f"Using output directory: {OUTPUT_DIR}")
         cleanup_old_files()
@@ -1286,79 +1218,60 @@ def process():
         save_file_paths(paths)
 
         save_utterances_to_csv(utterances_df, utterances_path)
-        call_summary_df.to_csv(call_summary_path, index=False, quoting=csv.QUOTE_NONNUMERIC, encoding='utf-8')
-        with open(json_path, 'w') as f:
-            json.dump(json_data, f, indent=2)
+        call_summary_df.to_csv(call_summary_path, index=False, quoting=csv.QUOTE_NONNUMERIC, encoding='utf-8', errors='replace')
+        with open(json_path, 'w', encoding='utf-8') as f:
+            json.dump(json_data, f, indent=2, ensure_ascii=False)
+        logger.info(f"Saved JSON to {json_path}")
 
-        logger.info(f"Processed {len(full_data)} calls. Dropped {dropped_calls} calls. Filtered utterances: {len(utterances_df)}")
-        form_state["message"] = f"Processed {len(full_data)} calls. Dropped {dropped_calls} calls. Filtered utterances: {len(utterances_df)}."
+        form_state["message"] = "Processing completed successfully."
         form_state["show_download"] = True
         form_state["stats"] = stats
         form_state["utterance_breakdown"] = utterance_breakdown
-        return render_template('index.html', form_state=form_state, **form_state)
+        logger.info("Rendering index.html with download links")
+
+        # Change 4: Compute max_date for template
+        current_date = datetime.now(pytz.UTC)
+        max_date = (current_date - timedelta(days=1)).strftime('%Y-%m-%d')
+        return render_template('index.html',
+                             form_state=form_state,
+                             start_date=start_date,
+                             end_date=end_date,
+                             products=products,
+                             access_key=access_key,
+                             secret_key=secret_key,
+                             message="Processing completed successfully.",
+                             show_download=True,
+                             stats=stats,
+                             utterance_breakdown=utterance_breakdown,
+                             current_date=current_date,
+                             max_date=max_date)  # Change 4: Pass max_date
 
     except GongAPIError as e:
-        logger.error(f"API error: {e.message}")
-        form_state["message"] = f"API Error: {e.message}. Please check your API keys and try again."
+        logger.error(f"Gong API error: {str(e)}\n{traceback.format_exc()}")
+        form_state["message"] = f"Gong API error: {e.message}"
         return render_template('index.html', form_state=form_state, **form_state)
     except Exception as e:
-        logger.error(f"Unexpected error: {str(e)}")
-        form_state["message"] = f"Unexpected error: {str(e)}. Please try again or check the logs for details."
+        logger.error(f"Unexpected error during processing: {str(e)}\n{traceback.format_exc()}")
+        form_state["message"] = "An unexpected error occurred. Please try again."
         return render_template('index.html', form_state=form_state, **form_state)
 
-@app.route('/download/utterances')
-def download_utterances():
+@app.route('/download/<file_type>')
+def download(file_type):
     paths = load_file_paths()
-    utterances_path = paths.get("utterances_path")
-    if not utterances_path or not os.path.exists(utterances_path):
+    path_key = f"{file_type}_path"
+    if path_key not in paths:
+        logger.error(f"Download path for {file_type} not found in paths: {paths}")
         return "File not found", 404
-    return send_file(
-        utterances_path,
-        mimetype='text/csv',
-        as_attachment=True,
-        download_name=os.path.basename(utterances_path)
-    )
-
-@app.route('/download/call_summary')
-def download_call_summary():
-    paths = load_file_paths()
-    call_summary_path = paths.get("call_summary_path")
-    if not call_summary_path or not os.path.exists(call_summary_path):
+    
+    file_path = paths[path_key]
+    if not os.path.exists(file_path):
+        logger.error(f"File not found on disk: {file_path}")
         return "File not found", 404
-    return send_file(
-        call_summary_path,
-        mimetype='text/csv',
-        as_attachment=True,
-        download_name=os.path.basename(call_summary_path)
-    )
+    
+    mime_type = 'text/csv' if file_type in ['utterances', 'call_summary'] else 'application/json' if file_type == 'json' else 'text/plain'
+    return send_file(file_path, as_attachment=True, download_name=os.path.basename(file_path), mimetype=mime_type)
 
-@app.route('/download/json')
-def download_json():
-    paths = load_file_paths()
-    json_path = paths.get("json_path")
-    if not json_path or not os.path.exists(json_path):
-        return "File not found", 404
-    return send_file(
-        json_path,
-        mimetype='application/json',
-        as_attachment=True,
-        download_name=os.path.basename(json_path)
-    )
-
-@app.route('/download/logs')
-def download_logs():
-    paths = load_file_paths()
-    log_path = paths.get("log_path")
-    if not log_path or not os.path.exists(log_path):
-        return "File not found", 404
-    return send_file(
-        log_path,
-        mimetype='text/plain',
-        as_attachment=True,
-        download_name="logs.txt"
-    )
-
-if __name__ == "__main__":
-    port = int(os.environ.get('PORT', 10000))
-    debug_mode = os.environ.get('FLASK_DEBUG', 'False').lower() == 'true'
-    app.run(host='0.0.0.0', port=port, debug=debug_mode)
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 5000))
+    logger.info(f"Starting Flask app on port {port}")
+    app.run(host='0.0.0.0', port=port, debug=os.environ.get('FLASK_DEBUG', 'False').lower() == 'true')

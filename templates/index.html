@@ -5,128 +5,154 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GongGPT by Forrest</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        .icon-small { width: 16px; height: 16px; margin-right: 8px; vertical-align: middle; }
-        .header-icon { width: 16px; height: 16px; display: inline-block; margin-right: 8px; vertical-align: middle; }
-        .product-checkboxes { max-height: 150px; overflow-y: auto; padding: 5px; border: 1px solid #ccc; }
-        .product-checkboxes label { display: block; width: auto; padding: 2px 0; }
-        .product-checkboxes input { width: auto; margin-right: 5px; }
-    </style>
 </head>
-<body class="bg-gray-100 font-sans">
-    <div class="container max-w-4xl mx-auto p-6">
-        <h1 class="text-3xl font-bold text-gray-800 mb-6">
-            GongGPT by Forrest
-        </h1>
+<body class="bg-gray-100">
+    <div class="container mx-auto p-4">
+        <h1 class="text-2xl font-bold mb-4">GongGPT by Forrest</h1>
         
-        <!-- Display Message (e.g., validation errors or success) -->
+        <form method="post" action="/process" class="bg-white shadow-md rounded px-8 pt-6 pb-8 mb-4">
+            <div class="mb-4">
+                <div class="flex space-x-4">
+                    <div class="w-1/2">
+                        <label class="block text-gray-700 text-sm font-bold mb-2" for="access_key">
+                            Gong Access Key
+                        </label>
+                        <input class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" 
+                               id="access_key" 
+                               name="access_key" 
+                               type="password" 
+                               value="{{ access_key }}"
+                               placeholder="Enter Gong Access Key">
+                    </div>
+                    <div class="w-1/2">
+                        <label class="block text-gray-700 text-sm font-bold mb-2" for="secret_key">
+                            Gong Secret Key
+                        </label>
+                        <input class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" 
+                               id="secret_key" 
+                               name="secret_key" 
+                               type="password" 
+                               value="{{ secret_key }}"
+                               placeholder="Enter Gong Secret Key">
+                    </div>
+                </div>
+            </div>
+
+            <div class="mb-4">
+                <div class="flex space-x-4">
+                    <div class="w-1/2">
+                        <label class="block text-gray-700 text-sm font-bold mb-2" for="start_date">
+                            From Date
+                        </label>
+                        <input class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" 
+                               id="start_date" 
+                               name="start_date" 
+                               type="date" 
+                               value="{{ start_date }}" 
+                               placeholder="mm/dd/yyyy">
+                    </div>
+                    <div class="w-1/2">
+                        <label class="block text-gray-700 text-sm font-bold mb-2" for="end_date">
+                            To Date
+                        </label>
+                        <input class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" 
+                               id="end_date" 
+                               name="end_date" 
+                               type="date" 
+                               value="{{ end_date }}"
+                               max="{{ max_date }}"  <!-- Change 4: Use max_date -->
+                               placeholder="mm/dd/yyyy">
+                    </div>
+                </div>
+            </div>
+
+            <div class="mb-4">
+                <label class="block text-gray-700 text-sm font-bold mb-2">
+                    Products
+                </label>
+                <div class="flex flex-wrap -mx-2">
+                    {% for product in products %}
+                    <div class="w-1/4 px-2 mb-4">
+                        <label class="inline-flex items-center">
+                            <input type="checkbox" 
+                                   name="products" 
+                                   value="{{ product }}" 
+                                   class="form-checkbox h-5 w-5 text-indigo-600" 
+                                   {% if product in form_state.products %}checked{% endif %}>
+                            <span class="ml-2 text-gray-700">{{ product }}</span>
+                        </label>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div class="flex items-center justify-between">
+                <button class="bg-indigo-500 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline" 
+                        type="submit">
+                    Submit
+                </button>
+            </div>
+        </form>
+
         {% if form_state.message %}
-        <div class="{% if 'Processed' in form_state.message %}bg-green-100 border-l-4 border-green-500 text-green-700{% else %}bg-red-100 border-l-4 border-red-500 text-red-700{% endif %} p-4 mb-6" role="alert">
+        <div class="bg-blue-100 border-l-4 border-blue-500 text-blue-700 p-4 mb-4" role="alert">
             <p>{{ form_state.message }}</p>
         </div>
         {% endif %}
 
-        <!-- Input Form -->
-        <form action="/process" method="post" class="bg-white p-6 rounded-lg shadow-md mb-6">
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                <div>
-                    <label for="access_key" class="block text-sm font-medium text-gray-700">Gong Access Key</label>
-                    <input type="password" id="access_key" name="access_key" value="{{ access_key }}"
-                           class="mt-1 block w-full p-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500">
-                </div>
-                <div>
-                    <label for="secret_key" class="block text-sm font-medium text-gray-700">Gong Secret Key</label>
-                    <input type="password" id="secret_key" name="secret_key" value="{{ secret_key }}"
-                           class="mt-1 block w-full p-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500">
-                </div>
-            </div>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                <div>
-                    <label for="start_date" class="block text-sm font-medium text-gray-700">From Date</label>
-                    <input type="date" id="start_date" name="start_date" value="{{ start_date }}"
-                           class="mt-1 block w-full p-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500">
-                </div>
-                <div>
-                    <label for="end_date" class="block text-sm font-medium text-gray-700">To Date</label>
-                    <input type="date" id="end_date" name="end_date" value="{{ end_date }}"
-                           class="mt-1 block w-full p-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500">
-                </div>
-            </div>
-            <div class="mb-4">
-                <label class="block text-sm font-medium text-gray-700">Products</label>
-                <div class="product-checkboxes mt-1">
-                    {% for product in products %}
-                    <label class="flex items-center">
-                        <input type="checkbox" name="products" value="{{ product }}" checked
-                               class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded">
-                        <span class="ml-2 text-sm text-gray-700">{{ product }}</span>
-                    </label>
-                    {% endfor %}
-                </div>
-            </div>
-            <button type="submit" class="w-full bg-indigo-600 text-white p-2 rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
-                Submit
-            </button>
-        </form>
-
         {% if show_download %}
-        <!-- Calls Section -->
-        <div class="bg-white p-6 rounded-lg shadow-md mb-6">
-            <h2 class="text-xl font-semibold text-gray-800 mb-4">Calls: {{ stats.callsIncluded }} included ({{ stats.percentIncluded | round | int }}%)</h2>
+        <div class="bg-white shadow-md rounded px-8 pt-6 pb-8 mb-4">
+            <h2 class="text-xl font-bold mb-4">Calls ({{ stats.callsIncluded }} included ({{ stats.percentIncluded | round | int }}%))</h2>
+            <p class="mb-2">
+                ({{ stats.totalCallsRetrieved }}) retrieved 
+                {% if stats.droppedCalls > 0 %}({{ stats.percentDropped }}% dropped) {% endif %}
+                {% if stats.callsWithNoProducts > 0 %}({{ stats.percentNoProducts }}% no product tags) {% endif %}
+                {% if stats.callsNotMatchingSelection > 0 %}({{ stats.percentNotMatching }}% not matching selection) {% endif %}
+            </p>
+            <p class="text-sm text-gray-500 mb-4">
+                Note: ({{ stats.invalidDateCalls }}) calls have invalid dates due to API issues.<br>
+                Note: ({{ stats.partialDataCalls }}) calls have partial data due to normalization issues.
+            </p>
+
             <div class="overflow-x-auto">
-                <table class="min-w-full divide-y divide-gray-200">
+                <table class="min-w-full bg-white">
                     <thead class="bg-gray-50">
                         <tr>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Count</th>
-                            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Percentage</th>
+                            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Count</th>
                         </tr>
                     </thead>
-                    <tbody class="bg-white divide-y divide-gray-200">
-                        {% if stats.totalCallsRetrieved > 0 %}
-                        <tr>
+                    <tbody>
+                        <tr class="bg-white">
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Retrieved</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ "{:,}".format(stats.totalCallsRetrieved) }}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">100%</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ "{:,}".format(stats.totalCallsRetrieved) }}</td>
                         </tr>
-                        {% endif %}
-                        {% if stats.droppedCalls > 0 %}
-                        <tr>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Excluded (Invalid)</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ "{:,}".format(stats.droppedCalls) }}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ stats.percentDropped | round | int }}%</td>
+                        <tr class="bg-gray-50">
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Excluded (invalid)</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ "{:,}".format(stats.droppedCalls) }}</td>
                         </tr>
-                        {% endif %}
-                        {% if stats.callsWithNoProducts > 0 %}
-                        <tr>
+                        <tr class="bg-white">
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Excluded (No Product Tag)</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ "{:,}".format(stats.callsWithNoProducts) }}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ stats.percentNoProducts | round | int }}%</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ "{:,}".format(stats.callsWithNoProducts) }}</td>
                         </tr>
-                        {% endif %}
-                        {% if stats.callsNotMatchingSelection > 0 %}
-                        <tr>
+                        <tr class="bg-gray-50">
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Excluded (Product Selection)</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ "{:,}".format(stats.callsNotMatchingSelection) }}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ stats.percentNotMatching | round | int }}%</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ "{:,}".format(stats.callsNotMatchingSelection) }}</td>
                         </tr>
-                        {% endif %}
                     </tbody>
                 </table>
             </div>
-            {% if stats.invalidDateCalls > 0 %}
-            <p class="text-sm text-gray-500 mt-2">Note: {{ "{:,}".format(stats.invalidDateCalls) }} call(s) have invalid dates due to API data issues.</p>
-            {% endif %}
-            {% if stats.partialDataCalls > 0 %}
-            <p class="text-sm text-gray-500 mt-2">Note: {{ "{:,}".format(stats.partialDataCalls) }} call(s) have partial data due to normalization issues.</p>
-            {% endif %}
         </div>
 
-        <!-- Utterances Section -->
-        <div class="bg-white p-6 rounded-lg shadow-md mb-6">
-            <h2 class="text-xl font-semibold text-gray-800 mb-4">Utterances: {{ stats.included_utterances }} included ({{ stats.percentIncludedUtterances | round | int }}%)</h2>
+        <div class="bg-white shadow-md rounded px-8 pt-6 pb-8 mb-4">
+            <h2 class="text-xl font-bold mb-4">Utterances: ({{ stats.included_utterances }}) included ({{ stats.percentIncludedUtterances | round | int }}%)</h2>
+            <p class="mb-2">
+                {% if stats.internal_utterances > 0 %}{{ stats.percentInternalUtterances }}% internal speakers {% endif %}
+                {% if stats.short_utterances > 0 %}{{ stats.percentShortUtterances }}% short utterances {% endif %}
+                {% if stats.excluded_topic_utterances > 0 %}{{ stats.percentExcludedTopics }}% excluded topics {% endif %}
+            </p>
             <div class="overflow-x-auto">
-                <table class="min-w-full divide-y divide-gray-200">
+                <table class="min-w-full bg-white">
                     <thead class="bg-gray-50">
                         <tr>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Exclusion</th>
@@ -134,53 +160,64 @@
                             <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Percent</th>
                         </tr>
                     </thead>
-                    <tbody class="bg-white divide-y divide-gray-200">
-                        {% if stats.internal_utterances > 0 %}
-                        <tr>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Internal Speakers</td>
+                    <tbody>
+                        <tr class="bg-white">
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Internal Speaker</td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ "{:,}".format(stats.internal_utterances) }}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ stats.percentInternalUtterances | round | int }}%</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ stats.percentInternalUtterances }}%</td>
                         </tr>
-                        {% endif %}
-                        {% if stats.short_utterances > 0 %}
-                        <tr>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Under 8 words</td>
+                        <tr class="bg-gray-50">
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Short Utterance</td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ "{:,}".format(stats.short_utterances) }}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ stats.percentShortUtterances | round | int }}%</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ stats.percentShortUtterances }}%</td>
                         </tr>
-                        {% endif %}
-                        {% for topic, count in stats.excluded_topics.items() %}
-                        {% if count > 0 %}
-                        <tr>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ topic | capitalize }}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ "{:,}".format(count) }}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ stats.excluded_topic_percentages[topic] | round | int }}%</td>
+                        <tr class="bg-white">
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Excluded Topics</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ "{:,}".format(stats.excluded_topic_utterances) }}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ stats.percentExcludedTopics }}%</td>
                         </tr>
-                        {% endif %}
-                        {% endfor %}
                     </tbody>
                 </table>
             </div>
-        </div>
 
-        <!-- Utterances by Product Tag Section -->
-        <div class="bg-white p-6 rounded-lg shadow-md mb-6">
-            <h2 class="text-xl font-semibold text-gray-800 mb-4">Utterances by Product Tag</h2>
+            <h3 class="text-lg font-semibold mt-4 mb-2">Excluded Topics Breakdown:</h3>
             <div class="overflow-x-auto">
-                <table class="min-w-full divide-y divide-gray-200">
+                <table class="min-w-full bg-white">
                     <thead class="bg-gray-50">
                         <tr>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Topic</th>
                             <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Count</th>
                             <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Percent</th>
                         </tr>
                     </thead>
-                    <tbody class="bg-white divide-y divide-gray-200">
+                    <tbody>
+                        {% for topic, percentage in stats.excluded_topic_percentages.items() %}
+                        <tr class="{% cycle 'bg-white' 'bg-gray-50' %}">
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ topic }}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ "{:,}".format(stats.excluded_topics[topic]) }}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ percentage }}%</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            <h3 class="text-lg font-semibold mt-4 mb-2">Product Breakdown:</h3>
+            <div class="overflow-x-auto">
+                <table class="min-w-full bg-white">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Product</th>
+                            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Count</th>
+                            <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Percent</th>
+                        </tr>
+                    </thead>
+                    <tbody>
                         {% for item in utterance_breakdown.product %}
-                        <tr class="{{ loop.cycle('bg-white', 'bg-gray-50') }}">
+                        <tr class="{% cycle 'bg-white' 'bg-gray-50' %}">
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ item.value }}</td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ "{:,}".format(item.count) }}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ item.percentage | round | int }}%</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ item.percentage }}%</td>
                         </tr>
                         {% endfor %}
                     </tbody>
@@ -188,25 +225,13 @@
             </div>
         </div>
 
-        <!-- Files Section -->
-        <div class="bg-white p-6 rounded-lg shadow-md">
-            <h2 class="text-xl font-semibold text-gray-800 mb-4">Files</h2>
+        <div class="bg-white shadow-md rounded px-8 pt-6 pb-8 mb-4">
+            <h2 class="text-xl font-bold mb-4">Downloads</h2>
             <div class="space-y-2">
-                <a href="/download/utterances" class="flex items-center text-indigo-600 hover:bg-gray-50 hover:scale-105 transition-transform p-2 rounded-md">
-                    Filtered Utterances CSV
-                </a>
-                <a href="/download/call_summary" class="flex items-center text-indigo-600 hover:bg-gray-50 hover:scale-105 transition-transform p-2 rounded-md">
-                    Call Summary CSV
-                </a>
-                <a href="/download/json" class="flex items-center text-indigo-600 hover:bg-gray-50 hover:scale-105 transition-transform p-2 rounded-md">
-                    Transcripts JSON
-                </a>
-                <a href="https://docs.google.com/document/d/1Gmb07NWxO_XFXyKCKCxuvkKnQ1YWcew0EQfvIqbDotA/edit?usp=sharing" class="flex items-center text-indigo-600 hover:bg-gray-50 hover:scale-105 transition-transform p-2 rounded-md">
-                    GPT Instructions
-                </a>
-                <a href="/download/logs" class="flex items-center text-indigo-600 hover:bg-gray-50 hover:scale-105 transition-transform p-2 rounded-md">
-                    Logs
-                </a>
+                <a href="/download/utterances" class="block text-indigo-500 hover:underline">Utterances CSV</a>
+                <a href="/download/call_summary" class="block text-indigo-500 hover:underline">Call Summary CSV</a>
+                <a href="/download/json" class="block text-indigo-500 hover:underline">Transcripts JSON</a>
+                <a href="/download/logs" class="block text-indigo-500 hover:underline">App Log</a> <!-- Change 6: Fix to /download/logs -->
             </div>
         </div>
         {% endif %}
