@@ -21,7 +21,7 @@
                                id="access_key" 
                                name="access_key" 
                                type="password" 
-                               value="{{ access_key }}"
+                               value="{{ form_state.access_key }}"
                                placeholder="Enter Gong Access Key">
                     </div>
                     <div class="w-1/2">
@@ -32,7 +32,7 @@
                                id="secret_key" 
                                name="secret_key" 
                                type="password" 
-                               value="{{ secret_key }}"
+                               value="{{ form_state.secret_key }}"
                                placeholder="Enter Gong Secret Key">
                     </div>
                 </div>
@@ -48,7 +48,7 @@
                                id="start_date" 
                                name="start_date" 
                                type="date" 
-                               value="{{ start_date }}" 
+                               value="{{ form_state.start_date }}" 
                                placeholder="mm/dd/yyyy">
                     </div>
                     <div class="w-1/2">
@@ -59,7 +59,7 @@
                                id="end_date" 
                                name="end_date" 
                                type="date" 
-                               value="{{ end_date }}"
+                               value="{{ form_state.end_date }}"
                                max="{{ max_date }}"
                                placeholder="mm/dd/yyyy">
                     </div>
@@ -71,7 +71,7 @@
                     Products
                 </label>
                 <div class="flex flex-wrap -mx-2">
-                    {% for product in products %}
+                    {% for product in available_products %}
                     <div class="w-1/4 px-2 mb-4">
                         <label class="inline-flex items-center">
                             <input type="checkbox" 
@@ -100,18 +100,18 @@
         </div>
         {% endif %}
 
-        {% if show_download %}
+        {% if form_state.show_download %}
         <div class="bg-white shadow-md rounded px-8 pt-6 pb-8 mb-4">
-            <h2 class="text-xl font-bold mb-4">Calls ({{ stats.callsIncluded }} included ({{ stats.percentIncluded | round | int }}%))</h2>
+            <h2 class="text-xl font-bold mb-4">Calls ({{ form_state.stats.callsIncluded }} included ({{ form_state.stats.percentIncluded | round | int }}%))</h2>
             <p class="mb-2">
-                ({{ stats.totalCallsRetrieved }}) retrieved 
-                {% if stats.droppedCalls > 0 %}({{ stats.percentDropped }}% dropped) {% endif %}
-                {% if stats.callsWithNoProducts > 0 %}({{ stats.percentNoProducts }}% no product tags) {% endif %}
-                {% if stats.callsNotMatchingSelection > 0 %}({{ stats.percentNotMatching }}% not matching selection) {% endif %}
+                ({{ form_state.stats.totalCallsRetrieved }}) retrieved 
+                {% if form_state.stats.droppedCalls > 0 %}({{ form_state.stats.percentDropped }}% dropped) {% endif %}
+                {% if form_state.stats.callsWithNoProducts > 0 %}({{ form_state.stats.percentNoProducts }}% no product tags) {% endif %}
+                {% if form_state.stats.callsNotMatchingSelection > 0 %}({{ form_state.stats.percentNotMatching }}% not matching selection) {% endif %}
             </p>
             <p class="text-sm text-gray-500 mb-4">
-                Note: ({{ stats.invalidDateCalls }}) calls have invalid dates due to API issues.<br>
-                Note: ({{ stats.partialDataCalls }}) calls have partial data due to normalization issues.
+                Note: ({{ form_state.stats.invalidDateCalls }}) calls have invalid dates due to API issues.<br>
+                Note: ({{ form_state.stats.partialDataCalls }}) calls have partial data due to normalization issues.
             </p>
 
             <div class="overflow-x-auto">
@@ -125,19 +125,19 @@
                     <tbody>
                         <tr class="bg-white">
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Retrieved</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ "{:,}".format(stats.totalCallsRetrieved) }}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ "{:,}".format(form_state.stats.totalCallsRetrieved) }}</td>
                         </tr>
                         <tr class="bg-gray-50">
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Excluded (invalid)</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ "{:,}".format(stats.droppedCalls) }}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ "{:,}".format(form_state.stats.droppedCalls) }}</td>
                         </tr>
                         <tr class="bg-white">
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Excluded (No Product Tag)</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ "{:,}".format(stats.callsWithNoProducts) }}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ "{:,}".format(form_state.stats.callsWithNoProducts) }}</td>
                         </tr>
                         <tr class="bg-gray-50">
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Excluded (Product Selection)</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ "{:,}".format(stats.callsNotMatchingSelection) }}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ "{:,}".format(form_state.stats.callsNotMatchingSelection) }}</td>
                         </tr>
                     </tbody>
                 </table>
@@ -145,11 +145,11 @@
         </div>
 
         <div class="bg-white shadow-md rounded px-8 pt-6 pb-8 mb-4">
-            <h2 class="text-xl font-bold mb-4">Utterances: ({{ stats.included_utterances }}) included ({{ stats.percentIncludedUtterances | round | int }}%)</h2>
+            <h2 class="text-xl font-bold mb-4">Utterances: ({{ form_state.stats.included_utterances }}) included ({{ form_state.stats.percentIncludedUtterances | round | int }}%)</h2>
             <p class="mb-2">
-                {% if stats.internal_utterances > 0 %}{{ stats.percentInternalUtterances }}% internal speakers {% endif %}
-                {% if stats.short_utterances > 0 %}{{ stats.percentShortUtterances }}% short utterances {% endif %}
-                {% if stats.excluded_topic_utterances > 0 %}{{ stats.percentExcludedTopics }}% excluded topics {% endif %}
+                {% if form_state.stats.internal_utterances > 0 %}{{ form_state.stats.percentInternalUtterances }}% internal speakers {% endif %}
+                {% if form_state.stats.short_utterances > 0 %}{{ form_state.stats.percentShortUtterances }}% short utterances {% endif %}
+                {% if form_state.stats.excluded_topic_utterances > 0 %}{{ form_state.stats.percentExcludedTopicUtterances }}% excluded topics {% endif %}
             </p>
             <div class="overflow-x-auto">
                 <table class="min-w-full bg-white">
@@ -163,18 +163,18 @@
                     <tbody>
                         <tr class="bg-white">
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Internal Speaker</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ "{:,}".format(stats.internal_utterances) }}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ stats.percentInternalUtterances }}%</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ "{:,}".format(form_state.stats.internal_utterances) }}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ form_state.stats.percentInternalUtterances }}%</td>
                         </tr>
                         <tr class="bg-gray-50">
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Short Utterance</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ "{:,}".format(stats.short_utterances) }}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ stats.percentShortUtterances }}%</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ "{:,}".format(form_state.stats.short_utterances) }}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ form_state.stats.percentShortUtterances }}%</td>
                         </tr>
                         <tr class="bg-white">
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">Excluded Topics</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ "{:,}".format(stats.excluded_topic_utterances) }}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ stats.percentExcludedTopics }}%</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ "{:,}".format(form_state.stats.excluded_topic_utterances) }}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ form_state.stats.percentExcludedTopicUtterances }}%</td>
                         </tr>
                     </tbody>
                 </table>
@@ -191,10 +191,10 @@
                         </tr>
                     </thead>
                     <tbody>
-                        {% for topic, percentage in stats.excluded_topic_percentages.items() %}
+                        {% for topic, percentage in form_state.stats.excluded_topic_percentages.items() %}
                         <tr class="{% if loop.index0 % 2 == 0 %}bg-white{% else %}bg-gray-50{% endif %}">
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ topic }}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ "{:,}".format(stats.excluded_topics[topic]) }}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ "{:,}".format(form_state.stats.excluded_topics[topic]) }}</td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ percentage }}%</td>
                         </tr>
                         {% endfor %}
@@ -213,7 +213,7 @@
                         </tr>
                     </thead>
                     <tbody>
-                        {% for item in utterance_breakdown.product %}
+                        {% for item in form_state.utterance_breakdown.product %}
                         <tr class="{% if loop.index0 % 2 == 0 %}bg-white{% else %}bg-gray-50{% endif %}">
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ item.value }}</td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{{ "{:,}".format(item.count) }}</td>

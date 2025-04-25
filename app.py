@@ -999,7 +999,7 @@ def index():
         response = render_template('index.html', 
                                start_date=start_date.strftime('%Y-%m-%d'), 
                                end_date=end_date.strftime('%Y-%m-%d'), 
-                               products=ALL_PRODUCT_TAGS, 
+                               available_products=ALL_PRODUCT_TAGS, 
                                access_key="", 
                                secret_key="", 
                                message="", 
@@ -1043,7 +1043,7 @@ def process():
     if not start_date or not end_date:
         logger.warning("Validation failed: Missing start or end date")
         form_state["message"] = "Missing start or end date."
-        return render_template('index.html', form_state=form_state, products=ALL_PRODUCT_TAGS, **form_state)
+        return render_template('index.html', form_state=form_state, available_products=ALL_PRODUCT_TAGS, **form_state)
 
     date_format = '%Y-%m-%d'
     try:
@@ -1060,26 +1060,26 @@ def process():
         if delta > MAX_DATE_RANGE_MONTHS:
             logger.warning(f"Validation failed: Date range exceeds {MAX_DATE_RANGE_MONTHS} months")
             form_state["message"] = f"Date range cannot exceed {MAX_DATE_RANGE_MONTHS} months. Please select a shorter range."
-            return render_template('index.html', form_state=form_state, products=ALL_PRODUCT_TAGS, **form_state)
+            return render_template('index.html', form_state=form_state, available_products=ALL_PRODUCT_TAGS, **form_state)
         
         if start_date_only > today or end_date_only > today:
             logger.warning("Validation failed: Date range includes future dates")
             form_state["message"] = "Date range cannot include future dates."
-            return render_template('index.html', form_state=form_state, products=ALL_PRODUCT_TAGS, **form_state)
+            return render_template('index.html', form_state=form_state, available_products=ALL_PRODUCT_TAGS, **form_state)
         
         if start_date_only > end_date_only:
             logger.warning("Validation failed: Start date after end date")
             form_state["message"] = "Start date cannot be after end date."
-            return render_template('index.html', form_state=form_state, products=ALL_PRODUCT_TAGS, **form_state)
+            return render_template('index.html', form_state=form_state, available_products=ALL_PRODUCT_TAGS, **form_state)
     except ValueError as e:
         logger.warning(f"Validation failed: Invalid date format - {str(e)}\n{traceback.format_exc()}")
         form_state["message"] = "Invalid date format. Use YYYY-MM-DD."
-        return render_template('index.html', form_state=form_state, products=ALL_PRODUCT_TAGS, **form_state)
+        return render_template('index.html', form_state=form_state, available_products=ALL_PRODUCT_TAGS, **form_state)
 
     if not access_key or not secret_key:
         logger.warning("Validation failed: Missing API keys")
         form_state["message"] = "Missing API keys."
-        return render_template('index.html', form_state=form_state, products=ALL_PRODUCT_TAGS, **form_state)
+        return render_template('index.html', form_state=form_state, available_products=ALL_PRODUCT_TAGS, **form_state)
 
     logger.info("All validations passed, proceeding with API call")
     try:
@@ -1096,7 +1096,7 @@ def process():
         if not call_ids:
             logger.info("No calls found for the selected date range")
             form_state["message"] = "No calls found for the selected date range."
-            return render_template('index.html', form_state=form_state, products=ALL_PRODUCT_TAGS, **form_state)
+            return render_template('index.html', form_state=form_state, available_products=ALL_PRODUCT_TAGS, **form_state)
 
         full_data = []
         dropped_calls = 0
@@ -1123,7 +1123,7 @@ def process():
         if not full_data:
             logger.info(f"No valid call data retrieved. Dropped {dropped_calls} calls")
             form_state["message"] = f"No valid call data retrieved. Dropped {dropped_calls} calls."
-            return render_template('index.html', form_state=form_state, products=ALL_PRODUCT_TAGS, **form_state)
+            return render_template('index.html', form_state=form_state, available_products=ALL_PRODUCT_TAGS, **form_state)
 
         utterances_df, utterance_stats = prepare_utterances_df(full_data, selected_products)
         call_summary_df = prepare_call_summary_df(full_data, selected_products)
@@ -1132,7 +1132,7 @@ def process():
         if utterances_df.empty and call_summary_df.empty:
             logger.info("No calls matched the selected products")
             form_state["message"] = "No calls matched the selected products."
-            return render_template('index.html', form_state=form_state, products=ALL_PRODUCT_TAGS, **form_state)
+            return render_template('index.html', form_state=form_state, available_products=ALL_PRODUCT_TAGS, **form_state)
 
         total_calls = len(full_data) + dropped_calls
         partial_data_calls = sum(1 for call in full_data if call["partial_data"])
@@ -1233,16 +1233,16 @@ def process():
             "utterance_breakdown": utterance_breakdown
         })
         logger.info("Processing completed successfully")
-        return render_template('index.html', form_state=form_state, products=ALL_PRODUCT_TAGS, **form_state)
+        return render_template('index.html', form_state=form_state, available_products=ALL_PRODUCT_TAGS, **form_state)
 
     except GongAPIError as e:
         logger.error(f"Gong API error: {str(e)}\n{traceback.format_exc()}")
         form_state["message"] = f"API Error: {e.message}"
-        return render_template('index.html', form_state=form_state, products=ALL_PRODUCT_TAGS, **form_state)
+        return render_template('index.html', form_state=form_state, available_products=ALL_PRODUCT_TAGS, **form_state)
     except Exception as e:
         logger.error(f"Unexpected error during processing: {str(e)}\n{traceback.format_exc()}")
         form_state["message"] = "An unexpected error occurred. Please try again."
-        return render_template('index.html', form_state=form_state, products=ALL_PRODUCT_TAGS, **form_state)
+        return render_template('index.html', form_state=form_state, available_products=ALL_PRODUCT_TAGS, **form_state)
 
 @app.route('/download/<file_type>')
 def download(file_type):
