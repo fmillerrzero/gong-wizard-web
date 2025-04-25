@@ -101,7 +101,6 @@ INTERNAL_SPEAKERS = {speaker.lower() for speaker in [
 EXCLUDED_TOPICS = {topic.lower() for topic in ["call setup", "small talk", "wrap-up"]}
 MAX_DATE_RANGE_MONTHS = 12
 
-# Mapping of call IDs to account names (without leading quote in input)
 CALL_ID_TO_ACCOUNT_NAME = {call_id: name.lower() for call_id, name in {
     "1846318168516521453": "skanska",
     "3516974213942229787": "polinger",
@@ -136,12 +135,10 @@ CALL_ID_TO_ACCOUNT_NAME = {call_id: name.lower() for call_id, name in {
     "6730174387046870110": "syserco"
 }.items()}
 
-# Account names that should always have org_type = "owner"
 OWNER_ACCOUNT_NAMES = {name.lower() for name in [
     "brandywine reit", "crescent real estate", "hudson pacific properties"
 ]}
 
-# Precompile regex patterns for Occupancy Analytics with case-insensitive flag
 for product in list(PRODUCT_MAPPINGS.keys()):
     if product.lower() == "occupancy analytics":
         PRODUCT_MAPPINGS[product] = [re.compile(pattern, re.IGNORECASE) for pattern in PRODUCT_MAPPINGS[product]]
@@ -500,10 +497,10 @@ def normalize_call_data(call, transcript):
             tracker_name = get_field(tracker, "name", "").lower()
             for occurrence in tracker.get("occurrences", []):
                 tracker_occurrences.append({
-                    "tracker_name": tracker_name,
-                    "phrase": get_field(occurrence, "phrase", ""),
-                    "start": int(get_field(occurrence, "startTime", 0)),
-                    "speakerId": get_field(occurrence, "speakerId", "")
+                    "tracker_name": str(tracker_name).lower(),
+                    "phrase": str(get_field(occurrence, "phrase", "")),
+                    "start": float(get_field(occurrence, "startTime", 0.0)),
+                    "speakerId": str(get_field(occurrence, "speakerId", ""))
                 })
 
         call_summary = get_field(content, "brief", "")
@@ -571,19 +568,17 @@ def prepare_utterances_df(calls, selected_products):
     excluded_topic_utterances = 0
     excluded_topics = {topic: 0 for topic in EXCLUDED_TOPICS}
     data = []
-    call_tracker_map = {}
     selected_products_lower = [p.lower() for p in selected_products]
-    excluded_topics_set = EXCLUDED_TOPICS
     
     for call in calls:
         call_id = call["call_id"]
         products = call.get("products", [])
+        # Early filtering: skip calls without relevant products
+        if not any(p.lower() in selected_products_lower for p in products):
+            logger.debug(f"Call {call_id}: Products {products} don't match selection {selected_products}, skipping")
+            continue
         if not products:
             logger.debug(f"Call {call_id}: No products assigned, skipping")
-            continue
-        products_lower = [p.lower() for p in products if isinstance(p, str)]
-        if not any(p in selected_products_lower for p in products_lower):
-            logger.debug(f"Call {call_id}: Products {products} don't match selection {selected_products}, skipping")
             continue
         logger.debug(f"Call {call_id}: Products assigned: {products}, Selected products: {selected_products}")
 
@@ -597,54 +592,58 @@ def prepare_utterances_df(calls, selected_products):
             logger.debug(f"Call {call_id}: No utterances found, skipping")
             continue
         
-        call_tracker_map[call_id] = {}
+        # Associate trackers with utterances
         for utterance in utterances:
             sentences = utterance.get("sentences", [])
-            if not sentences or not all(isinstance(s, dict) and "start" in s and "end" in s and s["start"] <= s["end"] for s in sentences):
-                logger.debug(f"Call {call_id}: Utterance skipped due to missing or invalid sentence data")
+            if not sentences or not all(isinstance(s, dict) and "start" in s and "end" in s for s in sentences):
                 continue
-            
-            start_times = [int(s.get("start", 0)) for s in sentences if s.get("start") is not None]
-            end_times = [int(s.get("end", 0)) for s in sentences if s.get("end") is not None]
+            start_times = [s.get("start", 0) / 1000.0 for s in sentences if s.get("start") is not None]  # Convert to seconds
+            end_times = [s.get("end", 0) / 1000.0 for s in sentences if s.get("end") is not None]  # Convert to seconds
             if not start_times or not end_times:
-                logger.warning(f"Call {call_id}: Utterance skipped due to missing start or end times in sentences")
                 continue
-            
             start_time = min(start_times)
             end_time = max(end_times)
-            utterance_key = f"{call_id}_{start_time}_{end_time}"
-            call_tracker_map[call_id][utterance_key] = {"trackers": [], "start_time": start_time, "end_time": end_time}
-        
+            utterance["start_time"] = start_time
+            utterance["end_time"] = end_time
+            utterance["trackers"] = []
+
         for tracker in call.get("tracker_occurrences", []):
-            tracker_start = tracker.get("start")
-            if not tracker_start or tracker_start < 0:
-                logger.debug(f"Call {call_id}: Tracker skipped due to missing or invalid timestamp")
+            try:
+                tracker_time = float(tracker.get("start", 0.0))
+                if tracker_time <= 0:  # Invalid time
+                    continue
+            except (ValueError, TypeError):
+                logger.debug(f"Invalid tracker time for tracker {tracker.get('tracker_name', 'unknown')} in call {call_id}")
                 continue
-            tracker_time = int(tracker_start)
             tracker_name = get_field(tracker, "tracker_name", "").lower()
             if tracker_name in EXCLUDED_TRACKERS:
                 continue
-            for utterance_key, info in call_tracker_map[call_id].items():
-                utterance_start = info["start_time"]
-                utterance_end = info["end_time"]
-                if utterance_start <= tracker_time <= utterance_end:
-                    info["trackers"].append({"tracker_name": tracker_name})
-        
+            for utterance in utterances:
+                if "start_time" in utterance and utterance["start_time"] <= tracker_time <= utterance["end_time"]:
+                    utterance["trackers"].append({"tracker_name": tracker_name})
+                    logger.debug(f"Tracker {tracker_name} at time {tracker_time} matched to utterance {utterance['start_time']}-{utterance['end_time']} in call {call_id}")
+                # Optional buffer approach (uncomment to use):
+                # buffer = 0.5  # seconds
+                # if "start_time" in utterance and (utterance["start_time"] - buffer) <= tracker_time <= (utterance["end_time"] + buffer):
+                #     utterance["trackers"].append({"tracker_name": tracker_name})
+                #     logger.debug(f"Tracker {tracker_name} at time {tracker_time} matched to utterance {utterance['start_time']}-{utterance['end_time']} with buffer in call {call_id}")
+
         speaker_info = {get_field(p, "speakerId", ""): p for p in call["parties"]}
         
         for utterance in utterances:
             total_utterances += 1
             sentences = utterance.get("sentences", [])
             if not sentences:
-                logger.warning(f"Call {call_id}: Unexpected utterance structure: {list(utterance.keys())}")
                 continue
             
-            start_times = [int(s.get("start", 0)) for s in sentences if s.get("start") is not None]
-            end_times = [int(s.get("end", 0)) for s in sentences if s.get("end") is not None]
+            start_times = [s.get("start", 0) / 1000.0 for s in sentences if s.get("start") is not None]
+            end_times = [s.get("end", 0) / 1000.0 for s in sentences if s.get("end") is not None]
             if not start_times or not end_times:
                 continue
             
-            text = " ".join(s.get("text", "") if isinstance(s, dict) else "" for s in sentences)
+            start_time = min(start_times)
+            end_time = max(end_times)
+            text = " ".join(s.get("text", "") for s in sentences)
             
             speaker_id = get_field(utterance, "speakerId", "")
             speaker = speaker_info.get(speaker_id, {})
@@ -652,30 +651,26 @@ def prepare_utterances_df(calls, selected_products):
             speaker_email_address = get_field(speaker, "emailAddress", "")
             if not speaker_name and speaker_email_address:
                 speaker_name = get_email_local_part(speaker_email_address)
-                logger.debug(f"Populated missing speaker name with email local part: {speaker_name} in call {call_id}")
             
             email_domain = get_email_domain(speaker_email_address)
             original_affiliation = get_field(speaker, "affiliation", "unknown").lower()
-            if speaker_name in INTERNAL_SPEAKERS or (
+            is_internal = speaker_name in INTERNAL_SPEAKERS or (
                 email_domain and (
                     any(email_domain.endswith("." + internal_domain) for internal_domain in INTERNAL_DOMAINS) or 
                     email_domain in INTERNAL_DOMAINS
                 )
-            ):
+            )
+            if is_internal:
                 speaker_affiliation = "internal"
                 internal_utterances += 1
-                if original_affiliation != "internal":
-                    logger.info(f"Overrode affiliation from {original_affiliation} to internal for speaker {speaker_name} ({speaker_email_address}) in call {call_id}")
                 continue
             else:
                 speaker_affiliation = original_affiliation
             
             speaker_job_title = get_field(speaker, "title", "")
-            if not speaker_job_title:
-                logger.debug(f"Missing job title for speaker {speaker_name} in call {call_id}")
             
             topic = get_field(utterance, "topic", "").lower()
-            if topic in excluded_topics_set:
+            if topic in EXCLUDED_TOPICS:
                 excluded_topic_utterances += 1
                 excluded_topics[topic] += 1
                 continue
@@ -683,20 +678,9 @@ def prepare_utterances_df(calls, selected_products):
                 short_utterances += 1
                 continue
             
-            start_time = min(start_times)
-            end_time = max(end_times)
-            utterance_key = f"{call_id}_{start_time}_{end_time}"
-            triggered_trackers = call_tracker_map.get(call_id, {}).get(utterance_key, {"trackers": []})["trackers"]
-            
-            tracker_names = []
-            for t in triggered_trackers:
-                tracker_name = t["tracker_name"].lower()
-                if tracker_name == "negative impact (by gong)":
-                    tracker_name = "objection"
-                if tracker_name:
-                    tracker_names.append(tracker_name)
-            
-            if topic and topic not in excluded_topics_set:
+            triggered_trackers = utterance.get("trackers", [])
+            tracker_names = [t["tracker_name"] for t in triggered_trackers]
+            if topic and topic not in EXCLUDED_TOPICS:
                 tracker_names.append(topic)
             
             tracker_counts = {}
@@ -705,39 +689,33 @@ def prepare_utterances_df(calls, selected_products):
                     tracker_counts[name] = tracker_counts.get(name, 0) + 1
             tracker_str = "|".join(f"{name}: {count}" for name, count in tracker_counts.items()) if tracker_counts else ""
             
-            tracker_set = set(t["tracker_name"].lower() for t in triggered_trackers if t["tracker_name"])
-            logger.debug(f"Call {call_id}, Utterance {utterance_key}: Tracker set: {tracker_set}")
+            tracker_set = set(t["tracker_name"].lower() for t in triggered_trackers)
             
             product = ""
             mapped_products = set()
-            tracker_names_to_remove = set()
-            
             if "filter" in tracker_set or "filtration" in tracker_set:
                 mapped_products.add("secure air")
-                tracker_names_to_remove.add("filter")
-                tracker_names_to_remove.add("filtration")
-            if "energy savings" in tracker_set and "odcv" not in tracker_set:
-                mapped_products.add("secure air")
-                tracker_names_to_remove.add("energy savings")
-            elif "energy savings" in tracker_set and "filter" not in tracker_set:
-                mapped_products.add("odcv")
-                tracker_names_to_remove.add("energy savings")
+            if "energy savings" in tracker_set:
+                if "odcv" in tracker_set:
+                    mapped_products.add("odcv")
+                elif "filter" in tracker_set:
+                    mapped_products.add("secure air")
+                else:
+                    mapped_products.add("secure air")
+                    mapped_products.add("odcv")
             if "odcv" in tracker_set:
                 mapped_products.add("odcv")
-                tracker_names_to_remove.add("odcv")
             if "r-zero competitors" in tracker_set or "remote work (by gong)" in tracker_set:
                 mapped_products.add("occupancy analytics")
-                tracker_names_to_remove.add("r-zero competitors")
-                tracker_names_to_remove.add("remote work (by gong)")
             if "air quality" in tracker_set:
                 mapped_products.add("iaq monitoring")
-                tracker_names_to_remove.add("air quality")
+            
+            # Inherit products from parent call if no tracker-based products
+            if not mapped_products and call.get("products"):
+                mapped_products = set(p for p in call.get("products", []))
             
             if mapped_products:
                 product = "|".join(mapped_products)
-                logger.debug(f"Call {call_id}, Utterance {utterance_key}: Mapped products: {product}")
-                tracker_counts = {name: count for name, count in tracker_counts.items() if name.lower() not in tracker_names_to_remove}
-                tracker_str = "|".join(f"{name}: {count}" for name, count in tracker_counts.items()) if tracker_counts else ""
             
             data.append({
                 "call_id": call_id,
@@ -905,19 +883,17 @@ def prepare_json_output(calls, selected_products):
             
             sentences = u.get("sentences", [])
             if not sentences:
-                logger.debug(f"Call {call_id}: Monologue has no sentences, skipping")
                 continue
             
             start_times = [int(s.get("start", 0)) for s in sentences if s.get("start") is not None]
             end_times = [int(s.get("end", 0)) for s in sentences if s.get("end") is not None]
             if not start_times or not end_times:
-                logger.warning(f"Call {call_id}: Monologue skipped due to missing start or end times in sentences")
                 continue
             
             start_time_ms = min(start_times)
             end_time_ms = max(end_times)
             
-            text = " ".join(s.get("text", "") if isinstance(s, dict) else "" for s in sentences)
+            text = " ".join(s.get("text", "") for s in sentences)
             
             minutes = int(start_time_ms // 60000)
             seconds = int((start_time_ms % 60000) // 1000)
@@ -932,7 +908,6 @@ def prepare_json_output(calls, selected_products):
             })
         
         if not transcript_entries:
-            logger.debug(f"Call {call_id}: No utterances after processing, skipping for JSON")
             continue
         
         duration_seconds = call.get("metaData", {}).get("duration", 0)
