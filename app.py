@@ -619,14 +619,10 @@ def prepare_utterances_df(calls, selected_products):
             if tracker_name in EXCLUDED_TRACKERS:
                 continue
             for utterance in utterances:
-                if "start_time" in utterance and utterance["start_time"] <= tracker_time <= utterance["end_time"]:
+                buffer = 0.5  # seconds
+                if "start_time" in utterance and (utterance["start_time"] - buffer) <= tracker_time <= (utterance["end_time"] + buffer):
                     utterance["trackers"].append({"tracker_name": tracker_name})
-                    logger.debug(f"Tracker {tracker_name} at time {tracker_time} matched to utterance {utterance['start_time']}-{utterance['end_time']} in call {call_id}")
-                # Optional buffer approach (uncomment to use):
-                # buffer = 0.5  # seconds
-                # if "start_time" in utterance and (utterance["start_time"] - buffer) <= tracker_time <= (utterance["end_time"] + buffer):
-                #     utterance["trackers"].append({"tracker_name": tracker_name})
-                #     logger.debug(f"Tracker {tracker_name} at time {tracker_time} matched to utterance {utterance['start_time']}-{utterance['end_time']} with buffer in call {call_id}")
+                    logger.debug(f"Tracker {tracker_name} at time {tracker_time} matched to utterance {utterance['start_time']}-{utterance['end_time']} with buffer in call {call_id}")
 
         speaker_info = {get_field(p, "speakerId", ""): p for p in call["parties"]}
         
@@ -693,16 +689,15 @@ def prepare_utterances_df(calls, selected_products):
             
             product = ""
             mapped_products = set()
+            # Tracker-based product mapping
             if "filter" in tracker_set or "filtration" in tracker_set:
                 mapped_products.add("secure air")
             if "energy savings" in tracker_set:
-                if "odcv" in tracker_set:
+                if "odcv" in selected_products_lower and "secure air" not in selected_products_lower:
                     mapped_products.add("odcv")
-                elif "filter" in tracker_set:
+                elif "secure air" in selected_products_lower and "odcv" not in selected_products_lower:
                     mapped_products.add("secure air")
-                else:
-                    mapped_products.add("secure air")
-                    mapped_products.add("odcv")
+                # If both or neither are selected, add nothing
             if "odcv" in tracker_set:
                 mapped_products.add("odcv")
             if "r-zero competitors" in tracker_set or "remote work (by gong)" in tracker_set:
@@ -710,10 +705,14 @@ def prepare_utterances_df(calls, selected_products):
             if "air quality" in tracker_set:
                 mapped_products.add("iaq monitoring")
             
-            # Inherit products from parent call if no tracker-based products
-            if not mapped_products and call.get("products"):
-                mapped_products = set(p for p in call.get("products", []))
+            # Keyword match in utterance text for occupancy analytics
+            utterance_text_lower = text.lower()
+            for pattern in PRODUCT_MAPPINGS["occupancy analytics"]:
+                if pattern.search(utterance_text_lower):
+                    mapped_products.add("occupancy analytics")
+                    break
             
+            # Combine all mapped products into the product column
             if mapped_products:
                 product = "|".join(mapped_products)
             
