@@ -600,8 +600,16 @@ def prepare_utterances_df(calls, selected_products):
             if not sentences or not all(isinstance(s, dict) and "start" in s and "end" in s and s["start"] <= s["end"] for s in sentences):
                 logger.debug(f"Call {call_id}: Utterance skipped due to missing or invalid sentence data")
                 continue
-            start_time = min(int(s.get("start", 0)) for s in sentences if s.get("start"))
-            end_time = max(int(s.get("end", 0)) for s in sentences if s.get("end"))
+            
+            # Check for valid start and end times
+            start_times = [int(s.get("start", 0)) for s in sentences if s.get("start") is not None]
+            end_times = [int(s.get("end", 0)) for s in sentences if s.get("end") is not None]
+            if not start_times or not end_times:
+                logger.warning(f"Call {call_id}: Utterance skipped due to missing start or end times in sentences")
+                continue
+            
+            start_time = min(start_times)
+            end_time = max(end_times)
             utterance_key = f"{call_id}_{start_time}_{end_time}"
             call_tracker_map[call_id][utterance_key] = {"trackers": [], "start_time": start_time, "end_time": end_time}
         
@@ -628,6 +636,13 @@ def prepare_utterances_df(calls, selected_products):
             if not sentences:
                 logger.warning(f"Call {call_id}: Unexpected utterance structure: {list(utterance.keys())}")
                 continue
+            
+            # Re-check start and end times (already validated above, but for clarity)
+            start_times = [int(s.get("start", 0)) for s in sentences if s.get("start") is not None]
+            end_times = [int(s.get("end", 0)) for s in sentences if s.get("end") is not None]
+            if not start_times or not end_times:
+                continue  # Already logged above
+            
             text = " ".join(s.get("text", "") if isinstance(s, dict) else "" for s in sentences)
             
             speaker_id = get_field(utterance, "speakerId", "")
@@ -667,8 +682,8 @@ def prepare_utterances_df(calls, selected_products):
                 short_utterances += 1
                 continue
             
-            start_time = min(int(s.get("start", 0)) for s in sentences if s.get("start"))
-            end_time = max(int(s.get("end", 0)) for s in sentences if s.get("end"))
+            start_time = min(start_times)
+            end_time = max(end_times)
             utterance_key = f"{call_id}_{start_time}_{end_time}"
             triggered_trackers = call_tracker_map.get(call_id, {}).get(utterance_key, {"trackers": []})["trackers"]
             
@@ -851,7 +866,7 @@ def prepare_json_output(calls, selected_products):
         # Sort utterances by start time
         utterances = sorted(
             utterances,
-            key=lambda x: float(get_field(x.get("sentences", [{}])[0] if x.get("sentences") else {}, "start", 0))
+            key=lambda x: float(get_field(x.get("sentences", [{}])[0] if x.get("sentences") else {}, "start", float('inf')))
         )
         
         speaker_info = {get_field(p, "speakerId", ""): p for p in call["parties"]}
@@ -893,11 +908,15 @@ def prepare_json_output(calls, selected_products):
                 logger.debug(f"Call {call_id}: Monologue has no sentences, skipping")
                 continue
             
-            start_time_ms = float(get_field(sentences[0], "start", 0))
-            if start_time_ms == 0:
-                logger.warning(f"Call {call_id}: Start time is 0 for monologue, using default value")
-                start_time_ms = 1
-            end_time_ms = float(get_field(sentences[-1], "end", 0))
+            # Check for valid start and end times
+            start_times = [int(s.get("start", 0)) for s in sentences if s.get("start") is not None]
+            end_times = [int(s.get("end", 0)) for s in sentences if s.get("end") is not None]
+            if not start_times or not end_times:
+                logger.warning(f"Call {call_id}: Monologue skipped due to missing start or end times in sentences")
+                continue
+            
+            start_time_ms = min(start_times)
+            end_time_ms = max(end_times)
             
             text = " ".join(s.get("text", "") if isinstance(s, dict) else "" for s in sentences)
             
@@ -965,9 +984,10 @@ def prepare_json_output(calls, selected_products):
 def index():
     try:
         logger.debug(f"Handling request to / with method {request.method}")
-        end_date = datetime.now(pytz.UTC)
+        current_date = datetime.now(pytz.UTC)
+        end_date = current_date - timedelta(days=1)  # Set end_date to day before current date
         start_date = end_date - timedelta(days=30)
-        max_date = (end_date - timedelta(days=1)).strftime('%Y-%m-%d')
+        max_date = end_date.strftime('%Y-%m-%d')  # Already day before current date
         form_state = {
             "products": ALL_PRODUCT_TAGS,
             "access_key": "",
@@ -978,16 +998,16 @@ def index():
             "show_download": False
         }
         response = render_template('index.html', 
-                                 start_date=start_date.strftime('%Y-%m-%d'), 
-                                 end_date=end_date.strftime('%Y-%m-%d'), 
-                                 products=ALL_PRODUCT_TAGS, 
-                                 access_key="", 
-                                 secret_key="", 
-                                 message="", 
-                                 show_download=False,
-                                 form_state=form_state,
-                                 current_date=end_date,
-                                 max_date=max_date)
+                               start_date=start_date.strftime('%Y-%m-%d'), 
+                               end_date=end_date.strftime('%Y-%m-%d'), 
+                               products=ALL_PRODUCT_TAGS, 
+                               access_key="", 
+                               secret_key="", 
+                               message="", 
+                               show_download=False,
+                               form_state=form_state,
+                               current_date=current_date,
+                               max_date=max_date)
         logger.debug("Successfully rendered index.html for / route")
         return response
     except Exception as e:
@@ -1003,16 +1023,16 @@ def process():
     logger.info("Received POST request to /process")
     access_key = request.form.get('access_key', '')
     secret_key = request.form.get('secret_key', '')
-    products = request.form.getlist('products') or ALL_PRODUCT_TAGS
+    selected_products = request.form.getlist('products') or ALL_PRODUCT_TAGS  # Renamed to clarify
     start_date = request.form.get('start_date')
     end_date = request.form.get('end_date')
 
-    logger.info(f"Form data - access_key: {access_key}, secret_key: {'[REDACTED]' if secret_key else ''}, products: {products}, start_date: {start_date}, end_date: {end_date}")
+    logger.info(f"Form data - access_key: {access_key}, secret_key: {'[REDACTED]' if secret_key else ''}, products: {selected_products}, start_date: {start_date}, end_date: {end_date}")
 
     form_state = {
         "start_date": start_date,
         "end_date": end_date,
-        "products": products,
+        "products": selected_products,  # Only used for checking boxes
         "access_key": access_key,
         "secret_key": secret_key,
         "message": "",
@@ -1024,7 +1044,7 @@ def process():
     if not start_date or not end_date:
         logger.warning("Validation failed: Missing start or end date")
         form_state["message"] = "Missing start or end date."
-        return render_template('index.html', form_state=form_state, **form_state)
+        return render_template('index.html', form_state=form_state, products=ALL_PRODUCT_TAGS, **form_state)
 
     date_format = '%Y-%m-%d'
     try:
@@ -1041,26 +1061,26 @@ def process():
         if delta > MAX_DATE_RANGE_MONTHS:
             logger.warning(f"Validation failed: Date range exceeds {MAX_DATE_RANGE_MONTHS} months")
             form_state["message"] = f"Date range cannot exceed {MAX_DATE_RANGE_MONTHS} months. Please select a shorter range."
-            return render_template('index.html', form_state=form_state, **form_state)
+            return render_template('index.html', form_state=form_state, products=ALL_PRODUCT_TAGS, **form_state)
         
         if start_date_only > today or end_date_only > today:
             logger.warning("Validation failed: Date range includes future dates")
             form_state["message"] = "Date range cannot include future dates."
-            return render_template('index.html', form_state=form_state, **form_state)
+            return render_template('index.html', form_state=form_state, products=ALL_PRODUCT_TAGS, **form_state)
         
         if start_date_only > end_date_only:
             logger.warning("Validation failed: Start date after end date")
             form_state["message"] = "Start date cannot be after end date."
-            return render_template('index.html', form_state=form_state, **form_state)
+            return render_template('index.html', form_state=form_state, products=ALL_PRODUCT_TAGS, **form_state)
     except ValueError as e:
         logger.warning(f"Validation failed: Invalid date format - {str(e)}\n{traceback.format_exc()}")
         form_state["message"] = "Invalid date format. Use YYYY-MM-DD."
-        return render_template('index.html', form_state=form_state, **form_state)
+        return render_template('index.html', form_state=form_state, products=ALL_PRODUCT_TAGS, **form_state)
 
     if not access_key or not secret_key:
         logger.warning("Validation failed: Missing API keys")
         form_state["message"] = "Missing API keys."
-        return render_template('index.html', form_state=form_state, **form_state)
+        return render_template('index.html', form_state=form_state, products=ALL_PRODUCT_TAGS, **form_state)
 
     logger.info("All validations passed, proceeding with API call")
     try:
@@ -1077,7 +1097,7 @@ def process():
         if not call_ids:
             logger.info("No calls found for the selected date range")
             form_state["message"] = "No calls found for the selected date range."
-            return render_template('index.html', form_state=form_state, **form_state)
+            return render_template('index.html', form_state=form_state, products=ALL_PRODUCT_TAGS, **form_state)
 
         full_data = []
         dropped_calls = 0
@@ -1104,16 +1124,16 @@ def process():
         if not full_data:
             logger.info(f"No valid call data retrieved. Dropped {dropped_calls} calls")
             form_state["message"] = f"No valid call data retrieved. Dropped {dropped_calls} calls."
-            return render_template('index.html', form_state=form_state, **form_state)
+            return render_template('index.html', form_state=form_state, products=ALL_PRODUCT_TAGS, **form_state)
 
-        utterances_df, utterance_stats = prepare_utterances_df(full_data, products)
-        call_summary_df = prepare_call_summary_df(full_data, products)
-        json_data = prepare_json_output(full_data, products)
+        utterances_df, utterance_stats = prepare_utterances_df(full_data, selected_products)
+        call_summary_df = prepare_call_summary_df(full_data, selected_products)
+        json_data = prepare_json_output(full_data, selected_products)
 
         if utterances_df.empty and call_summary_df.empty:
             logger.info("No calls matched the selected products")
             form_state["message"] = "No calls matched the selected products."
-            return render_template('index.html', form_state=form_state, **form_state)
+            return render_template('index.html', form_state=form_state, products=ALL_PRODUCT_TAGS, **form_state)
 
         total_calls = len(full_data) + dropped_calls
         partial_data_calls = sum(1 for call in full_data if call["partial_data"])
@@ -1217,7 +1237,7 @@ def process():
                              form_state=form_state,
                              start_date=start_date,
                              end_date=end_date,
-                             products=products,
+                             products=ALL_PRODUCT_TAGS,  # Always show all products
                              access_key=access_key,
                              secret_key=secret_key,
                              message="Processing completed successfully.",
@@ -1230,11 +1250,11 @@ def process():
     except GongAPIError as e:
         logger.error(f"Gong API error: {str(e)}\n{traceback.format_exc()}")
         form_state["message"] = f"Gong API error: {e.message}"
-        return render_template('index.html', form_state=form_state, **form_state)
+        return render_template('index.html', form_state=form_state, products=ALL_PRODUCT_TAGS, **form_state)
     except Exception as e:
         logger.error(f"Unexpected error during processing: {str(e)}\n{traceback.format_exc()}")
         form_state["message"] = "An unexpected error occurred. Please try again."
-        return render_template('index.html', form_state=form_state, **form_state)
+        return render_template('index.html', form_state=form_state, products=ALL_PRODUCT_TAGS, **form_state)
 
 @app.route('/download/<file_type>')
 def download(file_type):
