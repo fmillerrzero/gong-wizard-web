@@ -48,10 +48,10 @@ logger.info(f"Output directory created: {OUTPUT_DIR}")
 PATHS_FILE = os.path.join(OUTPUT_DIR, "file_paths.json")
 BATCH_SIZE = 25
 PRODUCT_MAPPINGS = {
-    "IAQ Monitoring": ["Air Quality"],
-    "ODCV": ["ODCV"],
-    "Secure Air": ["Filter", "Filtration"],
-    "Occupancy Analytics": [
+    "iaq monitoring": ["air quality"],
+    "odcv": ["odcv"],
+    "secure air": ["filter", "filtration"],
+    "occupancy analytics": [
         r'capacit(y|ies)',
         r'connect[\s-]?(dashboard|platform)(s)?',
         r'coworker(s)?',
@@ -72,76 +72,78 @@ PRODUCT_MAPPINGS = {
     ]
 }
 ALL_PRODUCT_TAGS = list(PRODUCT_MAPPINGS.keys())
-INTERNAL_DOMAINS = {
+INTERNAL_DOMAINS = {domain.lower() for domain in [
     "secureaire.com", "rzero.com", "rzerosystems.com", "globant.com",
     "4mod.fr", "teamblume.com", "greenkoncepts.com", "dbl.vc"
-}
-EXCLUDED_DOMAINS = {"gmail.com", "outlook.com"}
-EXCLUDED_ACCOUNT_NAMES = {"4MOD Technology", "Green Koncepts"}
-EXCLUDED_TRACKERS = {"product trackers", "covid-19 (by gong)"}
-INTERNAL_SPEAKERS = {
-    "Andy Pires", "Anthony Salvatore", "Ben Boyer", "Ben Siegfried", "Benjamin Boyer",
-    "Benjamin Green", "Bob Ladue", "Bob Li", "Brenda Quan", "Chad Miller",
-    "Chandrika Arya", "Chelsea Sutherland", "Christopher Tulabut", "Dana DuFrane",
-    "Dana Karnon", "Dana Mor Karnon", "Danielle Duhon", "Dave Cox", "David Nuno",
-    "David Schlaifer", "David Seniawski", "Don Hess", "Drew Oliner", "Elizabeth Redmond",
-    "Eric Foster", "Fabian Echevarria", "Forrest Miller", "Francis Stamatatos",
-    "Frank Stamatatos", "Hannah Sverdlik", "Ian Leshinsky", "Ilya Gendelman",
-    "James Rollins", "Jennifer Nuckles", "Jim Hine", "Jorge Quiros", "Julio Munoz",
-    "Kayla Wilson", "Kevin Baxter", "Kim Neff", "Kristen Alexander", "Lee Oshnock",
-    "Lou Preston", "Luis Aguilar", "Manali Kulkarni", "Martyn R. Buffler", "Matt Arneson",
-    "Mehak Dharmani", "Michael Chu", "Michael Dever", "Michael Hopps", "Mohamed El-afifi",
-    "Molly Chen", "Monique Barash", "Nelson Alvarado", "Nestor Turizo", "Nick Viscuso",
-    "Nicolaas Van Nuil", "Nicole Dianne Banta", "Olivia Cvitanic", "Patrick Gerding",
-    "Priscilla Pan", "Rick Martin", "Roger Baker", "Ryan Aman", "Sanjil Karki",
-    "Stas Kurgansky", "Stephanie Snow", "Steven Lee", "Suman Bharadwaj", "Thomas Reznik",
-    "Tim Lombardi", "Trish Pearce", "Uri Kogan", "Varun Shroff", "Veronica Herico",
-    "Wiley Wang", "Will Musat"
-}
-EXCLUDED_TOPICS = {"call setup", "small talk", "wrap-up"}
+]}
+EXCLUDED_DOMAINS = {domain.lower() for domain in ["gmail.com", "outlook.com"]}
+EXCLUDED_ACCOUNT_NAMES = {name.lower() for name in ["4mod technology", "green koncepts"]}
+EXCLUDED_TRACKERS = {tracker.lower() for tracker in ["product trackers", "covid-19 (by gong)"]}
+INTERNAL_SPEAKERS = {speaker.lower() for speaker in [
+    "andy pires", "anthony salvatore", "ben boyer", "ben siegfried", "benjamin boyer",
+    "benjamin green", "bob ladue", "bob li", "brenda quan", "chad miller",
+    "chandrika arya", "chelsea sutherland", "christopher tulabut", "dana dufrane",
+    "dana karnon", "dana mor karnon", "danielle duhon", "dave cox", "david nuno",
+    "david schlaifer", "david seniawski", "don hess", "drew oliner", "elizabeth redmond",
+    "eric foster", "fabian echevarria", "forrest miller", "francis stamatatos",
+    "frank stamatatos", "hannah sverdlik", "ian leshinsky", "ilya gendelman",
+    "james rollins", "jennifer nuckles", "jim hine", "jorge quiros", "julio munoz",
+    "kayla wilson", "kevin baxter", "kim neff", "kristen alexander", "lee oshnock",
+    "lou preston", "luis aguilar", "manali kulkarni", "martyn r. buffler", "matt arneson",
+    "mehak dharmani", "michael chu", "michael dever", "michael hopps", "mohamed el-afifi",
+    "molly chen", "monique barash", "nelson alvarado", "nestor turizo", "nick viscuso",
+    "nicolaas van nuil", "nicole dianne banta", "olivia cvitanic", "patrick gerding",
+    "priscilla pan", "rick martin", "roger baker", "ryan aman", "sanjil karki",
+    "stas kurgansky", "stephanie snow", "steven lee", "suman bharadwaj", "thomas reznik",
+    "tim lombardi", "trish pearce", "uri kogan", "varun shroff", "veronica herico",
+    "wiley wang", "will musat"
+]}
+EXCLUDED_TOPICS = {topic.lower() for topic in ["call setup", "small talk", "wrap-up"]}
 MAX_DATE_RANGE_MONTHS = 12
 
 # Mapping of call IDs to account names (without leading quote in input)
-CALL_ID_TO_ACCOUNT_NAME = {
-    "1846318168516521453": "Skanska",
-    "3516974213942229787": "Polinger",
-    "3748506113741127946": "Low Tide",
-    "3778553613579836966": "BGO",
-    "3975541205726528077": "SHI",
-    "4043412895308886662": "Skanska",
-    "453107256614930203": "Hudson Pacific Properties",
-    "4978183599069254431": "Cushman & Wakefield",
-    "6020208759295664749": "BGO",
-    "7077682709419191760": "Brandywine REIT",
-    "5800318421597720457": "Tri Properties",
+CALL_ID_TO_ACCOUNT_NAME = {call_id: name.lower() for call_id, name in {
+    "1846318168516521453": "skanska",
+    "3516974213942229787": "polinger",
+    "3748506113741127946": "low tide",
+    "3778553613579836966": "bgo",
+    "3975541205726528077": "shi",
+    "4043412895308886662": "skanska",
+    "453107256614930203": "hudson pacific properties",
+    "4978183599069254431": "cushman & wakefield",
+    "6020208759295664749": "bgo",
+    "7077682709419191760": "brandywine reit",
+    "5800318421597720457": "tri properties",
     "1012640371113456338": "teamblume.com",
-    "8016049473232396330": "SANAS",
-    "3685926123376587680": "Liberty Universal Management",
-    "3693959199474407205": "Robinson, Mills, & Williams",
-    "7029155942116413511": "Echelon Energy",
-    "242882209984690388": "Hudson Pacific Properties",
+    "8016049473232396330": "sanas",
+    "3685926123376587680": "liberty universal management",
+    "3693959199474407205": "robinson, mills, & williams",
+    "7029155942116413511": "echelon energy",
+    "242882209984690388": "hudson pacific properties",
     "6165233458620391702": "featsolutions.co",
-    "6311626885008998437": "Windemere Park",
-    "3161981180942379924": "Trebeller",
-    "5539318371463264430": "Heintges",
-    "2583785926492910728": "Wasatch Pediatrics",
-    "8706978918402417625": "R-Zero",
+    "6311626885008998437": "windemere park",
+    "3161981180942379924": "trebeller",
+    "5539318371463264430": "heintges",
+    "2583785926492910728": "wasatch pediatrics",
+    "8706978918402417625": "r-zero",
     "4773313504786316524": "featsolutions.co",
-    "7381136096718703005": "GSA",
+    "7381136096718703005": "gsa",
     "5323386923177414850": "featsolutions.co",
-    "1043468188026972306": "Martyn",
-    "3024779093682219637": "Acuity",
-    "3086859059452771835": "Syserco",
-    "731350228371917423": "Syserco",
-    "6730174387046870110": "Syserco"
-}
+    "1043468188026972306": "martyn",
+    "3024779093682219637": "acuity",
+    "3086859059452771835": "syserco",
+    "731350228371917423": "syserco",
+    "6730174387046870110": "syserco"
+}.items()}
 
 # Account names that should always have org_type = "owner"
-OWNER_ACCOUNT_NAMES = {"Brandywine REIT", "Crescent Real Estate", "Hudson Pacific Properties"}
+OWNER_ACCOUNT_NAMES = {name.lower() for name in [
+    "brandywine reit", "crescent real estate", "hudson pacific properties"
+]}
 
 # Precompile regex patterns for Occupancy Analytics with case-insensitive flag
-for product in PRODUCT_MAPPINGS:
-    if product == "Occupancy Analytics":
+for product in list(PRODUCT_MAPPINGS.keys()):
+    if product.lower() == "occupancy analytics":
         PRODUCT_MAPPINGS[product] = [re.compile(pattern, re.IGNORECASE) for pattern in PRODUCT_MAPPINGS[product]]
 
 def safe_operation(operation, default_value=None, log_message=None, *args, **kwargs):
@@ -153,7 +155,7 @@ def safe_operation(operation, default_value=None, log_message=None, *args, **kwa
         return default_value
 
 def normalize_domain(url):
-    if not url or url in ["N/A", "Unknown"]:
+    if not url or url.lower() in ["n/a", "unknown"]:
         return ""
     domain = re.sub(r'^https?://', '', str(url).lower(), flags=re.IGNORECASE)
     domain = re.sub(r'^www\.', '', domain, flags=re.IGNORECASE)
@@ -170,7 +172,7 @@ def get_email_domain(email):
 def get_email_local_part(email):
     if not email or "@" not in email:
         return ""
-    return email.split("@")[0].strip()
+    return email.split("@")[0].strip().lower()
 
 def load_domains_from_sheet(sheet_id, target_set, label):
     url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
@@ -411,7 +413,7 @@ def apply_occupancy_analytics_tags(call):
     fields.append(" ".join(kp.get("text", "") for kp in call.get("content", {}).get("keyPoints", [])))
     fields.append(" ".join(h.get("text", "") for h in call.get("content", {}).get("highlights", [])))
     text = " ".join(f for f in fields if f).lower()
-    matches = [pattern.pattern for pattern in PRODUCT_MAPPINGS["Occupancy Analytics"] if pattern.search(text)]
+    matches = [pattern.pattern for pattern in PRODUCT_MAPPINGS["occupancy analytics"] if pattern.search(text)]
     return bool(matches)
 
 def normalize_call_data(call, transcript):
@@ -424,11 +426,11 @@ def normalize_call_data(call, transcript):
         call_id = get_field(meta_data, "id", "")
         call_title = get_field(meta_data, "title", "")
         call_date = convert_to_sf_time(get_field(meta_data, "started"))
-        account_ids = extract_field_values(context, "objectId", "Account")
-        account_name = extract_field_values(context, "Name", "Account")[0] if extract_field_values(context, "Name", "Account") else ""
+        account_ids = extract_field_values(context, "objectId", "account")
+        account_name = extract_field_values(context, "name", "account")[0].lower() if extract_field_values(context, "name", "account") else ""
         account_id = account_ids[0] if account_ids else ""
-        account_website = extract_field_values(context, "Website", "Account")[0] if extract_field_values(context, "Website", "Account") else ""
-        account_industry = extract_field_values(context, "Industry", "Account")[0] if extract_field_values(context, "Industry", "Account") else ""
+        account_website = extract_field_values(context, "website", "account")[0].lower() if extract_field_values(context, "website", "account") else ""
+        account_industry = extract_field_values(context, "industry", "account")[0].lower() if extract_field_values(context, "industry", "account") else ""
 
         call_id_clean = call_id.lstrip("'")
 
@@ -438,15 +440,16 @@ def normalize_call_data(call, transcript):
             logger.info(f"Overrode account_name to {account_name} and org_type to {org_type} for call {call_id}")
         else:
             account_name_mappings = {
-                "Brandywine": "Brandywine REIT",
-                "Crescent Heights": "Crescent Real Estate",
-                "Mayo Foundation for Medical Education and Research": "Mayo Clinic",
-                "Netflix - New York": "Netflix",
-                "Qualcomm Demo": "Qualcomm",
-                "Stanford Health Care - All Sites": "Stanford Health Care"
+                "brandywine": "brandywine reit",
+                "crescent heights": "crescent real estate",
+                "mayo foundation for medical education and research": "mayo clinic",
+                "netflix - new york": "netflix",
+                "qualcomm demo": "qualcomm",
+                "stanford health care - all sites": "stanford health care"
             }
+            account_name_mappings = {k.lower(): v.lower() for k, v in account_name_mappings.items()}
             for old_name, new_name in account_name_mappings.items():
-                if account_name == old_name:
+                if account_name.lower() == old_name:
                     account_name = new_name
                     logger.info(f"Normalized account_name from {old_name} to {new_name} for call {call_id}")
                     break
@@ -479,11 +482,11 @@ def normalize_call_data(call, transcript):
         tracker_counts = {get_field(t, "name").lower(): get_field(t, "count", 0) for t in trackers if get_field(t, "name")}
 
         products = []
-        if org_type == "tenant" and "Occupancy Analytics" not in products:
-            products.append("Occupancy Analytics")
+        if org_type == "tenant" and "occupancy analytics" not in products:
+            products.append("occupancy analytics")
 
         for product in PRODUCT_MAPPINGS:
-            if product == "Occupancy Analytics" and "Occupancy Analytics" not in products:
+            if product.lower() == "occupancy analytics" and "occupancy analytics" not in products:
                 if apply_occupancy_analytics_tags(call):
                     products.append(product)
             else:
@@ -494,7 +497,7 @@ def normalize_call_data(call, transcript):
 
         tracker_occurrences = []
         for tracker in trackers:
-            tracker_name = get_field(tracker, "name", "")
+            tracker_name = get_field(tracker, "name", "").lower()
             for occurrence in tracker.get("occurrences", []):
                 tracker_occurrences.append({
                     "tracker_name": tracker_name,
@@ -584,7 +587,7 @@ def prepare_utterances_df(calls, selected_products):
             continue
         logger.debug(f"Call {call_id}: Products assigned: {products}, Selected products: {selected_products}")
 
-        account_name = call["account_name"]
+        account_name = call["account_name"].lower()
         if account_name in EXCLUDED_ACCOUNT_NAMES or account_name in INTERNAL_DOMAINS:
             logger.info(f"Excluded call {call_id} due to account_name {account_name}")
             continue
@@ -601,7 +604,6 @@ def prepare_utterances_df(calls, selected_products):
                 logger.debug(f"Call {call_id}: Utterance skipped due to missing or invalid sentence data")
                 continue
             
-            # Check for valid start and end times
             start_times = [int(s.get("start", 0)) for s in sentences if s.get("start") is not None]
             end_times = [int(s.get("end", 0)) for s in sentences if s.get("end") is not None]
             if not start_times or not end_times:
@@ -637,17 +639,16 @@ def prepare_utterances_df(calls, selected_products):
                 logger.warning(f"Call {call_id}: Unexpected utterance structure: {list(utterance.keys())}")
                 continue
             
-            # Re-check start and end times (already validated above, but for clarity)
             start_times = [int(s.get("start", 0)) for s in sentences if s.get("start") is not None]
             end_times = [int(s.get("end", 0)) for s in sentences if s.get("end") is not None]
             if not start_times or not end_times:
-                continue  # Already logged above
+                continue
             
             text = " ".join(s.get("text", "") if isinstance(s, dict) else "" for s in sentences)
             
             speaker_id = get_field(utterance, "speakerId", "")
             speaker = speaker_info.get(speaker_id, {})
-            speaker_name = get_field(speaker, "name", "")
+            speaker_name = get_field(speaker, "name", "").lower()
             speaker_email_address = get_field(speaker, "emailAddress", "")
             if not speaker_name and speaker_email_address:
                 speaker_name = get_email_local_part(speaker_email_address)
@@ -705,34 +706,36 @@ def prepare_utterances_df(calls, selected_products):
             tracker_str = "|".join(f"{name}: {count}" for name, count in tracker_counts.items()) if tracker_counts else ""
             
             tracker_set = set(t["tracker_name"].lower() for t in triggered_trackers if t["tracker_name"])
+            logger.debug(f"Call {call_id}, Utterance {utterance_key}: Tracker set: {tracker_set}")
+            
             product = ""
             mapped_products = set()
             tracker_names_to_remove = set()
             
-            if "filter" in tracker_set:
-                mapped_products.add("Secure Air")
+            if "filter" in tracker_set or "filtration" in tracker_set:
+                mapped_products.add("secure air")
                 tracker_names_to_remove.add("filter")
+                tracker_names_to_remove.add("filtration")
             if "energy savings" in tracker_set and "odcv" not in tracker_set:
-                mapped_products.add("Secure Air")
+                mapped_products.add("secure air")
                 tracker_names_to_remove.add("energy savings")
             elif "energy savings" in tracker_set and "filter" not in tracker_set:
-                mapped_products.add("ODCV")
+                mapped_products.add("odcv")
                 tracker_names_to_remove.add("energy savings")
             if "odcv" in tracker_set:
-                mapped_products.add("ODCV")
+                mapped_products.add("odcv")
                 tracker_names_to_remove.add("odcv")
-            if "r-zero competitors" in tracker_set:
-                mapped_products.add("Occupancy Analytics")
+            if "r-zero competitors" in tracker_set or "remote work (by gong)" in tracker_set:
+                mapped_products.add("occupancy analytics")
                 tracker_names_to_remove.add("r-zero competitors")
-            if "remote work (by gong)" in tracker_set:
-                mapped_products.add("Occupancy Analytics")
                 tracker_names_to_remove.add("remote work (by gong)")
             if "air quality" in tracker_set:
-                mapped_products.add("IAQ Monitoring")
+                mapped_products.add("iaq monitoring")
                 tracker_names_to_remove.add("air quality")
             
             if mapped_products:
                 product = "|".join(mapped_products)
+                logger.debug(f"Call {call_id}, Utterance {utterance_key}: Mapped products: {product}")
                 tracker_counts = {name: count for name, count in tracker_counts.items() if name.lower() not in tracker_names_to_remove}
                 tracker_str = "|".join(f"{name}: {count}" for name, count in tracker_counts.items()) if tracker_counts else ""
             
@@ -853,7 +856,7 @@ def prepare_json_output(calls, selected_products):
             logger.debug(f"Call {call_id}: Products {products} don't match selection {selected_products}, skipping for JSON")
             continue
         
-        account_name = call["account_name"]
+        account_name = call["account_name"].lower()
         if account_name in EXCLUDED_ACCOUNT_NAMES or account_name in INTERNAL_DOMAINS:
             logger.info(f"Excluded call {call_id} from JSON due to account_name {account_name}")
             continue
@@ -863,7 +866,6 @@ def prepare_json_output(calls, selected_products):
             logger.debug(f"Call {call_id}: No utterances found, skipping for JSON")
             continue
         
-        # Sort utterances by start time
         utterances = sorted(
             utterances,
             key=lambda x: float(get_field(x.get("sentences", [{}])[0] if x.get("sentences") else {}, "start", float('inf')))
@@ -874,9 +876,8 @@ def prepare_json_output(calls, selected_products):
         rzero_participants = []
         other_participants = []
         
-        # Build speaker lists for metadata
         for speaker_id, speaker in speaker_info.items():
-            speaker_name = get_field(speaker, "name", "")
+            speaker_name = get_field(speaker, "name", "").lower()
             speaker_email_address = get_field(speaker, "emailAddress", "")
             if not speaker_name and speaker_email_address:
                 speaker_name = get_email_local_part(speaker_email_address)
@@ -894,11 +895,10 @@ def prepare_json_output(calls, selected_products):
             else:
                 other_participants.append(participant_entry)
         
-        # Include all utterances in the transcript, unfiltered
         for u in utterances:
             speaker_id = get_field(u, "speakerId", "")
             speaker = speaker_info.get(speaker_id, {})
-            speaker_name = get_field(speaker, "name", "")
+            speaker_name = get_field(speaker, "name", "").lower()
             speaker_email_address = get_field(speaker, "emailAddress", "")
             if not speaker_name and speaker_email_address:
                 speaker_name = get_email_local_part(speaker_email_address)
@@ -908,7 +908,6 @@ def prepare_json_output(calls, selected_products):
                 logger.debug(f"Call {call_id}: Monologue has no sentences, skipping")
                 continue
             
-            # Check for valid start and end times
             start_times = [int(s.get("start", 0)) for s in sentences if s.get("start") is not None]
             end_times = [int(s.get("end", 0)) for s in sentences if s.get("end") is not None]
             if not start_times or not end_times:
@@ -985,9 +984,9 @@ def index():
     try:
         logger.debug(f"Handling request to / with method {request.method}")
         current_date = datetime.now(pytz.UTC)
-        end_date = current_date - timedelta(days=1)  # Set end_date to day before current date
+        end_date = current_date - timedelta(days=1)
         start_date = end_date - timedelta(days=30)
-        max_date = end_date.strftime('%Y-%m-%d')  # Already day before current date
+        max_date = end_date.strftime('%Y-%m-%d')
         form_state = {
             "products": ALL_PRODUCT_TAGS,
             "access_key": "",
@@ -1023,7 +1022,7 @@ def process():
     logger.info("Received POST request to /process")
     access_key = request.form.get('access_key', '')
     secret_key = request.form.get('secret_key', '')
-    selected_products = request.form.getlist('products') or ALL_PRODUCT_TAGS  # Renamed to clarify
+    selected_products = request.form.getlist('products') or ALL_PRODUCT_TAGS
     start_date = request.form.get('start_date')
     end_date = request.form.get('end_date')
 
@@ -1032,7 +1031,7 @@ def process():
     form_state = {
         "start_date": start_date,
         "end_date": end_date,
-        "products": selected_products,  # Only used for checking boxes
+        "products": selected_products,
         "access_key": access_key,
         "secret_key": secret_key,
         "message": "",
@@ -1153,6 +1152,7 @@ def process():
             for _, row in utterances_df.iterrows():
                 if row['product']:
                     for product in row['product'].split("|"):
+                        product = product.lower()
                         product_counts[product] = product_counts.get(product, 0) + 1
             
             product_total = sum(product_counts.values())
@@ -1196,20 +1196,27 @@ def process():
             "excluded_topic_percentages": excluded_topic_percentages,
             "percentInternalUtterances": round(utterance_stats["internal_utterances"] / utterance_stats["total_utterances"] * 100) if utterance_stats["total_utterances"] > 0 else 0,
             "percentShortUtterances": round(utterance_stats["short_utterances"] / utterance_stats["total_utterances"] * 100) if utterance_stats["total_utterances"] > 0 else 0,
-            "percentExcludedTopics": round(utterance_stats["excluded_topic_utterances"] / utterance_stats["total_utterances"] * 100) if utterance_stats["total_utterances"] > 0 else 0,
-            "percentIncludedUtterances": round(utterance_stats["included_utterances"] / utterance_stats["total_utterances"] * 100) if utterance_stats["total_utterances"] > 0 else 0
+            "percentExcludedTopicUtterances": round(utterance_stats["excluded_topic_utterances"] / utterance_stats["total_utterances"] * 100) if utterance_stats["total_utterances"] > 0 else 0
         }
-        logger.info(f"Computed stats: {stats}")
-        logger.info(f"Utterance breakdown: {utterance_breakdown}")
 
-        unique_id = datetime.now().strftime("%Y%m%d%H%M%S")
-        logger.info(f"Using output directory: {OUTPUT_DIR}")
-        cleanup_old_files()
         start_date_str = start_dt.strftime("%d%b%y").lower()
         end_date_str = end_dt.strftime("%d%b%y").lower()
-        utterances_path = os.path.join(OUTPUT_DIR, f"utterances_gong_{start_date_str}_to_{end_date_str}_{unique_id}.csv")
-        call_summary_path = os.path.join(OUTPUT_DIR, f"call_summary_gong_{start_date_str}_to_{end_date_str}_{unique_id}.csv")
-        json_path = os.path.join(OUTPUT_DIR, f"call_data_gong_{start_date_str}_to_{end_date_str}_{unique_id}.json")
+        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+        utterances_filename = f"utterances_gong_{start_date_str}_to_{end_date_str}_{timestamp}.csv"
+        call_summary_filename = f"call_summary_gong_{start_date_str}_to_{end_date_str}_{timestamp}.csv"
+        json_filename = f"calls_gong_{start_date_str}_to_{end_date_str}_{timestamp}.json"
+
+        utterances_path = os.path.join(OUTPUT_DIR, utterances_filename)
+        call_summary_path = os.path.join(OUTPUT_DIR, call_summary_filename)
+        json_path = os.path.join(OUTPUT_DIR, json_filename)
+
+        save_utterances_to_csv(utterances_df, utterances_path)
+        call_summary_df.to_csv(call_summary_path, index=False, quoting=csv.QUOTE_NONNUMERIC, encoding='utf-8', errors='replace')
+        logger.info(f"Saved call summary DataFrame to {call_summary_path}")
+
+        with open(json_path, 'w', encoding='utf-8') as f:
+            json.dump(json_data, f, ensure_ascii=False, indent=2)
+        logger.info(f"Saved JSON data to {json_path}")
 
         paths = {
             "utterances_path": utterances_path,
@@ -1219,37 +1226,18 @@ def process():
         }
         save_file_paths(paths)
 
-        save_utterances_to_csv(utterances_df, utterances_path)
-        call_summary_df.to_csv(call_summary_path, index=False, quoting=csv.QUOTE_NONNUMERIC, encoding='utf-8', errors='replace')
-        with open(json_path, 'w', encoding='utf-8') as f:
-            json.dump(json_data, f, indent=2, ensure_ascii=False)
-        logger.info(f"Saved JSON to {json_path}")
-
-        form_state["message"] = "Processing completed successfully."
-        form_state["show_download"] = True
-        form_state["stats"] = stats
-        form_state["utterance_breakdown"] = utterance_breakdown
-        logger.info("Rendering index.html with download links")
-
-        current_date = datetime.now(pytz.UTC)
-        max_date = (current_date - timedelta(days=1)).strftime('%Y-%m-%d')
-        return render_template('index.html',
-                             form_state=form_state,
-                             start_date=start_date,
-                             end_date=end_date,
-                             products=ALL_PRODUCT_TAGS,  # Always show all products
-                             access_key=access_key,
-                             secret_key=secret_key,
-                             message="Processing completed successfully.",
-                             show_download=True,
-                             stats=stats,
-                             utterance_breakdown=utterance_breakdown,
-                             current_date=current_date,
-                             max_date=max_date)
+        form_state.update({
+            "message": "Processing complete. Download files below.",
+            "show_download": True,
+            "stats": stats,
+            "utterance_breakdown": utterance_breakdown
+        })
+        logger.info("Processing completed successfully")
+        return render_template('index.html', form_state=form_state, products=ALL_PRODUCT_TAGS, **form_state)
 
     except GongAPIError as e:
         logger.error(f"Gong API error: {str(e)}\n{traceback.format_exc()}")
-        form_state["message"] = f"Gong API error: {e.message}"
+        form_state["message"] = f"API Error: {e.message}"
         return render_template('index.html', form_state=form_state, products=ALL_PRODUCT_TAGS, **form_state)
     except Exception as e:
         logger.error(f"Unexpected error during processing: {str(e)}\n{traceback.format_exc()}")
@@ -1260,6 +1248,8 @@ def process():
 def download(file_type):
     paths = load_file_paths()
     path_key = f"{file_type}_path"
+    if file_type == "logs":
+        path_key = "log_path"
     if path_key not in paths:
         logger.error(f"Download path for {file_type} not found in paths: {paths}")
         return "File not found", 404
@@ -1272,7 +1262,5 @@ def download(file_type):
     mime_type = 'text/csv' if file_type in ['utterances', 'call_summary'] else 'application/json' if file_type == 'json' else 'text/plain'
     return send_file(file_path, as_attachment=True, download_name=os.path.basename(file_path), mimetype=mime_type)
 
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    logger.info(f"Starting Flask app on port {port}")
-    app.run(host='0.0.0.0', port=port, debug=os.environ.get('FLASK_DEBUG', 'False').lower() == 'true')
+if __name__ == "__main__":
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)), debug=os.environ.get('FLASK_DEBUG', 'False').lower() == 'true')
