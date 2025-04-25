@@ -17,7 +17,6 @@ import requests
 from flask import Flask, render_template, request, send_file, jsonify
 
 app = Flask(__name__)
-app.jinja_env.add_extension('jinja2.ext.loopcontrols')  # Enable cycle tag
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', os.urandom(24))
 logger = logging.getLogger(__name__)
 
@@ -733,14 +732,16 @@ def prepare_utterances_df(calls, selected_products):
                 "speaker_affiliation": speaker_affiliation,
                 "product": product,
                 "tracker": tracker_str,
-                "utterance_text": text
+                "utterance_text": text,
+                "start_time": start_time,
+                "end_time": end_time
             })
     
     if data:
         columns = [
             "call_id", "call_date", "account_name", "account_industry", "org_type",
             "speaker_name", "speaker_job_title", "speaker_affiliation",
-            "product", "tracker", "utterance_text"
+            "product", "tracker", "utterance_text", "start_time", "end_time"
         ]
         df = pd.DataFrame(data)[columns]
         df['call_id'] = df['call_id'].astype(str)
@@ -825,7 +826,6 @@ def prepare_json_output(calls, selected_products):
     
     filtered_calls = []
     selected_products_lower = [p.lower() for p in selected_products]
-    excluded_topics_set = EXCLUDED_TOPICS
     
     for call in calls:
         call_id = call["call_id"]
@@ -848,75 +848,18 @@ def prepare_json_output(calls, selected_products):
             logger.debug(f"Call {call_id}: No utterances found, skipping for JSON")
             continue
         
+        # Sort utterances by start time
         utterances = sorted(
             utterances,
             key=lambda x: float(get_field(x.get("sentences", [{}])[0] if x.get("sentences") else {}, "start", 0))
         )
         
         speaker_info = {get_field(p, "speakerId", ""): p for p in call["parties"]}
-        transcript_lines = []
-        first_speaker = None
-        
-        for u in utterances:
-            speaker_id = get_field(u, "speakerId", "")
-            speaker = speaker_info.get(speaker_id, {})
-            speaker_name = get_field(speaker, "name", "")
-            speaker_email_address = get_field(speaker, "emailAddress", "")
-            if not speaker_name and speaker_email_address:
-                speaker_name = get_email_local_part(speaker_email_address)
-            
-            topic = get_field(u, "topic", "").lower()
-            if topic in excluded_topics_set:
-                continue
-            
-            sentences = u.get("sentences", [])
-            if not sentences:
-                logger.debug(f"Call {call_id}: Monologue has no sentences, skipping")
-                continue
-            
-            start_time_ms = float(get_field(sentences[0], "start", 0))
-            if start_time_ms == 0:
-                logger.warning(f"Call {call_id}: Start time is 0 for monologue, using default value")
-                start_time_ms = 1
-            
-            filtered_text_parts = []
-            for s in sentences:
-                if not isinstance(s, dict):
-                    continue
-                text = s.get("text", "")
-                if len(text.split()) < 8:
-                    continue
-                filtered_text_parts.append(text)
-            
-            if not filtered_text_parts:
-                continue
-            
-            text = " ".join(filtered_text_parts)
-            minutes = int(start_time_ms // 60000)
-            seconds = int((start_time_ms % 60000) // 1000)
-            timestamp = f"{minutes}:{seconds:02d}"
-            transcript_line = f"{timestamp} | {speaker_name}\n{text}"
-            transcript_lines.append(transcript_line)
-            
-            if not first_speaker:
-                first_speaker = speaker_name
-        
-        if not transcript_lines:
-            logger.debug(f"Call {call_id}: No utterances passed filters, skipping for JSON")
-            continue
-        
-        duration_seconds = call.get("metaData", {}).get("duration", 0)
-        if not duration_seconds and utterances:
-            duration_ms = float(utterances[-1].get("sentences", [{}])[-1].get("end", 0))
-        else:
-            duration_ms = duration_seconds * 1000
-        duration_minutes = int(duration_ms // 60000)
-        duration_str = f"{duration_minutes}m"
-        
-        raw_call_date = call.get("metaData", {}).get("started", "N/A")
-        
+        transcript_entries = []
         rzero_participants = []
         other_participants = []
+        
+        # Build speaker lists for metadata
         for speaker_id, speaker in speaker_info.items():
             speaker_name = get_field(speaker, "name", "")
             speaker_email_address = get_field(speaker, "emailAddress", "")
@@ -936,18 +879,65 @@ def prepare_json_output(calls, selected_products):
             else:
                 other_participants.append(participant_entry)
         
+        # Include all utterances in the transcript, unfiltered
+        for u in utterances:
+            speaker_id = get_field(u, "speakerId", "")
+            speaker = speaker_info.get(speaker_id, {})
+            speaker_name = get_field(speaker, "name", "")
+            speaker_email_address = get_field(speaker, "emailAddress", "")
+            if not speaker_name and speaker_email_address:
+                speaker_name = get_email_local_part(speaker_email_address)
+            
+            sentences = u.get("sentences", [])
+            if not sentences:
+                logger.debug(f"Call {call_id}: Monologue has no sentences, skipping")
+                continue
+            
+            start_time_ms = float(get_field(sentences[0], "start", 0))
+            if start_time_ms == 0:
+                logger.warning(f"Call {call_id}: Start time is 0 for monologue, using default value")
+                start_time_ms = 1
+            end_time_ms = float(get_field(sentences[-1], "end", 0))
+            
+            text = " ".join(s.get("text", "") if isinstance(s, dict) else "" for s in sentences)
+            
+            minutes = int(start_time_ms // 60000)
+            seconds = int((start_time_ms % 60000) // 1000)
+            timestamp = f"{minutes:02d}:{seconds:02d}"
+            
+            transcript_entries.append({
+                "timestamp": timestamp,
+                "start_time_ms": int(start_time_ms),
+                "end_time_ms": int(end_time_ms),
+                "speaker_name": speaker_name,
+                "text": text
+            })
+        
+        if not transcript_entries:
+            logger.debug(f"Call {call_id}: No utterances after processing, skipping for JSON")
+            continue
+        
+        duration_seconds = call.get("metaData", {}).get("duration", 0)
+        if not duration_seconds and utterances:
+            duration_ms = float(utterances[-1].get("sentences", [{}])[-1].get("end", 0))
+        else:
+            duration_ms = duration_seconds * 1000
+        duration_minutes = int(duration_ms // 60000)
+        duration_str = f"{duration_minutes}m"
+        
+        raw_call_date = call.get("metaData", {}).get("started", "N/A")
+        
         call_entry = {
             "metadata": {
                 "call_id": call_id,
                 "title": call["call_title"],
-                "host": first_speaker or "Unknown",
                 "recording_details": f"Recorded on {raw_call_date} via Zoom, {duration_str}",
                 "participants": {
                     "R-Zero": rzero_participants,
                     "Other": other_participants
                 }
             },
-            "transcript": "\n\n".join(transcript_lines),
+            "transcript": transcript_entries,
             "started": raw_call_date
         }
         filtered_calls.append(call_entry)
