@@ -107,7 +107,7 @@
                 ({{ stats.totalCallsRetrieved }}) retrieved 
                 {% if stats.droppedCalls > 0 %}({{ stats.percentDropped }}% dropped) {% endif %}
                 {% if stats.callsWithNoProducts > 0 %}({{ stats.percentNoProducts }}% no product tags) {% endif %}
- clicksNotMatchingSelection > 0 %}({{ stats.percentNotMatching }}% not matching selection) {% endif %}
+                {% if stats.callsNotMatchingSelection > 0 %}({{ stats.percentNotMatching }}% not matching selection) {% endif %}
             </p>
             <p class="text-sm text-gray-500 mb-4">
                 Note: ({{ stats.invalidDateCalls }}) calls have invalid dates due to API issues.<br>
