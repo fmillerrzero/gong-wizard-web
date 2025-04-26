@@ -619,7 +619,7 @@ def prepare_utterances_df(calls, selected_products):
             "no_metadata_utterances": 0,
             "non_matching_product_utterances": 0,
             "included_utterances": 0
-        }
+        }, False  # Return include_energy_savings as False if no calls
     
     total_utterances = 0
     internal_utterances = 0
@@ -909,7 +909,7 @@ def prepare_utterances_df(calls, selected_products):
         logger.info("Utterances DataFrame is empty after processing")
         df = pd.DataFrame()
     
-    return df, {
+    utterance_stats = {
         "total_utterances": total_utterances,
         "internal_utterances": internal_utterances,
         "short_utterances": short_utterances,
@@ -919,6 +919,8 @@ def prepare_utterances_df(calls, selected_products):
         "non_matching_product_utterances": non_matching_product_utterances,
         "included_utterances": len(df)
     }
+    
+    return df, utterance_stats, include_energy_savings
 
 def save_utterances_to_csv(df, path):
     if df.empty:
@@ -1243,7 +1245,7 @@ def process():
             form_state["message"] = f"No valid call data retrieved. Dropped {dropped_calls} calls."
             return render_template('index.html', form_state=form_state, available_products=ALL_PRODUCT_TAGS, **form_state)
 
-        utterances_df, utterance_stats = prepare_utterances_df(full_data, selected_products)
+        utterances_df, utterance_stats, include_energy_savings = prepare_utterances_df(full_data, selected_products)
         call_summary_df = prepare_call_summary_df(full_data, selected_products)
 
         # Extract call_ids from utterances_df to filter JSON output
