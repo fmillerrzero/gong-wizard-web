@@ -1281,7 +1281,7 @@ def process():
         logger.info(f"Call summary - total_calls: {total_calls}, calls_with_no_products: {calls_with_no_products}, calls_not_matching: {calls_not_matching}, calls_included: {calls_included}")
 
         total_utterances = utterance_stats["total_utterances"]
-        # Prepare Calls table data as a list of dictionaries
+        # Prepare Calls table data as a list of dictionaries with formatted counts
         calls_table = []
         if total_calls > 0:
             # Retrieved
@@ -1289,6 +1289,7 @@ def process():
                 calls_table.append({
                     "exclusion": "Retrieved",
                     "count": len(full_data),
+                    "count_formatted": "{:,}".format(len(full_data)),
                     "percent": round(len(full_data) / total_calls * 100)
                 })
             # Excluded (Invalid Date)
@@ -1296,6 +1297,7 @@ def process():
                 calls_table.append({
                     "exclusion": "Excluded (Invalid Date)",
                     "count": invalid_date_calls,
+                    "count_formatted": "{:,}".format(invalid_date_calls),
                     "percent": round(invalid_date_calls / total_calls * 100)
                 })
             # Excluded (No Product Tag)
@@ -1303,6 +1305,7 @@ def process():
                 calls_table.append({
                     "exclusion": "Excluded (No Product Tag)",
                     "count": calls_with_no_products,
+                    "count_formatted": "{:,}".format(calls_with_no_products),
                     "percent": round(calls_with_no_products / total_calls * 100)
                 })
             # Excluded (Unselected Product Tag)
@@ -1310,6 +1313,7 @@ def process():
                 calls_table.append({
                     "exclusion": "Excluded (Unselected Product Tag)",
                     "count": calls_not_matching,
+                    "count_formatted": "{:,}".format(calls_not_matching),
                     "percent": round(calls_not_matching / total_calls * 100)
                 })
 
@@ -1355,11 +1359,12 @@ def process():
                 elif energy_savings_count > 0:
                     energy_savings_percentage += 100 - total_percentage
             
-            # Populate product breakdown
+            # Populate product breakdown with formatted counts
             for product, count in product_counts.items():
                 utterance_breakdown["product"].append({
                     "value": product,
                     "count": count,
+                    "count_formatted": "{:,}".format(count),
                     "percentage": product_percentages[product]
                 })
             
@@ -1368,50 +1373,57 @@ def process():
                 utterance_breakdown["product"].append({
                     "value": "energy savings",
                     "count": energy_savings_count,
+                    "count_formatted": "{:,}".format(energy_savings_count),
                     "percentage": energy_savings_percentage
                 })
             
             utterance_breakdown["product"].sort(key=lambda x: x["count"], reverse=True)
 
-            # Utterance Exclusions Table
+            # Utterance Exclusions Table with formatted counts
             if utterance_stats["internal_utterances"] > 0:
                 utterance_breakdown["exclusions"].append({
                     "exclusion": "Internal Speaker",
                     "count": utterance_stats["internal_utterances"],
+                    "count_formatted": "{:,}".format(utterance_stats["internal_utterances"]),
                     "percent": utterance_stats["percentInternalUtterances"]
                 })
             if utterance_stats["short_utterances"] > 0:
                 utterance_breakdown["exclusions"].append({
                     "exclusion": "Short Utterance",
                     "count": utterance_stats["short_utterances"],
+                    "count_formatted": "{:,}".format(utterance_stats["short_utterances"]),
                     "percent": utterance_stats["percentShortUtterances"]
                 })
             if utterance_stats["excluded_topic_utterances"] > 0:
                 utterance_breakdown["exclusions"].append({
                     "exclusion": "Topic Exclusions",
                     "count": utterance_stats["excluded_topic_utterances"],
+                    "count_formatted": "{:,}".format(utterance_stats["excluded_topic_utterances"]),
                     "percent": utterance_stats["percentExcludedTopicUtterances"]
                 })
             if utterance_stats["no_metadata_utterances"] > 0:
                 utterance_breakdown["exclusions"].append({
                     "exclusion": "No Tag",
                     "count": utterance_stats["no_metadata_utterances"],
+                    "count_formatted": "{:,}".format(utterance_stats["no_metadata_utterances"]),
                     "percent": utterance_stats["percentNoMetadataUtterances"]
                 })
             if utterance_stats["non_matching_product_utterances"] > 0:
                 utterance_breakdown["exclusions"].append({
                     "exclusion": "Non Matching Product Tag",
                     "count": utterance_stats["non_matching_product_utterances"],
+                    "count_formatted": "{:,}".format(utterance_stats["non_matching_product_utterances"]),
                     "percent": utterance_stats["percentNonMatchingProductUtterances"]
                 })
 
-            # Topic Breakdown
+            # Topic Breakdown with formatted counts
             for topic, count in utterance_stats["excluded_topics"].items():
                 if count > 0:
                     percentage = round(count / total_utterances * 100) if total_utterances > 0 else 0
                     utterance_breakdown["topic_breakdown"].append({
                         "topic": topic,
                         "count": count,
+                        "count_formatted": "{:,}".format(count),
                         "percent": percentage
                     })
             utterance_breakdown["topic_breakdown"].sort(key=lambda x: x["count"], reverse=True)
@@ -1421,6 +1433,7 @@ def process():
             percentage = round(count / total_utterances * 100) if total_utterances > 0 else 0
             excluded_topic_percentages[topic] = percentage
 
+        # Format the counts in stats
         stats = {
             "totalCallsRetrieved": total_calls,
             "droppedCalls": dropped_calls,
@@ -1428,6 +1441,7 @@ def process():
             "callsWithNoProducts": calls_with_no_products,
             "callsNotMatchingSelection": calls_not_matching,
             "callsIncluded": calls_included,
+            "callsIncludedFormatted": "{:,}".format(calls_included),
             "partialDataCalls": partial_data_calls,
             "invalidDateCalls": invalid_date_calls,
             "percentDropped": round(dropped_calls / total_calls * 100) if total_calls > 0 else 0,
@@ -1436,7 +1450,9 @@ def process():
             "percentNotMatching": round(calls_not_matching / total_calls * 100) if total_calls > 0 else 0,
             "percentIncluded": round(calls_included / total_calls * 100) if total_calls > 0 else 0,
             "calls_table": calls_table,  # Structured data for Calls table
-            **utterance_stats,
+            "included_utterances": utterance_stats["included_utterances"],
+            "included_utterances_formatted": "{:,}".format(utterance_stats["included_utterances"]),
+            "percentIncludedUtterances": utterance_stats["percentIncludedUtterances"],
             "excluded_topic_percentages": excluded_topic_percentages
         }
 
