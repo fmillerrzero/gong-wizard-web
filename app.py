@@ -110,6 +110,23 @@ INTERNAL_SPEAKERS = {speaker.lower() for speaker in [
 EXCLUDED_TOPICS = {topic.lower() for topic in ["call setup", "small talk", "wrap-up"]}
 MAX_DATE_RANGE_MONTHS = 12
 
+# Keywords for energy savings measurement
+ENERGY_SAVINGS_KEYWORDS = [
+    "adjusted baseline", "baseline", "baseline adjustment", "baseline model",
+    "building energy model", "consumption baseline", "consumption data",
+    "continuous monitoring", "data normalization", "data validation", "eaas",
+    "eis", "energy analytics", "energy as a service", "energy consumption",
+    "energy dashboard", "energy information system", "energy intensity",
+    "energy monitoring", "energy usage", "energy-as-a-service", "load profile",
+    "m & v", "m and v", "m&v", "measurement and verification", "measurement period",
+    "measurement uncertainty", "meter data", "metering", "normalized savings",
+    "payback period", "performance contract", "savings calculation", "savings model",
+    "smart meters", "sub meter", "submeter", "submetering", "usage analysis",
+    "utility bill", "utility data", "utility rate", "utility tariff",
+    "verification plan", "virtual metering", "weather normalization",
+    "weather-adjusted data"
+]
+
 CALL_ID_TO_ACCOUNT_NAME = {call_id: name.lower() for call_id, name in {
     "1846318168516521453": "skanska",
     "3516974213942229787": "polinger",
@@ -560,6 +577,36 @@ def normalize_call_data(call, transcript):
             "highlights": ""
         }
 
+def normalize_keyword(keyword):
+    """Normalize a keyword for matching: lowercase, strip whitespace, replace dashes and special chars."""
+    keyword = keyword.lower().strip()
+    # Replace variations of "m&v", "m & v" to "m and v"
+    keyword = re.sub(r'm\s*&\s*v|m&v', 'm and v', keyword)
+    # Replace dashes and other punctuation with spaces
+    keyword = re.sub(r'[-]', ' ', keyword)
+    # Remove extra spaces
+    keyword = ' '.join(keyword.split())
+    return keyword
+
+def find_energy_savings_keyword(text):
+    """Find the first matching energy savings keyword in the text."""
+    text_normalized = normalize_keyword(text)
+    text_words = text_normalized.split()
+    
+    # Check each keyword
+    for keyword in ENERGY_SAVINGS_KEYWORDS:
+        keyword_normalized = normalize_keyword(keyword)
+        # Check if the keyword (as a phrase) exists in the text
+        if keyword_normalized in text_normalized:
+            return keyword  # Return the original keyword form
+        # For multi-word keywords, check if the entire phrase matches
+        keyword_parts = keyword_normalized.split()
+        for i in range(len(text_words) - len(keyword_parts) + 1):
+            phrase = ' '.join(text_words[i:i + len(keyword_parts)])
+            if phrase == keyword_normalized:
+                return keyword
+    return ""
+
 def prepare_utterances_df(calls, selected_products):
     if not calls:
         logger.info("No calls to process for utterances DataFrame")
@@ -569,6 +616,8 @@ def prepare_utterances_df(calls, selected_products):
             "short_utterances": 0,
             "excluded_topic_utterances": 0,
             "excluded_topics": {topic: 0 for topic in EXCLUDED_TOPICS},
+            "no_metadata_utterances": 0,
+            "non_matching_product_utterances": 0,
             "included_utterances": 0
         }
     
@@ -576,8 +625,14 @@ def prepare_utterances_df(calls, selected_products):
     internal_utterances = 0
     short_utterances = 0
     excluded_topic_utterances = 0
+    no_metadata_utterances = 0
+    non_matching_product_utterances = 0
     excluded_topics = {topic: 0 for topic in EXCLUDED_TOPICS}
     selected_products_lower = [p.lower() for p in selected_products]
+    
+    # Determine if energy_savings_measurement column should be included
+    include_energy_savings = any(p.lower() in ["secure air", "odcv"] for p in selected_products_lower)
+    logger.debug(f"Include energy_savings_measurement column: {include_energy_savings} (selected products: {selected_products_lower})")
     
     # Collect all calls with their utterances
     call_utterances = []
@@ -771,8 +826,8 @@ def prepare_utterances_df(calls, selected_products):
                     tracker_counts[name] = tracker_counts.get(name, 0) + 1
             tracker_str = "|".join(f"{name}: {count}" for name, count in tracker_counts.items()) if tracker_counts else ""
             
-            # Collect utterance data
-            call_data["utterances"].append({
+            # Initialize utterance data
+            utterance_data = {
                 "start_time": start_time,
                 "end_time": end_time,
                 "speaker_name": speaker_name,
@@ -781,7 +836,31 @@ def prepare_utterances_df(calls, selected_products):
                 "product": product,
                 "tracker": tracker_str,
                 "utterance_text": text
-            })
+            }
+            
+            # Add energy savings measurement only if "Secure Air" or "ODCV" is selected
+            energy_savings_measurement = ""
+            if include_energy_savings:
+                energy_savings_measurement = find_energy_savings_keyword(text)
+                utterance_data["energy_savings_measurement"] = energy_savings_measurement
+            
+            # Check if utterance has any metadata; if not, exclude it from CSV
+            has_metadata = bool(product) or bool(tracker_str) or (include_energy_savings and bool(energy_savings_measurement))
+            if not has_metadata:
+                no_metadata_utterances += 1
+                continue
+            
+            # Check if the product column contains only tags not in selected_products
+            if product:  # Only check if product is non-empty
+                product_tags = product.split("|")
+                product_tags_lower = [tag.lower() for tag in product_tags]
+                # If none of the product tags match selected products, exclude the row
+                if not any(tag in selected_products_lower for tag in product_tags_lower):
+                    non_matching_product_utterances += 1
+                    continue
+            
+            # Collect utterance data
+            call_data["utterances"].append(utterance_data)
         
         if call_data["utterances"]:
             # Sort utterances chronologically by start_time
@@ -795,7 +874,7 @@ def prepare_utterances_df(calls, selected_products):
     data = []
     for call_data in call_utterances:
         for utterance in call_data["utterances"]:
-            data.append({
+            row = {
                 "call_id": call_data["call_id"],
                 "call_date": call_data["call_date"],
                 "account_name": call_data["account_name"],
@@ -809,7 +888,11 @@ def prepare_utterances_df(calls, selected_products):
                 "utterance_text": utterance["utterance_text"],
                 "start_time": utterance["start_time"],
                 "end_time": utterance["end_time"]
-            })
+            }
+            # Add energy_savings_measurement column if applicable
+            if include_energy_savings:
+                row["energy_savings_measurement"] = utterance.get("energy_savings_measurement", "")
+            data.append(row)
     
     if data:
         columns = [
@@ -817,6 +900,8 @@ def prepare_utterances_df(calls, selected_products):
             "speaker_name", "speaker_job_title", "speaker_affiliation",
             "product", "tracker", "utterance_text", "start_time", "end_time"
         ]
+        if include_energy_savings:
+            columns.append("energy_savings_measurement")
         df = pd.DataFrame(data)[columns]
         df['call_id'] = df['call_id'].astype(str)
         logger.info(f"Utterances DataFrame: {len(df)} rows, columns: {df.columns.tolist()}")
@@ -830,6 +915,8 @@ def prepare_utterances_df(calls, selected_products):
         "short_utterances": short_utterances,
         "excluded_topic_utterances": excluded_topic_utterances,
         "excluded_topics": excluded_topics,
+        "no_metadata_utterances": no_metadata_utterances,
+        "non_matching_product_utterances": non_matching_product_utterances,
         "included_utterances": len(df)
     }
 
@@ -1179,26 +1266,81 @@ def process():
         logger.info(f"Call summary - total_calls: {total_calls}, calls_with_no_products: {calls_with_no_products}, calls_not_matching: {calls_not_matching}, calls_included: {calls_included}")
 
         total_utterances = utterance_stats["total_utterances"]
+        # Prepare Calls table data as a list of dictionaries
+        calls_table = []
+        if total_calls > 0:
+            # Retrieved
+            if len(full_data) > 0:  # validCalls
+                calls_table.append({
+                    "exclusion": "Retrieved",
+                    "count": len(full_data),
+                    "percent": round(len(full_data) / total_calls * 100)
+                })
+            # Excluded (Invalid Date)
+            if invalid_date_calls > 0:
+                calls_table.append({
+                    "exclusion": "Excluded (Invalid Date)",
+                    "count": invalid_date_calls,
+                    "percent": round(invalid_date_calls / total_calls * 100)
+                })
+            # Excluded (No Product Tag)
+            if calls_with_no_products > 0:
+                calls_table.append({
+                    "exclusion": "Excluded (No Product Tag)",
+                    "count": calls_with_no_products,
+                    "percent": round(calls_with_no_products / total_calls * 100)
+                })
+            # Excluded (Unselected Product Tag)
+            if calls_not_matching > 0:
+                calls_table.append({
+                    "exclusion": "Excluded (Unselected Product Tag)",
+                    "count": calls_not_matching,
+                    "percent": round(calls_not_matching / total_calls * 100)
+                })
+
         utterance_breakdown = {
-            "product": []
+            "product": [],
+            "exclusions": [],
+            "topic_breakdown": []
         }
         if total_utterances > 0:
+            # Product Breakdown
             product_counts = {}
+            energy_savings_count = 0
             for _, row in utterances_df.iterrows():
                 if row['product']:
                     for product in row['product'].split("|"):
                         product = product.lower()
                         product_counts[product] = product_counts.get(product, 0) + 1
+                # Count energy savings measurements
+                if 'energy_savings_measurement' in row and row['energy_savings_measurement']:
+                    energy_savings_count += 1
             
+            # Calculate total for products and energy savings
             product_total = sum(product_counts.values())
+            if include_energy_savings and energy_savings_count > 0:
+                product_total += energy_savings_count  # Include energy savings in total for percentage calculation
+            
+            # Calculate percentages for products
             product_percentages = {}
             for product, count in product_counts.items():
                 percentage = round(count / product_total * 100) if product_total > 0 else 0
                 product_percentages[product] = percentage
-            total_percentage = sum(product_percentages.values())
+            
+            # Calculate percentage for energy savings
+            energy_savings_percentage = round(energy_savings_count / product_total * 100) if product_total > 0 else 0
+            
+            # Adjust percentages to sum to 100%
+            total_percentage = sum(product_percentages.values()) + energy_savings_percentage
             if total_percentage != 100 and product_total > 0:
-                max_product = max(product_counts, key=product_counts.get)
-                product_percentages[max_product] += 100 - total_percentage
+                # Find the largest product to adjust
+                if product_counts:
+                    max_product = max(product_counts, key=product_counts.get)
+                    product_percentages[max_product] += 100 - total_percentage
+                elif energy_savings_count > 0:
+                    energy_savings_percentage += 100 - total_percentage
+            
+            # Populate product breakdown
             for product, count in product_counts.items():
                 utterance_breakdown["product"].append({
                     "value": product,
@@ -1206,7 +1348,58 @@ def process():
                     "percentage": product_percentages[product]
                 })
             
+            # Add Energy Savings if applicable
+            if include_energy_savings and energy_savings_count > 0:
+                utterance_breakdown["product"].append({
+                    "value": "energy savings",
+                    "count": energy_savings_count,
+                    "percentage": energy_savings_percentage
+                })
+            
             utterance_breakdown["product"].sort(key=lambda x: x["count"], reverse=True)
+
+            # Utterance Exclusions Table
+            if utterance_stats["internal_utterances"] > 0:
+                utterance_breakdown["exclusions"].append({
+                    "exclusion": "Internal Speaker",
+                    "count": utterance_stats["internal_utterances"],
+                    "percent": utterance_stats["percentInternalUtterances"]
+                })
+            if utterance_stats["short_utterances"] > 0:
+                utterance_breakdown["exclusions"].append({
+                    "exclusion": "Short Utterance",
+                    "count": utterance_stats["short_utterances"],
+                    "percent": utterance_stats["percentShortUtterances"]
+                })
+            if utterance_stats["excluded_topic_utterances"] > 0:
+                utterance_breakdown["exclusions"].append({
+                    "exclusion": "Topic Exclusions",
+                    "count": utterance_stats["excluded_topic_utterances"],
+                    "percent": utterance_stats["percentExcludedTopicUtterances"]
+                })
+            if utterance_stats["no_metadata_utterances"] > 0:
+                utterance_breakdown["exclusions"].append({
+                    "exclusion": "No Tag",
+                    "count": utterance_stats["no_metadata_utterances"],
+                    "percent": utterance_stats["percentNoMetadataUtterances"]
+                })
+            if utterance_stats["non_matching_product_utterances"] > 0:
+                utterance_breakdown["exclusions"].append({
+                    "exclusion": "Non Matching Product Tag",
+                    "count": utterance_stats["non_matching_product_utterances"],
+                    "percent": utterance_stats["percentNonMatchingProductUtterances"]
+                })
+
+            # Topic Breakdown
+            for topic, count in utterance_stats["excluded_topics"].items():
+                if count > 0:
+                    percentage = round(count / total_utterances * 100) if total_utterances > 0 else 0
+                    utterance_breakdown["topic_breakdown"].append({
+                        "topic": topic,
+                        "count": count,
+                        "percent": percentage
+                    })
+            utterance_breakdown["topic_breakdown"].sort(key=lambda x: x["count"], reverse=True)
 
         excluded_topic_percentages = {}
         for topic, count in utterance_stats["excluded_topics"].items():
@@ -1227,11 +1420,14 @@ def process():
             "percentNoProducts": round(calls_with_no_products / total_calls * 100) if total_calls > 0 else 0,
             "percentNotMatching": round(calls_not_matching / total_calls * 100) if total_calls > 0 else 0,
             "percentIncluded": round(calls_included / total_calls * 100) if total_calls > 0 else 0,
+            "calls_table": calls_table,  # Structured data for Calls table
             **utterance_stats,
             "excluded_topic_percentages": excluded_topic_percentages,
             "percentInternalUtterances": round(utterance_stats["internal_utterances"] / utterance_stats["total_utterances"] * 100) if utterance_stats["total_utterances"] > 0 else 0,
             "percentShortUtterances": round(utterance_stats["short_utterances"] / utterance_stats["total_utterances"] * 100) if utterance_stats["total_utterances"] > 0 else 0,
             "percentExcludedTopicUtterances": round(utterance_stats["excluded_topic_utterances"] / utterance_stats["total_utterances"] * 100) if utterance_stats["total_utterances"] > 0 else 0,
+            "percentNoMetadataUtterances": round(utterance_stats["no_metadata_utterances"] / utterance_stats["total_utterances"] * 100) if utterance_stats["total_utterances"] > 0 else 0,
+            "percentNonMatchingProductUtterances": round(utterance_stats["non_matching_product_utterances"] / utterance_stats["total_utterances"] * 100) if utterance_stats["total_utterances"] > 0 else 0,
             "percentIncludedUtterances": round(utterance_stats["included_utterances"] / utterance_stats["total_utterances"] * 100) if utterance_stats["total_utterances"] > 0 else 0
         }
 
