@@ -618,7 +618,13 @@ def prepare_utterances_df(calls, selected_products):
             "excluded_topics": {topic: 0 for topic in EXCLUDED_TOPICS},
             "no_metadata_utterances": 0,
             "non_matching_product_utterances": 0,
-            "included_utterances": 0
+            "included_utterances": 0,
+            "percentInternalUtterances": 0,
+            "percentShortUtterances": 0,
+            "percentExcludedTopicUtterances": 0,
+            "percentNoMetadataUtterances": 0,
+            "percentNonMatchingProductUtterances": 0,
+            "percentIncludedUtterances": 0
         }, False  # Return include_energy_savings as False if no calls
     
     total_utterances = 0
@@ -909,6 +915,7 @@ def prepare_utterances_df(calls, selected_products):
         logger.info("Utterances DataFrame is empty after processing")
         df = pd.DataFrame()
     
+    # Compute percentages for utterance stats
     utterance_stats = {
         "total_utterances": total_utterances,
         "internal_utterances": internal_utterances,
@@ -917,7 +924,13 @@ def prepare_utterances_df(calls, selected_products):
         "excluded_topics": excluded_topics,
         "no_metadata_utterances": no_metadata_utterances,
         "non_matching_product_utterances": non_matching_product_utterances,
-        "included_utterances": len(df)
+        "included_utterances": len(df),
+        "percentInternalUtterances": round(internal_utterances / total_utterances * 100) if total_utterances > 0 else 0,
+        "percentShortUtterances": round(short_utterances / total_utterances * 100) if total_utterances > 0 else 0,
+        "percentExcludedTopicUtterances": round(excluded_topic_utterances / total_utterances * 100) if total_utterances > 0 else 0,
+        "percentNoMetadataUtterances": round(no_metadata_utterances / total_utterances * 100) if total_utterances > 0 else 0,
+        "percentNonMatchingProductUtterances": round(non_matching_product_utterances / total_utterances * 100) if total_utterances > 0 else 0,
+        "percentIncludedUtterances": round(len(df) / total_utterances * 100) if total_utterances > 0 else 0
     }
     
     return df, utterance_stats, include_energy_savings
@@ -1424,13 +1437,7 @@ def process():
             "percentIncluded": round(calls_included / total_calls * 100) if total_calls > 0 else 0,
             "calls_table": calls_table,  # Structured data for Calls table
             **utterance_stats,
-            "excluded_topic_percentages": excluded_topic_percentages,
-            "percentInternalUtterances": round(utterance_stats["internal_utterances"] / utterance_stats["total_utterances"] * 100) if utterance_stats["total_utterances"] > 0 else 0,
-            "percentShortUtterances": round(utterance_stats["short_utterances"] / utterance_stats["total_utterances"] * 100) if utterance_stats["total_utterances"] > 0 else 0,
-            "percentExcludedTopicUtterances": round(utterance_stats["excluded_topic_utterances"] / utterance_stats["total_utterances"] * 100) if utterance_stats["total_utterances"] > 0 else 0,
-            "percentNoMetadataUtterances": round(utterance_stats["no_metadata_utterances"] / utterance_stats["total_utterances"] * 100) if utterance_stats["total_utterances"] > 0 else 0,
-            "percentNonMatchingProductUtterances": round(utterance_stats["non_matching_product_utterances"] / utterance_stats["total_utterances"] * 100) if utterance_stats["total_utterances"] > 0 else 0,
-            "percentIncludedUtterances": round(utterance_stats["included_utterances"] / utterance_stats["total_utterances"] * 100) if utterance_stats["total_utterances"] > 0 else 0
+            "excluded_topic_percentages": excluded_topic_percentages
         }
 
         start_date_str = start_dt.strftime("%d%b%y").lower()
