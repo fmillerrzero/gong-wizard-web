@@ -13,53 +13,50 @@
         .container {
             max-width: 800px;
             margin: 0 auto;
-            background-color: #fff;
+            background-color: white;
             padding: 20px;
             border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
         h1 {
-            font-size: 24px;
-            margin-bottom: 20px;
-            text-transform: capitalize;
+            text-align: center;
+            color: #333;
         }
         h2 {
-            font-size: 20px;
+            color: #444;
             margin-top: 20px;
-            margin-bottom: 10px;
         }
         .form-group {
             margin-bottom: 15px;
         }
         label {
             display: block;
-            font-weight: bold;
             margin-bottom: 5px;
+            font-weight: bold;
+            color: #555;
         }
-        input[type="text"],
-        input[type="date"] {
+        input[type="text"], input[type="date"] {
             width: 100%;
             padding: 8px;
-            margin-bottom: 10px;
             border: 1px solid #ddd;
             border-radius: 4px;
             box-sizing: border-box;
         }
-        .checkbox-group {
-            margin-bottom: 10px;
+        input[type="checkbox"] {
+            margin-right: 5px;
         }
-        .checkbox-group label {
-            font-weight: normal;
-            margin-right: 15px;
-            text-transform: capitalize;
+        .checkbox-group {
+            margin-bottom: 15px;
         }
         button {
             background-color: #007bff;
-            color: #fff;
+            color: white;
             padding: 10px 20px;
             border: none;
             border-radius: 4px;
             cursor: pointer;
+            display: block;
+            width: 100%;
         }
         button:hover {
             background-color: #0056b3;
@@ -77,34 +74,32 @@
             background-color: #f8d7da;
             color: #721c24;
         }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 10px;
-        }
-        th, td {
-            padding: 8px;
-            text-align: left;
-            border-bottom: 1px solid #ddd;
-        }
-        th {
-            background-color: #f2f2f2;
-            text-transform: uppercase;
-        }
         .download-links {
             margin-top: 20px;
         }
         .download-links a {
             display: inline-block;
             margin-right: 10px;
-            padding: 8px 16px;
-            background-color: #007bff;
-            color: #fff;
+            color: #007bff;
             text-decoration: none;
-            border-radius: 4px;
         }
         .download-links a:hover {
-            background-color: #0056b3;
+            text-decoration: underline;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+            text-transform: uppercase;
+            font-weight: bold;
         }
         .capitalize {
             text-transform: capitalize;
@@ -114,44 +109,40 @@
 <body>
     <div class="container">
         <h1>Gong Wizard</h1>
-        <form method="POST" action="/process">
-            <div class="form-group">
-                <label for="access_key">Gong Access Key</label>
-                <input type="text" id="access_key" name="access_key" value="{{ form_state.access_key }}" required>
-            </div>
-            <div class="form-group">
-                <label for="secret_key">Gong Secret Key</label>
-                <input type="text" id="secret_key" name="secret_key" value="{{ form_state.secret_key }}" required>
-            </div>
-            <div class="form-group">
-                <label for="start_date">From Date</label>
-                <input type="date" id="start_date" name="start_date" value="{{ form_state.start_date }}" max="{{ max_date }}" required>
-            </div>
-            <div class="form-group">
-                <label for="end_date">To Date</label>
-                <input type="date" id="end_date" name="end_date" value="{{ form_state.end_date }}" max="{{ max_date }}" required>
-            </div>
-            <div class="form-group">
-                <label>Products</label>
-                <div class="checkbox-group">
-                    {% for product in available_products %}
-                    <label>
-                        <input type="checkbox" name="products" value="{{ product }}"
-                            {% if product in form_state.products %}checked{% endif %}>
-                        {{ product | replace('iaq', 'IAQ') | replace('odcv', 'ODCV') | title }}
-                    </label>
-                    {% endfor %}
-                </div>
-            </div>
-            <button type="submit">Submit</button>
-        </form>
-
         {% if form_state.message %}
         <div class="message {{ 'success' if form_state.show_download else 'error' }}">
             {{ form_state.message }}
         </div>
         {% endif %}
-
+        <form action="/process" method="post">
+            <div class="form-group">
+                <label for="access_key">Access Key</label>
+                <input type="text" id="access_key" name="access_key" value="{{ form_state.access_key }}" required>
+            </div>
+            <div class="form-group">
+                <label for="secret_key">Secret Key</label>
+                <input type="text" id="secret_key" name="secret_key" value="{{ form_state.secret_key }}" required>
+            </div>
+            <div class="form-group">
+                <label for="start_date">Start Date</label>
+                <input type="date" id="start_date" name="start_date" value="{{ form_state.start_date }}" required>
+            </div>
+            <div class="form-group">
+                <label for="end_date">End Date</label>
+                <input type="date" id="end_date" name="end_date" value="{{ form_state.end_date }}" max="{{ max_date }}" required>
+            </div>
+            <div class="checkbox-group">
+                <label>Products</label>
+                {% for product in available_products %}
+                <div>
+                    <input type="checkbox" id="{{ product }}" name="products" value="{{ product }}"
+                        {% if product in form_state.products %}checked{% endif %}>
+                    <label for="{{ product }}">{{ product | replace('iaq', 'IAQ') | replace('odcv', 'ODCV') | title }}</label>
+                </div>
+                {% endfor %}
+            </div>
+            <button type="submit">Process Calls</button>
+        </form>
         {% if form_state.show_download %}
         <h2>Calls: {{ form_state.stats.callsIncludedFormatted }} Included ({{ form_state.stats.percentIncluded }}%)</h2>
         <table>
@@ -172,7 +163,6 @@
                 {% endfor %}
             </tbody>
         </table>
-
         <h2>Utterances: {{ form_state.stats.included_utterances_formatted }} Included ({{ form_state.stats.percentIncludedUtterances }}%)</h2>
         <table>
             <thead>
@@ -185,36 +175,13 @@
             <tbody>
                 {% for entry in form_state.utterance_breakdown.exclusions %}
                 <tr>
-                    <td>{{ entry.exclusion }}</td>
+                    <td class="capitalize">{{ entry.exclusion }}</td>
                     <td>{{ entry.count_formatted }}</td>
                     <td>{{ entry.percent }}%</td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
-
-        {% if form_state.utterance_breakdown.topic_breakdown %}
-        <h2>Topic Breakdown</h2>
-        <table>
-            <thead>
-                <tr>
-                    <th>TOPIC</th>
-                    <th>COUNT</th>
-                    <th>PERCENT</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for topic in form_state.utterance_breakdown.topic_breakdown %}
-                <tr>
-                    <td class="capitalize">{{ topic.topic }}</td>
-                    <td>{{ topic.count_formatted }}</td>
-                    <td>{{ topic.percent }}%</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-        {% endif %}
-
         {% if form_state.utterance_breakdown.product %}
         <h2>Product Breakdown</h2>
         <table>
@@ -236,7 +203,27 @@
             </tbody>
         </table>
         {% endif %}
-
+        {% if form_state.utterance_breakdown.topics %}
+        <h2>Topics</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>TOPIC</th>
+                    <th>COUNT</th>
+                    <th>PERCENT</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for topic in form_state.utterance_breakdown.topics %}
+                <tr>
+                    <td class="capitalize">{{ topic.topic }}</td>
+                    <td>{{ topic.count_formatted }}</td>
+                    <td>{{ topic.percent }}%</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
         <div class="download-links">
             <a href="/download/utterances">Utterances CSV</a>
             <a href="/download/call_summary">Call Summary CSV</a>
