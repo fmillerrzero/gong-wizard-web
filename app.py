@@ -734,7 +734,7 @@ def prepare_utterances_df(calls, selected_products):
                 best_utterance["trackers"].append({"tracker_name": tracker_name})
                 logger.debug(f"Tracker {tracker_name} at {tracker_time_ms}ms matched to utterance {best_utterance['start_time']}-{best_utterance['end_time']}ms in call {call_id}")
                 if len(eligible_utterances) > 1:
-                    logger.debug(f"Multiple eligible utterances for tracker {tracker_name} in call {call_id}: {[f'{u[0]['start_time']}-{u[0]['end_time']}ms (distance: {u[1]})' for u in eligible_utterances]}")
+                    logger.debug(f"Multiple eligible utterances for tracker {tracker_name} in call {call_id}: {[f\"{u[0]['start_time']}-{u[0]['end_time']}ms (distance: {u[1]})\" for u in eligible_utterances]}")
             else:
                 unmatched_trackers.append({
                     "tracker_name": tracker_name,

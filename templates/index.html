@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gong Wizard</title>
+    <title>GongGPT by Forrest</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -34,6 +34,9 @@
             margin-bottom: 5px;
             font-weight: bold;
             color: #555;
+        }
+        .checkbox-group label.products-label {
+            font-weight: normal; /* Unbold the "Products" label */
         }
         input[type="text"], input[type="date"] {
             width: 100%;
@@ -108,7 +111,7 @@
 </head>
 <body>
     <div class="container">
-        <h1>Gong Wizard</h1>
+        <h1>GongGPT by Forrest</h1>
         {% if form_state.message %}
         <div class="message {{ 'success' if form_state.show_download else 'error' }}">
             {{ form_state.message }}
@@ -132,12 +135,12 @@
                 <input type="date" id="end_date" name="end_date" value="{{ form_state.end_date }}" max="{{ max_date }}" required>
             </div>
             <div class="checkbox-group">
-                <label>Products</label>
+                <label class="products-label">Products</label>
                 {% for product in available_products %}
                 <div>
                     <input type="checkbox" id="{{ product }}" name="products" value="{{ product }}"
                         {% if product in form_state.products %}checked{% endif %}>
-                    <label for="{{ product }}">{{ product | replace('iaq', 'IAQ') | replace('odcv', 'ODCV') | title }}</label>
+                    <label for="{{ product }}">{{ product | replace('iaq monitoring', 'IAQ Monitoring') | replace('odcv', 'ODCV') | title }}</label>
                 </div>
                 {% endfor %}
             </div>
@@ -195,7 +198,7 @@
             <tbody>
                 {% for product in form_state.utterance_breakdown.product %}
                 <tr>
-                    <td class="capitalize">{{ product.value | replace('iaq', 'IAQ') | replace('odcv', 'ODCV') | title }}</td>
+                    <td class="capitalize">{{ product.value | replace('iaq monitoring', 'IAQ Monitoring') | replace('odcv', 'ODCV') | title }}</td>
                     <td>{{ product.count_formatted }}</td>
                     <td>{{ product.percentage }}%</td>
                 </tr>
