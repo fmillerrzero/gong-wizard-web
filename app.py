@@ -20,6 +20,7 @@ app = Flask(__name__)
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', os.urandom(24))
 logger = logging.getLogger(__name__)
 
+# Configure logging
 log_dir = "/tmp"
 if not os.path.exists(log_dir):
     os.makedirs(log_dir, exist_ok=True)
@@ -40,6 +41,10 @@ BATCH_SIZE = 25
 TRACKER_BUFFER_S = 1
 MAX_DATE_RANGE_MONTHS = 12
 
+# Google Sheet ID
+SHEET_ID = "1tvItwAqONZYhetTbg7KAHw0OMPaDfCoFC4g6rSg0QvE"
+
+# Initialize global variables
 PRODUCT_MAPPINGS = {}
 ENERGY_SAVINGS_KEYWORDS = []
 HVAC_TOPICS_KEYWORDS = []
@@ -76,28 +81,36 @@ def get_email_domain(email):
 def get_email_local_part(email):
     return "" if not email or "@" not in email else email.split("@")[0].strip().lower()
 
-def load_csv_from_sheet(sheet_id, label):
-    url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
-    response = safe_operation(
-        requests.get, None, f"Failed to fetch {label} Google Sheet", url, timeout=10
-    )
-    if response and response.status_code == 200:
-        df = safe_operation(
-            pd.read_csv, None, f"Failed to read {label} CSV", StringIO(response.text)
-        )
-        if df is not None:
+def load_csv_from_sheet(gid: int, label: str) -> pd.DataFrame:
+    """
+    Loads a specific tab from the Google Sheet using its gid.
+    
+    Args:
+        gid (int): The unique ID of the tab to load.
+        label (str): A label for logging purposes.
+    
+    Returns:
+        pd.DataFrame: The loaded DataFrame or an empty DataFrame if loading fails.
+    """
+    url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={gid}"
+    try:
+        response = requests.get(url, timeout=10)
+        if response.status_code == 200:
+            df = pd.read_csv(StringIO(response.text))
             logger.info(f"Loaded {label} sheet with {len(df)} records")
             return df
         else:
-            logger.warning(f"Failed to parse {label} CSV, returning empty DataFrame")
+            logger.warning(f"Failed to fetch {label} Google Sheet: HTTP {response.status_code}")
             return pd.DataFrame()
-    else:
-        logger.warning(f"Continuing without {label} data")
+    except Exception as e:
+        logger.warning(f"Failed to load {label} Google Sheet: {str(e)}")
         return pd.DataFrame()
 
-def load_product_mappings():
-    df = load_csv_from_sheet("1tvItwAqONZYhetTbg7KAHw0OMPaDfCoFC4g6rSg0QvE", "PRODUCT_MAPPINGS")
-    if df.empty:
+def load_product_mappings() -> dict:
+    gid = 1216942066  # PRODUCT_MAPPINGS tab
+    df = load_csv_from_sheet(gid, "PRODUCT_MAPPINGS")
+    if df.empty or "Product" not in df.columns or "Keyword" not in df.columns:
+        logger.warning("PRODUCT_MAPPINGS sheet is empty or missing required columns")
         return {}
     mappings = {}
     for _, row in df.iterrows():
@@ -111,73 +124,91 @@ def load_product_mappings():
     logger.info(f"Loaded {len(mappings)} product mappings")
     return mappings
 
-def load_energy_savings_keywords():
-    df = load_csv_from_sheet("1tvItwAqONZYhetTbg7KAHw0OMPaDfCoFC4g6rSg0QvE", "ENERGY_SAVINGS_KEYWORDS")
-    if df.empty:
+def load_energy_savings_keywords() -> list:
+    gid = 482507272  # ENERGY_SAVINGS_KEYWORDS tab
+    df = load_csv_from_sheet(gid, "ENERGY_SAVINGS_KEYWORDS")
+    if df.empty or "Keyword" not in df.columns:
+        logger.warning("ENERGY_SAVINGS_KEYWORDS sheet is empty or missing 'Keyword' column")
         return []
     keywords = df["Keyword"].dropna().astype(str).tolist()
     logger.info(f"Loaded {len(keywords)} energy savings keywords")
     return keywords
 
-def load_hvac_topics_keywords():
-    df = load_csv_from_sheet("1tvItwAqONZYhetTbg7KAHw0OMPaDfCoFC4g6rSg0QvE", "HVAC_TOPICS_KEYWORDS")
-    if df.empty:
+def load_hvac_topics_keywords() -> list:
+    gid = 746230823  # HVAC_TOPICS_KEYWORDS tab
+    df = load_csv_from_sheet(gid, "HVAC_TOPICS_KEYWORDS")
+    if df.empty or "Keyword" not in df.columns:
+        logger.warning("HVAC_TOPICS_KEYWORDS sheet is empty or missing 'Keyword' column")
         return []
     keywords = df["Keyword"].dropna().astype(str).tolist()
     logger.info(f"Loaded {len(keywords)} HVAC topics keywords")
     return keywords
 
-def load_internal_domains():
-    df = load_csv_from_sheet("1tvItwAqONZYhetTbg7KAHw0OMPaDfCoFC4g6rSg0QvE", "INTERNAL_DOMAINS")
-    if df.empty:
+def load_internal_domains() -> set:
+    gid = 784372544  # INTERNAL_DOMAINS tab
+    df = load_csv_from_sheet(gid, "INTERNAL_DOMAINS")
+    if df.empty or "Domain" not in df.columns:
+        logger.warning("INTERNAL_DOMAINS sheet is empty or missing 'Domain' column")
         return set()
     domains = set(df["Domain"].dropna().astype(str).str.lower())
     logger.info(f"Loaded {len(domains)} internal domains")
     return domains
 
-def load_excluded_domains():
-    df = load_csv_from_sheet("1tvItwAqONZYhetTbg7KAHw0OMPaDfCoFC4g6rSg0QvE", "EXCLUDED_DOMAINS")
-    if df.empty:
+def load_excluded_domains() -> set:
+    gid = 463927561  # EXCLUDED_DOMAINS tab
+    df = load_csv_from_sheet(gid, "EXCLUDED_DOMAINS")
+    if df.empty or "Domain" not in df.columns:
+        logger.warning("EXCLUDED_DOMAINS sheet is empty or missing 'Domain' column")
         return set()
     domains = set(df["Domain"].dropna().astype(str).str.lower())
     logger.info(f"Loaded {len(domains)} excluded domains")
     return domains
 
-def load_excluded_account_names():
-    df = load_csv_from_sheet("1tvItwAqONZYhetTbg7KAHw0OMPaDfCoFC4g6rSg0QvE", "EXCLUDED_ACCOUNT_NAMES")
-    if df.empty:
+def load_excluded_account_names() -> set:
+    gid = 1453423105  # EXCLUDED_ACCOUNT_NAMES tab
+    df = load_csv_from_sheet(gid, "EXCLUDED_ACCOUNT_NAMES")
+    if df.empty or "Account Name" not in df.columns:
+        logger.warning("EXCLUDED_ACCOUNT_NAMES sheet is empty or missing 'Account Name' column")
         return set()
     names = set(df["Account Name"].dropna().astype(str).str.lower())
     logger.info(f"Loaded {len(names)} excluded account names")
     return names
 
-def load_excluded_trackers():
-    df = load_csv_from_sheet("1tvItwAqONZYhetTbg7KAHw0OMPaDfCoFC4g6rSg0QvE", "EXCLUDED_TRACKERS")
-    if df.empty:
+def load_excluded_trackers() -> set:
+    gid = 1627752322  # EXCLUDED_TRACKERS tab
+    df = load_csv_from_sheet(gid, "EXCLUDED_TRACKERS")
+    if df.empty or "Tracker" not in df.columns:
+        logger.warning("EXCLUDED_TRACKERS sheet is empty or missing 'Tracker' column")
         return set()
     trackers = set(df["Tracker"].dropna().astype(str).str.lower())
     logger.info(f"Loaded {len(trackers)} excluded trackers")
     return trackers
 
-def load_internal_speakers():
-    df = load_csv_from_sheet("1tvItwAqONZYhetTbg7KAHw0OMPaDfCoFC4g6rSg0QvE", "INTERNAL_SPEAKERS")
-    if df.empty:
+def load_internal_speakers() -> set:
+    gid = 1402964429  # INTERNAL_SPEAKERS tab
+    df = load_csv_from_sheet(gid, "INTERNAL_SPEAKERS")
+    if df.empty or "Speaker" not in df.columns:
+        logger.warning("INTERNAL_SPEAKERS sheet is empty or missing 'Speaker' column")
         return set()
     speakers = set(df["Speaker"].dropna().astype(str).str.lower())
     logger.info(f"Loaded {len(speakers)} internal speakers")
     return speakers
 
-def load_excluded_topics():
-    df = load_csv_from_sheet("1tvItwAqONZYhetTbg7KAHw0OMPaDfCoFC4g6rSg0QvE", "EXCLUDED_TOPICS")
-    if df.empty:
+def load_excluded_topics() -> set:
+    gid = 1653785571  # EXCLUDED_TOPICS tab
+    df = load_csv_from_sheet(gid, "EXCLUDED_TOPICS")
+    if df.empty or "Topic" not in df.columns:
+        logger.warning("EXCLUDED_TOPICS sheet is empty or missing 'Topic' column")
         return set()
     topics = set(df["Topic"].dropna().astype(str).str.lower())
     logger.info(f"Loaded {len(topics)} excluded topics")
     return topics
 
-def load_call_id_to_account_name():
-    df = load_csv_from_sheet("1tvItwAqONZYhetTbg7KAHw0OMPaDfCoFC4g6rSg0QvE", "CALL_ID_TO_ACCOUNT_NAME")
-    if df.empty:
+def load_call_id_to_account_name() -> dict:
+    gid = 300481101  # CALL_ID_TO_ACCOUNT_NAME tab
+    df = load_csv_from_sheet(gid, "CALL_ID_TO_ACCOUNT_NAME")
+    if df.empty or "Call ID" not in df.columns or "Account Name" not in df.columns:
+        logger.warning("CALL_ID_TO_ACCOUNT_NAME sheet is empty or missing required columns")
         return {}
     mappings = {}
     for _, row in df.iterrows():
@@ -188,27 +219,33 @@ def load_call_id_to_account_name():
     logger.info(f"Loaded {len(mappings)} call ID to account name mappings")
     return mappings
 
-def load_owner_account_names():
-    df = load_csv_from_sheet("1tvItwAqONZYhetTbg7KAHw0OMPaDfCoFC4g6rSg0QvE", "OWNER_ACCOUNT_NAMES")
-    if df.empty:
+def load_owner_account_names() -> set:
+    gid = 583478969  # OWNER_ACCOUNT_NAMES tab
+    df = load_csv_from_sheet(gid, "OWNER_ACCOUNT_NAMES")
+    if df.empty or "Account Name" not in df.columns:
+        logger.warning("OWNER_ACCOUNT_NAMES sheet is empty or missing 'Account Name' column")
         return set()
     names = set(df["Account Name"].dropna().astype(str).str.lower())
     logger.info(f"Loaded {len(names)} owner account names")
     return names
 
-def load_target_domains():
-    df = load_csv_from_sheet("1HMAQ3eNhXhCAfcxPqQwds1qn1ZW8j6Sc1oCM9_TLjtQ", "OWNER_DOMAINS")
-    if df.empty:
+def load_target_domains() -> set:
+    gid = 1010248949  # OWNER_DOMAINS tab
+    df = load_csv_from_sheet(gid, "OWNER_DOMAINS")
+    if df.empty or "Domain" not in df.columns:
+        logger.warning("OWNER_DOMAINS sheet is empty or missing 'Domain' column")
         return set()
-    domains = set(normalize_domain(domain) for domain in df.iloc[:, 0].dropna().astype(str))
+    domains = set(normalize_domain(domain) for domain in df["Domain"].dropna().astype(str))
     logger.info(f"Loaded {len(domains)} target domains")
     return domains
 
-def load_tenant_domains():
-    df = load_csv_from_sheet("19WrPxtEZV59_irXRm36TJGRNJFRoYsi0KnrOUDIDBVM", "TENANT_DOMAINS")
-    if df.empty:
+def load_tenant_domains() -> set:
+    gid = 139303828  # TENANT_DOMAINS tab
+    df = load_csv_from_sheet(gid, "TENANT_DOMAINS")
+    if df.empty or "Domain" not in df.columns:
+        logger.warning("TENANT_DOMAINS sheet is empty or missing 'Domain' column")
         return set()
-    domains = set(normalize_domain(domain) for domain in df.iloc[:, 0].dropna().astype(str))
+    domains = set(normalize_domain(domain) for domain in df["Domain"].dropna().astype(str))
     logger.info(f"Loaded {len(domains)} tenant domains")
     return domains
 
