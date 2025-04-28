@@ -82,16 +82,6 @@ def get_email_local_part(email):
     return "" if not email or "@" not in email else email.split("@")[0].strip().lower()
 
 def load_csv_from_sheet(gid: int, label: str) -> pd.DataFrame:
-    """
-    Loads a specific tab from the Google Sheet using its gid.
-    
-    Args:
-        gid (int): The unique ID of the tab to load.
-        label (str): A label for logging purposes.
-    
-    Returns:
-        pd.DataFrame: The loaded DataFrame or an empty DataFrame if loading fails.
-    """
     url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={gid}"
     try:
         response = requests.get(url, timeout=10)
@@ -100,14 +90,14 @@ def load_csv_from_sheet(gid: int, label: str) -> pd.DataFrame:
             logger.info(f"Loaded {label} sheet with {len(df)} records")
             return df
         else:
-            logger.warning(f"Failed to fetch {label} Google Sheet: HTTP {response.status_code}")
+            logger.error(f"Failed to fetch {label} Google Sheet: HTTP {response.status_code}")
             return pd.DataFrame()
     except Exception as e:
-        logger.warning(f"Failed to load {label} Google Sheet: {str(e)}")
+        logger.error(f"Failed to load {label} Google Sheet: {str(e)}\n{traceback.format_exc()}")
         return pd.DataFrame()
 
 def load_product_mappings() -> dict:
-    gid = 1216942066  # PRODUCT_MAPPINGS tab
+    gid = 1216942066
     df = load_csv_from_sheet(gid, "PRODUCT_MAPPINGS")
     if df.empty or "Product" not in df.columns or "Keyword" not in df.columns:
         logger.warning("PRODUCT_MAPPINGS sheet is empty or missing required columns")
@@ -125,7 +115,7 @@ def load_product_mappings() -> dict:
     return mappings
 
 def load_energy_savings_keywords() -> list:
-    gid = 482507272  # ENERGY_SAVINGS_KEYWORDS tab
+    gid = 482507272
     df = load_csv_from_sheet(gid, "ENERGY_SAVINGS_KEYWORDS")
     if df.empty or "Keyword" not in df.columns:
         logger.warning("ENERGY_SAVINGS_KEYWORDS sheet is empty or missing 'Keyword' column")
@@ -135,7 +125,7 @@ def load_energy_savings_keywords() -> list:
     return keywords
 
 def load_hvac_topics_keywords() -> list:
-    gid = 746230823  # HVAC_TOPICS_KEYWORDS tab
+    gid = 746230823
     df = load_csv_from_sheet(gid, "HVAC_TOPICS_KEYWORDS")
     if df.empty or "Keyword" not in df.columns:
         logger.warning("HVAC_TOPICS_KEYWORDS sheet is empty or missing 'Keyword' column")
@@ -145,7 +135,7 @@ def load_hvac_topics_keywords() -> list:
     return keywords
 
 def load_internal_domains() -> set:
-    gid = 784372544  # INTERNAL_DOMAINS tab
+    gid = 784372544
     df = load_csv_from_sheet(gid, "INTERNAL_DOMAINS")
     if df.empty or "Domain" not in df.columns:
         logger.warning("INTERNAL_DOMAINS sheet is empty or missing 'Domain' column")
@@ -155,7 +145,7 @@ def load_internal_domains() -> set:
     return domains
 
 def load_excluded_domains() -> set:
-    gid = 463927561  # EXCLUDED_DOMAINS tab
+    gid = 463927561
     df = load_csv_from_sheet(gid, "EXCLUDED_DOMAINS")
     if df.empty or "Domain" not in df.columns:
         logger.warning("EXCLUDED_DOMAINS sheet is empty or missing 'Domain' column")
@@ -165,7 +155,7 @@ def load_excluded_domains() -> set:
     return domains
 
 def load_excluded_account_names() -> set:
-    gid = 1453423105  # EXCLUDED_ACCOUNT_NAMES tab
+    gid = 1453423105
     df = load_csv_from_sheet(gid, "EXCLUDED_ACCOUNT_NAMES")
     if df.empty or "Account Name" not in df.columns:
         logger.warning("EXCLUDED_ACCOUNT_NAMES sheet is empty or missing 'Account Name' column")
@@ -175,7 +165,7 @@ def load_excluded_account_names() -> set:
     return names
 
 def load_excluded_trackers() -> set:
-    gid = 1627752322  # EXCLUDED_TRACKERS tab
+    gid = 1627752322
     df = load_csv_from_sheet(gid, "EXCLUDED_TRACKERS")
     if df.empty or "Tracker" not in df.columns:
         logger.warning("EXCLUDED_TRACKERS sheet is empty or missing 'Tracker' column")
@@ -185,7 +175,7 @@ def load_excluded_trackers() -> set:
     return trackers
 
 def load_internal_speakers() -> set:
-    gid = 1402964429  # INTERNAL_SPEAKERS tab
+    gid = 1402964429
     df = load_csv_from_sheet(gid, "INTERNAL_SPEAKERS")
     if df.empty or "Speaker" not in df.columns:
         logger.warning("INTERNAL_SPEAKERS sheet is empty or missing 'Speaker' column")
@@ -195,7 +185,7 @@ def load_internal_speakers() -> set:
     return speakers
 
 def load_excluded_topics() -> set:
-    gid = 1653785571  # EXCLUDED_TOPICS tab
+    gid = 1653785571
     df = load_csv_from_sheet(gid, "EXCLUDED_TOPICS")
     if df.empty or "Topic" not in df.columns:
         logger.warning("EXCLUDED_TOPICS sheet is empty or missing 'Topic' column")
@@ -205,7 +195,7 @@ def load_excluded_topics() -> set:
     return topics
 
 def load_call_id_to_account_name() -> dict:
-    gid = 300481101  # CALL_ID_TO_ACCOUNT_NAME tab
+    gid = 300481101
     df = load_csv_from_sheet(gid, "CALL_ID_TO_ACCOUNT_NAME")
     if df.empty or "Call ID" not in df.columns or "Account Name" not in df.columns:
         logger.warning("CALL_ID_TO_ACCOUNT_NAME sheet is empty or missing required columns")
@@ -220,7 +210,7 @@ def load_call_id_to_account_name() -> dict:
     return mappings
 
 def load_owner_account_names() -> set:
-    gid = 583478969  # OWNER_ACCOUNT_NAMES tab
+    gid = 583478969
     df = load_csv_from_sheet(gid, "OWNER_ACCOUNT_NAMES")
     if df.empty or "Account Name" not in df.columns:
         logger.warning("OWNER_ACCOUNT_NAMES sheet is empty or missing 'Account Name' column")
@@ -230,7 +220,7 @@ def load_owner_account_names() -> set:
     return names
 
 def load_target_domains() -> set:
-    gid = 1010248949  # OWNER_DOMAINS tab
+    gid = 1010248949
     df = load_csv_from_sheet(gid, "OWNER_DOMAINS")
     if df.empty or "Domain" not in df.columns:
         logger.warning("OWNER_DOMAINS sheet is empty or missing 'Domain' column")
@@ -240,7 +230,7 @@ def load_target_domains() -> set:
     return domains
 
 def load_tenant_domains() -> set:
-    gid = 139303828  # TENANT_DOMAINS tab
+    gid = 139303828
     df = load_csv_from_sheet(gid, "TENANT_DOMAINS")
     if df.empty or "Domain" not in df.columns:
         logger.warning("TENANT_DOMAINS sheet is empty or missing 'Domain' column")
@@ -416,7 +406,7 @@ def extract_field_values(context, field_name, object_type=None):
 
 def apply_occupancy_analytics_tags(call):
     text = " ".join([get_field(call.get("metaData", {}), "title"), get_field(call.get("content", {}), "brief"), " ".join(kp.get("text", "") for kp in call.get("content", {}).get("keyPoints", [])), " ".join(h.get("text", "") for h in call.get("content", {}).get("highlights", []))]).lower()
-    return any(pattern.search(text) for pattern in PRODUCT_MAPPINGS["occupancy analytics"])
+    return any(pattern.search(text) for pattern in PRODUCT_MAPPINGS["occupancy analytics"]) if "occupancy analytics" in PRODUCT_MAPPINGS else False
 
 def normalize_call_data(call, transcript):
     try:
@@ -431,7 +421,12 @@ def normalize_call_data(call, transcript):
             account_name, org_type = CALL_ID_TO_ACCOUNT_NAME[call_id_clean], "owner" if call_id_clean == "5800318421597720457" else "other"
             logger.info(f"Overrode account_name to {account_name} and org_type to {org_type} for call {call_id}")
         else:
-            account_name_mappings = {"brandywine": "brandywine reit", "crescent heights": "crescent real estate", "mayo foundation for medical education and research": "mayo clinic", "netflix - new york": "netflix", "qualcomm demo": "qualcomm", "stanford health care - all sites": "stanford health care"}
+            account_name_mappings = {
+                "brandywine": "brandywine reit", "crescent heights": "crescent real estate",
+                "mayo foundation for medical education and research": "mayo clinic",
+                "netflix - new york": "netflix", "qualcomm demo": "qualcomm",
+                "stanford health care - all sites": "stanford health care"
+            }
             account_name = account_name_mappings.get(account_name.lower(), account_name)
             if not account_name and account_website:
                 account_name = normalized_domain
@@ -454,18 +449,29 @@ def normalize_call_data(call, transcript):
                 if any(tracker_counts.get(tracker.lower(), 0) > 0 for tracker in PRODUCT_MAPPINGS[product] if isinstance(tracker, str)):
                     products.append(product)
 
-        tracker_occurrences = [{"tracker_name": str(get_field(t, "name", "")).lower(), "phrase": str(get_field(o, "phrase", "")), "start": float(get_field(o, "startTime", 0.0)), "speakerId": str(get_field(o, "speakerId", ""))} for t in trackers for o in t.get("occurrences", [])]
+        tracker_occurrences = [
+            {"tracker_name": str(get_field(t, "name", "")).lower(), "phrase": str(get_field(o, "phrase", "")),
+             "start": float(get_field(o, "startTime", 0.0)), "speakerId": str(get_field(o, "speakerId", ""))}
+            for t in trackers for o in t.get("occurrences", [])
+        ]
         return {
-            "call_id": f"'{call_id}", "call_title": get_field(meta_data, "title"), "call_date": convert_to_sf_time(get_field(meta_data, "started")),
+            "call_id": f"'{call_id}", "call_title": get_field(meta_data, "title"),
+            "call_date": convert_to_sf_time(get_field(meta_data, "started")),
             "account_name": account_name, "account_id": (extract_field_values(context, "objectId", "account") or [""])[0],
             "account_website": account_website, "account_industry": (extract_field_values(context, "industry", "account") or [""])[0].lower(),
-            "products": products, "parties": parties, "utterances": transcript or [], "partial_data": False, "org_type": org_type,
-            "tracker_occurrences": tracker_occurrences, "call_summary": get_field(content, "brief", ""),
-            "key_points": " | ".join(kp.get("text", "") for kp in content.get("keyPoints", [])), "highlights": " | ".join(h.get("text", "") for h in content.get("highlights", []))
+            "products": products, "parties": parties, "utterances": transcript or [], "partial_data": False,
+            "org_type": org_type, "tracker_occurrences": tracker_occurrences, "call_summary": get_field(content, "brief", ""),
+            "key_points": " | ".join(kp.get("text", "") for kp in content.get("keyPoints", [])),
+            "highlights": " | ".join(h.get("text", "") for h in content.get("highlights", []))
         }
     except Exception as e:
         logger.error(f"Normalization error for call '{call_id}': {str(e)}\n{traceback.format_exc()}")
-        return {"call_id": f"'{call_id}", "call_title": "", "call_date": "N/A", "account_name": "", "account_id": "", "account_website": "", "account_industry": "", "products": [], "parties": call.get("parties", []), "utterances": [], "partial_data": True, "org_type": "", "tracker_occurrences": [], "call_summary": "", "key_points": "", "highlights": ""}
+        return {
+            "call_id": f"'{call_id}", "call_title": "", "call_date": "N/A", "account_name": "", "account_id": "",
+            "account_website": "", "account_industry": "", "products": [], "parties": call.get("parties", []),
+            "utterances": [], "partial_data": True, "org_type": "", "tracker_occurrences": [], "call_summary": "",
+            "key_points": "", "highlights": ""
+        }
 
 def normalize_keyword(keyword):
     return " ".join(re.sub(r'm\s*&\s*v|m&v', 'm and v', re.sub(r'[-]', ' ', keyword.lower().strip())).split())
@@ -483,9 +489,17 @@ def filter_call(call):
 
 def prepare_utterances_df(calls, selected_products):
     if not calls:
-        return pd.DataFrame(), {"total_utterances": 0, "internal_utterances": 0, "short_utterances": 0, "excluded_topic_utterances": 0, "excluded_topics": {t: 0 for t in EXCLUDED_TOPICS}, "no_metadata_utterances": 0, "non_matching_product_utterances": 0, "included_utterances": 0, "percentInternalUtterances": 0, "percentShortUtterances": 0, "percentExcludedTopicUtterances": 0, "percentNoMetadataUtterances": 0, "percentNonMatchingProductUtterances": 0, "percentIncludedUtterances": 0}, False, 0, 0
+        logger.debug("No calls provided to prepare_utterances_df")
+        return pd.DataFrame(), {
+            "total_utterances": 0, "internal_utterances": 0, "short_utterances": 0,
+            "excluded_topic_utterances": 0, "excluded_topics": {t: 0 for t in EXCLUDED_TOPICS},
+            "no_metadata_utterances": 0, "non_matching_product_utterances": 0, "included_utterances": 0,
+            "percentInternalUtterances": 0, "percentShortUtterances": 0, "percentExcludedTopicUtterances": 0,
+            "percentNoMetadataUtterances": 0, "percentNonMatchingProductUtterances": 0, "percentIncludedUtterances": 0
+        }, False, 0, 0
 
-    total_utterances, internal_utterances, short_utterances, excluded_topic_utterances, no_metadata_utterances, non_matching_product_utterances, excluded_account_calls, no_utterances_calls = 0, 0, 0, 0, 0, 0, 0, 0
+    total_utterances, internal_utterances, short_utterances, excluded_topic_utterances = 0, 0, 0, 0
+    no_metadata_utterances, non_matching_product_utterances, excluded_account_calls, no_utterances_calls = 0, 0, 0, 0
     excluded_topics, selected_products_lower = {t: 0 for t in EXCLUDED_TOPICS}, [p.lower() for p in selected_products]
     include_energy_savings, call_utterances = any(p in ["secure air", "odcv"] for p in selected_products_lower), []
 
@@ -493,30 +507,45 @@ def prepare_utterances_df(calls, selected_products):
         call_id, products = call["call_id"], call.get("products", [])
         if not filter_call(call):
             excluded_account_calls += 1
+            logger.debug(f"Call {call_id} excluded: account_name={call['account_name']} in EXCLUDED_ACCOUNT_NAMES or INTERNAL_DOMAINS")
             continue
         utterances = call["utterances"] or []
         if not utterances:
             no_utterances_calls += 1
+            logger.debug(f"Call {call_id} excluded: no utterances")
             continue
 
         for u in utterances:
             sentences = u.get("sentences", [])
-            u.update({"start_time": min([s.get("start", 0) for s in sentences]) / 1000 if sentences else 0, "end_time": max([s.get("end", 0) for s in sentences]) / 1000 if sentences else 0, "is_incomplete": not sentences, "trackers": []})
+            u.update({
+                "start_time": min([s.get("start", 0) for s in sentences]) / 1000 if sentences else 0,
+                "end_time": max([s.get("end", 0) for s in sentences]) / 1000 if sentences else 0,
+                "is_incomplete": not sentences, "trackers": []
+            })
 
         valid_trackers = [t for t in call.get("tracker_occurrences", []) if float(t.get("start", 0.0)) > 0]
+        unmatched_trackers = []
         for tracker in valid_trackers:
             tracker_name, tracker_time = get_field(tracker, "tracker_name", "").lower(), tracker["start"]
             if tracker_name == "negative impact (by gong)":
                 tracker_name = "objection"
             if tracker_name in EXCLUDED_TRACKERS:
+                logger.debug(f"Tracker {tracker_name} in call {call_id} excluded: in EXCLUDED_TRACKERS")
                 continue
             eligible = [(u, abs(tracker_time - u["start_time"]), u["end_time"]) for u in utterances if (u["start_time"] - TRACKER_BUFFER_S) <= tracker_time <= (u["end_time"] + TRACKER_BUFFER_S)]
             if eligible:
                 eligible.sort(key=lambda x: (x[1], x[2]))
                 eligible[0][0]["trackers"].append({"tracker_name": tracker_name})
+            else:
+                unmatched_trackers.append(tracker_name)
+        if unmatched_trackers:
+            logger.debug(f"Unmatched trackers in call {call_id}: {', '.join(set(unmatched_trackers))}")
 
         speaker_info = {get_field(p, "speakerId", ""): p for p in call["parties"]}
-        call_data = {"call_id": call_id, "call_date": call["call_date"], "account_name": call["account_name"], "account_industry": call["account_industry"], "org_type": call["org_type"], "utterances": []}
+        call_data = {
+            "call_id": call_id, "call_date": call["call_date"], "account_name": call["account_name"],
+            "account_industry": call["account_industry"], "org_type": call["org_type"], "utterances": []
+        }
 
         for u in utterances:
             total_utterances += 1
@@ -527,9 +556,11 @@ def prepare_utterances_df(calls, selected_products):
             email_domain = get_email_domain(get_field(speaker, "emailAddress", ""))
 
             if not speaker_name and text == "No transcript available":
+                logger.debug(f"Utterance in call {call_id} excluded: no speaker name and no transcript")
                 continue
             if speaker_name in INTERNAL_SPEAKERS or (email_domain and (email_domain in INTERNAL_DOMAINS or any(email_domain.endswith("." + d) for d in INTERNAL_DOMAINS))):
                 internal_utterances += 1
+                logger.debug(f"Utterance in call {call_id} excluded: internal speaker {speaker_name} or domain {email_domain}")
                 continue
             speaker_affiliation, speaker_job_title = get_field(speaker, "affiliation", "unknown").lower(), get_field(speaker, "title", "")
 
@@ -546,19 +577,23 @@ def prepare_utterances_df(calls, selected_products):
             if "air quality" in tracker_set:
                 mapped_products.add("iaq monitoring")
             text_lower = text.lower()
-            if any(p.search(text_lower) for p in PRODUCT_MAPPINGS["occupancy analytics"]):
+            if "occupancy analytics" in PRODUCT_MAPPINGS and any(p.search(text_lower) for p in PRODUCT_MAPPINGS["occupancy analytics"]):
                 mapped_products.add("occupancy analytics")
-            if any(p.search(text_lower) for p in PRODUCT_MAPPINGS["odcv_keywords"]):
+            if "odcv_keywords" in PRODUCT_MAPPINGS and any(p.search(text_lower) for p in PRODUCT_MAPPINGS["odcv_keywords"]):
                 mapped_products.add("odcv")
             product = "|".join(mapped_products) if mapped_products else ""
 
             topic = get_field(u, "topic", "").lower()
-            if not any(tag in selected_products_lower for tag in product.split("|")) and topic in EXCLUDED_TOPICS:
+            if product and any(tag in selected_products_lower for tag in product.split("|")):
+                logger.debug(f"Utterance in call {call_id} included: matching product tag {product}")
+            elif topic in EXCLUDED_TOPICS:
                 excluded_topic_utterances += 1
                 excluded_topics[topic] += 1
+                logger.debug(f"Utterance in call {call_id} excluded: topic {topic} in EXCLUDED_TOPICS")
                 continue
             if len(text.split()) < 8 and text != "No transcript available":
                 short_utterances += 1
+                logger.debug(f"Utterance in call {call_id} excluded: short utterance ({len(text.split())} words)")
                 continue
 
             tracker_str = "|".join(sorted({t["tracker_name"].lower() for t in u["trackers"]})) or (topic if topic and topic not in EXCLUDED_TOPICS else "")
@@ -567,16 +602,21 @@ def prepare_utterances_df(calls, selected_products):
 
             if not (product or tracker_str or (include_energy_savings and energy_savings) or hvac_topics):
                 no_metadata_utterances += 1
+                logger.debug(f"Utterance in call {call_id} excluded: no product, tracker, energy savings, or HVAC topics")
                 continue
             if product and not any(p in selected_products_lower for p in products) and not any(tag in selected_products_lower for tag in product.split("|")):
                 non_matching_product_utterances += 1
+                logger.debug(f"Utterance in call {call_id} excluded: product {product} does not match selected products or call products")
                 continue
 
+            logger.debug(f"Utterance in call {call_id} included: product={product}, tracker={tracker_str}, energy_savings={energy_savings}, hvac_topics={hvac_topics}")
             call_data["utterances"].append({
-                "utterance_start_time": u["start_time"], "utterance_end_time": u["end_time"], "speaker_name": speaker_name,
-                "speaker_job_title": speaker_job_title, "speaker_affiliation": speaker_affiliation, "product": product,
-                "energy_savings_measurement": energy_savings if include_energy_savings else "", "hvac_topics": hvac_topics,
-                "tracker": tracker_str, "utterance_text": text, "is_incomplete": u["is_incomplete"]
+                "utterance_start_time": u["start_time"], "utterance_end_time": u["end_time"],
+                "speaker_name": speaker_name, "speaker_job_title": speaker_job_title,
+                "speaker_affiliation": speaker_affiliation, "product": product,
+                "energy_savings_measurement": energy_savings if include_energy_savings else "",
+                "hvac_topics": hvac_topics, "tracker": tracker_str, "utterance_text": text,
+                "is_incomplete": u["is_incomplete"]
             })
 
         if call_data["utterances"]:
@@ -584,37 +624,67 @@ def prepare_utterances_df(calls, selected_products):
             call_utterances.append(call_data)
 
     call_utterances.sort(key=lambda x: datetime.strptime(x["call_date"], "%b %d, %Y"), reverse=True)
-    data = [dict({"call_id": c["call_id"], "call_date": c["call_date"], "account_name": c["account_name"], "account_industry": c["account_industry"], "org_type": c["org_type"]}, **u) for c in call_utterances for u in c["utterances"]]
-    columns = ["call_id", "call_date", "account_name", "account_industry", "org_type", "speaker_name", "speaker_job_title", "speaker_affiliation", "product", "energy_savings_measurement" if include_energy_savings else None, "hvac_topics", "tracker", "utterance_text", "utterance_start_time", "utterance_end_time", "is_incomplete"]
+    data = [
+        dict({"call_id": c["call_id"], "call_date": c["call_date"], "account_name": c["account_name"],
+              "account_industry": c["account_industry"], "org_type": c["org_type"]}, **u)
+        for c in call_utterances for u in c["utterances"]
+    ]
+    columns = [
+        "call_id", "call_date", "account_name", "account_industry", "org_type", "speaker_name",
+        "speaker_job_title", "speaker_affiliation", "product",
+        "energy_savings_measurement" if include_energy_savings else None, "hvac_topics", "tracker",
+        "utterance_text", "utterance_start_time", "utterance_end_time", "is_incomplete"
+    ]
     df = pd.DataFrame(data, columns=[c for c in columns if c]).astype({"call_id": str}) if data else pd.DataFrame()
 
     utterance_stats = {
-        "total_utterances": total_utterances, "internal_utterances": internal_utterances, "short_utterances": short_utterances, "excluded_topic_utterances": excluded_topic_utterances,
-        "excluded_topics": excluded_topics, "no_metadata_utterances": no_metadata_utterances, "non_matching_product_utterances": non_matching_product_utterances, "included_utterances": len(df),
-        "percentInternalUtterances": round(internal_utterances / total_utterances * 100) if total_utterances else 0, "percentShortUtterances": round(short_utterances / total_utterances * 100) if total_utterances else 0,
-        "percentExcludedTopicUtterances": round(excluded_topic_utterances / total_utterances * 100) if total_utterances else 0, "percentNoMetadataUtterances": round(no_metadata_utterances / total_utterances * 100) if total_utterances else 0,
-        "percentNonMatchingProductUtterances": round(non_matching_product_utterances / total_utterances * 100) if total_utterances else 0, "percentIncludedUtterances": round(len(df) / total_utterances * 100) if total_utterances else 0
+        "total_utterances": total_utterances, "internal_utterances": internal_utterances,
+        "short_utterances": short_utterances, "excluded_topic_utterances": excluded_topic_utterances,
+        "excluded_topics": excluded_topics, "no_metadata_utterances": no_metadata_utterances,
+        "non_matching_product_utterances": non_matching_product_utterances, "included_utterances": len(df),
+        "percentInternalUtterances": round(internal_utterances / total_utterances * 100) if total_utterances else 0,
+        "percentShortUtterances": round(short_utterances / total_utterances * 100) if total_utterances else 0,
+        "percentExcludedTopicUtterances": round(excluded_topic_utterances / total_utterances * 100) if total_utterances else 0,
+        "percentNoMetadataUtterances": round(no_metadata_utterances / total_utterances * 100) if total_utterances else 0,
+        "percentNonMatchingProductUtterances": round(non_matching_product_utterances / total_utterances * 100) if total_utterances else 0,
+        "percentIncludedUtterances": round(len(df) / total_utterances * 100) if total_utterances else 0
     }
+    logger.debug(f"Utterance stats for calls: {utterance_stats}")
     return df, utterance_stats, include_energy_savings, excluded_account_calls, no_utterances_calls
 
 def prepare_call_summary_df(calls, selected_products):
     if not calls:
+        logger.debug("No calls provided to prepare_call_summary_df")
         return pd.DataFrame()
     selected_products_lower = [p.lower() for p in selected_products]
-    data = [{"call_id": c["call_id"], "call_title": c["call_title"], "call_date": c["call_date"], "filtered_out": "included" if any(p.lower() in selected_products_lower for p in c.get("products", [])) else "no product tags" if not c.get("products", []) else "no matching product", "product_tags": "|".join(c.get("products", [])), "org_type": c["org_type"], "account_name": c["account_name"], "account_website": c["account_website"], "account_industry": c["account_industry"], "call_summary": c.get("call_summary", ""), "key_points": c.get("key_points", ""), "highlights": c.get("highlights", "")} for c in calls]
-    return pd.DataFrame(data).astype({"call_id": str}).sort_values("call_date", ascending=False) if data else pd.DataFrame()
+    data = [
+        {
+            "call_id": c["call_id"], "call_title": c["call_title"], "call_date": c["call_date"],
+            "filtered_out": "included" if any(p.lower() in selected_products_lower for p in c.get("products", [])) else "no product tags" if not c.get("products", []) else "no matching product",
+            "product_tags": "|".join(c.get("products", [])), "org_type": c["org_type"],
+            "account_name": c["account_name"], "account_website": c["account_website"],
+            "account_industry": c["account_industry"], "call_summary": c.get("call_summary", ""),
+            "key_points": c.get("key_points", ""), "highlights": c.get("highlights", "")
+        } for c in calls
+    ]
+    df = pd.DataFrame(data).astype({"call_id": str}).sort_values("call_date", ascending=False) if data else pd.DataFrame()
+    logger.debug(f"Prepared call summary DataFrame with {len(df)} rows")
+    return df
 
 def prepare_json_output(calls, utterance_call_ids, selected_products):
     if not calls or not utterance_call_ids:
+        logger.debug("No calls or utterance call IDs provided to prepare_json_output")
         return []
     selected_products_lower = [p.lower() for p in selected_products]
     filtered_calls = []
     for call in calls:
         call_id, products = call["call_id"], call.get("products", [])
         if call_id not in utterance_call_ids or not products or not any(p.lower() in selected_products_lower for p in products) or not filter_call(call):
+            logger.debug(f"Call {call_id} skipped in JSON output: not in utterance_call_ids, no products, or filtered out")
             continue
         utterances = sorted(call["utterances"] or [], key=lambda x: float(get_field(x.get("sentences", [{}])[0] if x.get("sentences") else {}, "start", float('inf')) / 1000))
         if not utterances:
+            logger.debug(f"Call {call_id} skipped in JSON output: no utterances")
             continue
 
         speaker_info = {get_field(p, "speakerId", ""): p for p in call["parties"]}
@@ -628,14 +698,24 @@ def prepare_json_output(calls, utterance_call_ids, selected_products):
         for u in utterances:
             speaker_name = get_field(speaker_info.get(get_field(u, "speakerId", ""), {}), "name", "").lower() or get_email_local_part(get_field(speaker_info.get(get_field(u, "speakerId", ""), {}), "emailAddress", ""))
             if not speaker_name:
+                logger.debug(f"Utterance in call {call_id} skipped in JSON output: no speaker name")
                 continue
             sentences = u.get("sentences", [])
             if sentences:
                 text = re.sub(r'\bR0\b', 'R-Zero', " ".join(s.get("text", "") for s in sentences), flags=re.IGNORECASE)
-                transcript_entries.append({"start_time": min([s.get("start", 0) for s in sentences]) / 1000, "end_time": max([s.get("end", 0) for s in sentences]) / 1000, "speaker": speaker_name.title(), "text": text})
+                transcript_entries.append({
+                    "start_time": min([s.get("start", 0) for s in sentences]) / 1000,
+                    "end_time": max([s.get("end", 0) for s in sentences]) / 1000,
+                    "speaker": speaker_name.title(), "text": text
+                })
 
         if transcript_entries:
-            filtered_calls.append({"call_id": call_id, "title": call["call_title"], "date": call["call_date"], "participants": {"R-Zero": sorted(rzero_participants), "Other": sorted(other_participants)}, "transcript": transcript_entries})
+            filtered_calls.append({
+                "call_id": call_id, "title": call["call_title"], "date": call["call_date"],
+                "participants": {"R-Zero": sorted(rzero_participants), "Other": sorted(other_participants)},
+                "transcript": transcript_entries
+            })
+            logger.debug(f"Call {call_id} included in JSON output with {len(transcript_entries)} transcript entries")
 
     filtered_calls.sort(key=lambda x: datetime.strptime(x["date"], "%b %d, %Y"), reverse=True)
     return filtered_calls
@@ -652,6 +732,7 @@ def index():
         "message": "",
         "show_download": False
     }
+    logger.debug("Rendering index page")
     return render_template(
         'index.html',
         start_date=form_state["start_date"],
@@ -668,95 +749,214 @@ def index():
 
 @app.route('/process', methods=['POST'])
 def process():
-    access_key, secret_key, selected_products, start_date, end_date = request.form.get('access_key', ''), request.form.get('secret_key', ''), request.form.getlist('products') or ALL_PRODUCT_TAGS, request.form.get('start_date'), request.form.get('end_date')
-    form_state = {"start_date": start_date, "end_date": end_date, "products": selected_products, "access_key": access_key, "secret_key": secret_key, "message": "", "show_download": False, "stats": {}, "utterance_breakdown": {}}
-
-    if not all([start_date, end_date, access_key, secret_key]):
-        form_state["message"] = "Missing required fields."
-        return render_template('index.html', form_state=form_state, available_products=ALL_PRODUCT_TAGS, **form_state)
-
     try:
-        start_dt, end_dt = datetime.strptime(start_date, '%Y-%m-%d').replace(tzinfo=pytz.UTC), datetime.strptime(end_date, '%Y-%m-%d').replace(tzinfo=pytz.UTC)
-        today = datetime.now(pytz.UTC).date()
-        if start_dt.date() > end_dt.date() or start_dt.date() > today or end_dt.date() > today or (end_dt - start_dt).days / 30.42 > MAX_DATE_RANGE_MONTHS:
-            form_state["message"] = "Invalid date range."
+        access_key, secret_key = request.form.get('access_key', ''), request.form.get('secret_key', '')
+        selected_products = request.form.getlist('products') or ALL_PRODUCT_TAGS
+        start_date, end_date = request.form.get('start_date'), request.form.get('end_date')
+        form_state = {
+            "start_date": start_date, "end_date": end_date, "products": selected_products,
+            "access_key": access_key, "secret_key": secret_key, "message": "", "show_download": False,
+            "stats": {}, "utterance_breakdown": {}
+        }
+
+        if not all([start_date, end_date, access_key, secret_key]):
+            form_state["message"] = "Missing required fields."
+            logger.warning("Missing required fields in /process request")
             return render_template('index.html', form_state=form_state, available_products=ALL_PRODUCT_TAGS, **form_state)
-    except ValueError:
-        form_state["message"] = "Invalid date format."
+
+        try:
+            start_dt = datetime.strptime(start_date, '%Y-%m-%d').replace(tzinfo=pytz.UTC)
+            end_dt = datetime.strptime(end_date, '%Y-%m-%d').replace(tzinfo=pytz.UTC)
+            today = datetime.now(pytz.UTC).date()
+            if (start_dt.date() > end_dt.date() or start_dt.date() > today or
+                end_dt.date() > today or (end_dt - start_dt).days / 30.42 > MAX_DATE_RANGE_MONTHS):
+                form_state["message"] = "Invalid date range."
+                logger.warning(f"Invalid date range: start={start_date}, end={end_date}")
+                return render_template('index.html', form_state=form_state, available_products=ALL_PRODUCT_TAGS, **form_state)
+        except ValueError as e:
+            form_state["message"] = "Invalid date format."
+            logger.error(f"Date format error: {str(e)}")
+            return render_template('index.html', form_state=form_state, available_products=ALL_PRODUCT_TAGS, **form_state)
+
+        client = GongAPIClient(access_key, secret_key)
+        start_date_utc = start_dt.isoformat().replace('+00:00', 'Z')
+        end_date_utc = end_dt.replace(hour=23, minute=59, second=59).isoformat().replace('+00:00', 'Z')
+        logger.debug(f"Fetching call list from {start_date_utc} to {end_date_utc}")
+        call_ids = client.fetch_call_list(start_date_utc, end_date_utc)
+        if not call_ids:
+            form_state["message"] = "No calls found."
+            logger.info("No calls found for the specified date range")
+            return render_template('index.html', form_state=form_state, available_products=ALL_PRODUCT_TAGS, **form_state)
+
+        full_data, dropped_calls, transcripts = [], 0, client.fetch_transcript(call_ids)
+        for i in range(0, len(call_ids), BATCH_SIZE):
+            for call in client.fetch_call_details(call_ids[i:i + BATCH_SIZE]):
+                call_id = get_field(call.get("metaData", {}), "id", "")
+                if not call_id:
+                    dropped_calls += 1
+                    logger.debug("Dropped call: no call ID")
+                    continue
+                full_data.append(normalize_call_data(call, transcripts.get(call_id, [])))
+
+        if not full_data:
+            form_state["message"] = "No valid call data retrieved."
+            logger.info("No valid call data retrieved from Gong API")
+            return render_template('index.html', form_state=form_state, available_products=ALL_PRODUCT_TAGS, **form_state)
+
+        logger.debug(f"Preparing utterances DataFrame for {len(full_data)} calls")
+        utterances_df, utterance_stats, include_energy_savings, excluded_account_calls, no_utterances_calls = prepare_utterances_df(full_data, selected_products)
+        logger.debug("Preparing call summary DataFrame")
+        call_summary_df = prepare_call_summary_df(full_data, selected_products)
+        logger.debug("Preparing JSON output")
+        json_data = prepare_json_output(full_data, set(utterances_df['call_id'].unique()) if not utterances_df.empty else set(), selected_products)
+
+        if utterances_df.empty and call_summary_df.empty:
+            form_state["message"] = "No calls matched the selected products."
+            logger.info("No calls matched the selected products")
+            return render_template('index.html', form_state=form_state, available_products=ALL_PRODUCT_TAGS, **form_state)
+
+        total_calls = len(full_data) + dropped_calls + excluded_account_calls + no_utterances_calls
+        stats = {
+            "totalCallsRetrieved": total_calls, "droppedCalls": dropped_calls, "validCalls": len(full_data),
+            "callsWithNoProducts": len(call_summary_df[call_summary_df["filtered_out"] == "no product tags"]) if not call_summary_df.empty else 0,
+            "callsNotMatchingSelection": len(call_summary_df[call_summary_df["filtered_out"] == "no matching product"]) if not call_summary_df.empty else 0,
+            "callsIncluded": len(call_summary_df[call_summary_df["filtered_out"] == "included"]) if not call_summary_df.empty else 0,
+            "callsIncludedFormatted": "{:,}".format(len(call_summary_df[call_summary_df["filtered_out"] == "included"]) if not call_summary_df.empty else 0),
+            "partialDataCalls": sum(1 for c in full_data if c["partial_data"]),
+            "invalidDateCalls": sum(1 for c in full_data if c["call_date"] == "N/A"),
+            "percentDropped": round(dropped_calls / total_calls * 100) if total_calls else 0,
+            "percentValid": round(len(full_data) / total_calls * 100) if total_calls else 0,
+            "percentNoProducts": round((len(call_summary_df[call_summary_df["filtered_out"] == "no product tags"]) if not call_summary_df.empty else 0) / total_calls * 100) if total_calls else 0,
+            "percentNotMatching": round((len(call_summary_df[call_summary_df["filtered_out"] == "no matching product"]) if not call_summary_df.empty else 0) / total_calls * 100) if total_calls else 0,
+            "percentIncluded": round((len(call_summary_df[call_summary_df["filtered_out"] == "included"]) if not call_summary_df.empty else 0) / total_calls * 100) if total_calls else 0,
+            "calls_table": sorted([
+                {"exclusion": e, "count": c, "count_formatted": "{:,}".format(c), "percent": round(c / total_calls * 100)}
+                for e, c in [
+                    ("Excluded (Invalid Date)", sum(1 for c in full_data if c["call_date"] == "N/A")),
+                    ("Excluded (No Product Tag)", len(call_summary_df[call_summary_df["filtered_out"] == "no product tags"]) if not call_summary_df.empty else 0),
+                    ("Excluded (Unselected Product Tag)", len(call_summary_df[call_summary_df["filtered_out"] == "no matching product"]) if not call_summary_df.empty else 0),
+                    ("Excluded (Dropped)", dropped_calls),
+                    ("Excluded (Account Name)", excluded_account_calls),
+                    ("Excluded (No Utterances)", no_utterances_calls)
+                ]
+            ], key=lambda x: (-x["count"], x["exclusion"])),
+            "included_utterances": utterance_stats["included_utterances"],
+            "included_utterances_formatted": "{:,}".format(utterance_stats["included_utterances"]),
+            "percentIncludedUtterances": utterance_stats["percentIncludedUtterances"],
+            "excluded_topic_percentages": {
+                t: round(c / utterance_stats["total_utterances"] * 100) if utterance_stats["total_utterances"] else 0
+                for t, c in utterance_stats["excluded_topics"].items()
+            }
+        }
+        stats["calls_table"] = [entry for entry in stats["calls_table"] if entry["count"] > 0]
+
+        start_date_str = start_dt.strftime("%d%b%y").lower()
+        end_date_str = end_dt.strftime("%d%b%y").lower()
+        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+        utterances_path = os.path.join(OUTPUT_DIR, f"utterances_{start_date_str}to{end_date_str}_{timestamp}.csv")
+        call_summary_path = os.path.join(OUTPUT_DIR, f"summary_{start_date_str}to{end_date_str}_{timestamp}.csv")
+        json_path = os.path.join(OUTPUT_DIR, f"transcripts_{start_date_str}to{end_date_str}_{timestamp}.json")
+
+        try:
+            if not utterances_df.empty:
+                utterances_df['utterance_text'] = utterances_df['utterance_text'].apply(
+                    lambda x: unicodedata.normalize('NFKD', str(x)).encode('ascii', 'ignore').decode('ascii') if x else ''
+                )
+                utterances_df.to_csv(utterances_path, index=False, quoting=csv.QUOTE_NONNUMERIC, encoding='utf-8', errors='replace')
+                logger.info(f"Saved utterances to {utterances_path}")
+            call_summary_df.to_csv(call_summary_path, index=False, quoting=csv.QUOTE_NONNUMERIC, encoding='utf-8', errors='replace')
+            logger.info(f"Saved call summary to {call_summary_path}")
+            with open(json_path, 'w', encoding='utf-8') as f:
+                json.dump(json_data, f, ensure_ascii=False, indent=2)
+            logger.info(f"Saved transcripts to {json_path}")
+            save_file_paths({"utterances_path": utterances_path, "call_summary_path": call_summary_path, "json_path": json_path, "log_path": log_file_path})
+        except Exception as e:
+            logger.error(f"Error saving output files: {str(e)}\n{traceback.format_exc()}")
+            form_state["message"] = "Error saving output files."
+            return render_template('index.html', form_state=form_state, available_products=ALL_PRODUCT_TAGS, **form_state)
+
+        total_tags = utterances_df['product'].str.split("|").explode().count() if not utterances_df.empty else 0
+        energy_savings_count = utterances_df['energy_savings_measurement'].ne('').sum() if include_energy_savings and not utterances_df.empty else 0
+        hvac_topics_count = utterances_df['hvac_topics'].ne('').sum() if not utterances_df.empty else 0
+        other_topics = sorted(
+            [(t, utterances_df['tracker'].str.count(t).sum())
+             for t in set(utterances_df['tracker'].str.split("|").explode())
+             if t and t.lower() not in ["energy savings", "hvac topics"]],
+            key=lambda x: -x[1]
+        )[:8] if not utterances_df.empty else []
+
+        form_state.update({
+            "message": "Processing complete. Download files below.",
+            "show_download": True,
+            "stats": stats,
+            "utterance_breakdown": {
+                "product": sorted([
+                    {"value": p, "count": c, "count_formatted": "{:,}".format(c),
+                     "percentage": round(c / total_tags * 100) if total_tags > 0 else 0}
+                    for p, c in utterances_df['product'].str.split("|").explode().value_counts().items() if p
+                ], key=lambda x: (-x["count"], x["value"])) if not utterances_df.empty else [],
+                "exclusions": [entry for entry in sorted([
+                    {"exclusion": "Internal Speaker", "count": utterance_stats["internal_utterances"],
+                     "count_formatted": "{:,}".format(utterance_stats["internal_utterances"]),
+                     "percent": utterance_stats["percentInternalUtterances"]},
+                    {"exclusion": "Short Utterance", "count": utterance_stats["short_utterances"],
+                     "count_formatted": "{:,}".format(utterance_stats["short_utterances"]),
+                     "percent": utterance_stats["percentShortUtterances"]},
+                    {"exclusion": "No Tag", "count": utterance_stats["no_metadata_utterances"],
+                     "count_formatted": "{:,}".format(utterance_stats["no_metadata_utterances"]),
+                     "percent": utterance_stats["percentNoMetadataUtterances"]},
+                    {"exclusion": "Non Matching Product Tag", "count": utterance_stats["non_matching_product_utterances"],
+                     "count_formatted": "{:,}".format(utterance_stats["non_matching_product_utterances"]),
+                     "percent": utterance_stats["percentNonMatchingProductUtterances"]}
+                ] + [
+                    {"exclusion": t.title(), "count": c, "count_formatted": "{:,}".format(c),
+                     "percent": round(c / utterance_stats["total_utterances"] * 100) if utterance_stats["total_utterances"] else 0}
+                    for t, c in utterance_stats["excluded_topics"].items() if c > 0
+                ], key=lambda x: (-x["count"], x["exclusion"])) if entry["count"] > 0],
+                "topics": [
+                    {"topic": "Energy Savings", "count": energy_savings_count,
+                     "count_formatted": "{:,}".format(energy_savings_count),
+                     "percent": round(energy_savings_count / utterance_stats["included_utterances"] * 100) if utterance_stats["included_utterances"] else 0},
+                    {"topic": "HVAC Topics", "count": hvac_topics_count,
+                     "count_formatted": "{:,}".format(hvac_topics_count),
+                     "percent": round(hvac_topics_count / utterance_stats["included_utterances"] * 100) if utterance_stats["included_utterances"] else 0}
+                ] + [
+                    {"topic": t, "count": c, "count_formatted": "{:,}".format(c),
+                     "percent": round(c / utterance_stats["included_utterances"] * 100) if utterance_stats["included_utterances"] else 0}
+                    for t, c in other_topics
+                ]
+            }
+        })
+        logger.info("Processing completed successfully")
         return render_template('index.html', form_state=form_state, available_products=ALL_PRODUCT_TAGS, **form_state)
 
-    client = GongAPIClient(access_key, secret_key)
-    start_date_utc, end_date_utc = start_dt.isoformat().replace('+00:00', 'Z'), end_dt.replace(hour=23, minute=59, second=59).isoformat().replace('+00:00', 'Z')
-    call_ids = client.fetch_call_list(start_date_utc, end_date_utc)
-    if not call_ids:
-        form_state["message"] = "No calls found."
+    except Exception as e:
+        logger.error(f"Unexpected error in /process: {str(e)}\n{traceback.format_exc()}")
+        form_state["message"] = "An unexpected error occurred. Please try again."
         return render_template('index.html', form_state=form_state, available_products=ALL_PRODUCT_TAGS, **form_state)
-
-    full_data, dropped_calls, transcripts = [], 0, client.fetch_transcript(call_ids)
-    for i in range(0, len(call_ids), BATCH_SIZE):
-        for call in client.fetch_call_details(call_ids[i:i + BATCH_SIZE]):
-            call_id = get_field(call.get("metaData", {}), "id", "")
-            if not call_id:
-                dropped_calls += 1
-                continue
-            full_data.append(normalize_call_data(call, transcripts.get(call_id, [])))
-
-    if not full_data:
-        form_state["message"] = "No valid call data retrieved."
-        return render_template('index.html', form_state=form_state, available_products=ALL_PRODUCT_TAGS, **form_state)
-
-    utterances_df, utterance_stats, include_energy_savings, excluded_account_calls, no_utterances_calls = prepare_utterances_df(full_data, selected_products)
-    call_summary_df, json_data = prepare_call_summary_df(full_data, selected_products), prepare_json_output(full_data, set(utterances_df['call_id'].unique()) if not utterances_df.empty else set(), selected_products)
-    if utterances_df.empty and call_summary_df.empty:
-        form_state["message"] = "No calls matched the selected products."
-        return render_template('index.html', form_state=form_state, available_products=ALL_PRODUCT_TAGS, **form_state)
-
-    total_calls = len(full_data) + dropped_calls + excluded_account_calls + no_utterances_calls
-    stats = {
-        "totalCallsRetrieved": total_calls, "droppedCalls": dropped_calls, "validCalls": len(full_data),
-        "callsWithNoProducts": len(call_summary_df[call_summary_df["filtered_out"] == "no product tags"]) if not call_summary_df.empty else 0,
-        "callsNotMatchingSelection": len(call_summary_df[call_summary_df["filtered_out"] == "no matching product"]) if not call_summary_df.empty else 0,
-        "callsIncluded": len(call_summary_df[call_summary_df["filtered_out"] == "included"]) if not call_summary_df.empty else 0,
-        "callsIncludedFormatted": "{:,}".format(len(call_summary_df[call_summary_df["filtered_out"] == "included"]) if not call_summary_df.empty else 0),
-        "partialDataCalls": sum(1 for c in full_data if c["partial_data"]), "invalidDateCalls": sum(1 for c in full_data if c["call_date"] == "N/A"),
-        "percentDropped": round(dropped_calls / total_calls * 100) if total_calls else 0, "percentValid": round(len(full_data) / total_calls * 100) if total_calls else 0,
-        "percentNoProducts": round((len(call_summary_df[call_summary_df["filtered_out"] == "no product tags"]) if not call_summary_df.empty else 0) / total_calls * 100) if total_calls else 0,
-        "percentNotMatching": round((len(call_summary_df[call_summary_df["filtered_out"] == "no matching product"]) if not call_summary_df.empty else 0) / total_calls * 100) if total_calls else 0,
-        "percentIncluded": round((len(call_summary_df[call_summary_df["filtered_out"] == "included"]) if not call_summary_df.empty else 0) / total_calls * 100) if total_calls else 0,
-        "calls_table": sorted([{"exclusion": e, "count": c, "count_formatted": "{:,}".format(c), "percent": round(c / total_calls * 100)} for e, c in [("Excluded (Invalid Date)", sum(1 for c in full_data if c["call_date"] == "N/A")), ("Excluded (No Product Tag)", len(call_summary_df[call_summary_df["filtered_out"] == "no product tags"]) if not call_summary_df.empty else 0), ("Excluded (Unselected Product Tag)", len(call_summary_df[call_summary_df["filtered_out"] == "no matching product"]) if not call_summary_df.empty else 0), ("Excluded (Dropped)", dropped_calls), ("Excluded (Account Name)", excluded_account_calls), ("Excluded (No Utterances)", no_utterances_calls)] if c > 0], key=lambda x: (-x["count"], x["exclusion"])),
-        "included_utterances": utterance_stats["included_utterances"], "included_utterances_formatted": "{:,}".format(utterance_stats["included_utterances"]), "percentIncludedUtterances": utterance_stats["percentIncludedUtterances"],
-        "excluded_topic_percentages": {t: round(c / utterance_stats["total_utterances"] * 100) if utterance_stats["total_utterances"] else 0 for t, c in utterance_stats["excluded_topics"].items()}
-    }
-
-    start_date_str, end_date_str, timestamp = start_dt.strftime("%d%b%y").lower(), end_dt.strftime("%d%b%y").lower(), datetime.now().strftime("%Y%m%d%H%M%S")
-    utterances_path, call_summary_path, json_path = [os.path.join(OUTPUT_DIR, f"{n}_{start_date_str}to{end_date_str}_{timestamp}.{ext}") for n, ext in [("utterances", "csv"), ("summary", "csv"), ("transcripts", "json")]]
-    if not utterances_df.empty:
-        utterances_df['utterance_text'] = utterances_df['utterance_text'].apply(lambda x: unicodedata.normalize('NFKD', str(x)).encode('ascii', 'ignore').decode('ascii') if x else '')
-        utterances_df.to_csv(utterances_path, index=False, quoting=csv.QUOTE_NONNUMERIC, encoding='utf-8', errors='replace')
-    call_summary_df.to_csv(call_summary_path, index=False, quoting=csv.QUOTE_NONNUMERIC, encoding='utf-8', errors='replace')
-    with open(json_path, 'w', encoding='utf-8') as f:
-        json.dump(json_data, f, ensure_ascii=False, indent=2)
-    save_file_paths({"utterances_path": utterances_path, "call_summary_path": call_summary_path, "json_path": json_path, "log_path": log_file_path})
-
-    form_state.update({"message": "Processing complete. Download files below.", "show_download": True, "stats": stats, "utterance_breakdown": {
-        "product": sorted([{"value": p, "count": c, "count_formatted": "{:,}".format(c), "percentage": round(c / sum(utterances_df['product'].str.count(p).sum() for p in set(utterances_df['product'].str.split("|").sum())) * 100) if utterances_df['product'].notna().any() else 0} for p, c in utterances_df['product'].str.split("|").explode().value_counts().items() if p], key=lambda x: (-x["count"], x["value"])),
-        "exclusions": sorted([
-            {"exclusion": "Internal Speaker", "count": utterance_stats["internal_utterances"], "count_formatted": "{:,}".format(utterance_stats["internal_utterances"]), "percent": utterance_stats["percentInternalUtterances"]},
-            {"exclusion": "Short Utterance", "count": utterance_stats["short_utterances"], "count_formatted": "{:,}".format(utterance_stats["short_utterances"]), "percent": utterance_stats["percentShortUtterances"]},
-            {"exclusion": "No Tag", "count": utterance_stats["no_metadata_utterances"], "count_formatted": "{:,}".format(utterance_stats["no_metadata_utterances"]), "percent": utterance_stats["percentNoMetadataUtterances"]},
-            {"exclusion": "Non Matching Product Tag", "count": utterance_stats["non_matching_product_utterances"], "count_formatted": "{:,}".format(utterance_stats["non_matching_product_utterances"]), "percent": utterance_stats["percentNonMatchingProductUtterances"]}
-        ] + [{"exclusion": t.title(), "count": c, "count_formatted": "{:,}".format(c), "percent": round(c / utterance_stats["total_utterances"] * 100) if utterance_stats["total_utterances"] else 0} for t, c in utterance_stats["excluded_topics"].items() if c > 0], key=lambda x: (-x["count"], x["exclusion"])),
-        "topics": sorted([{"topic": t, "count": c, "count_formatted": "{:,}".format(c), "percent": round(c / utterance_stats["included_utterances"] * 100) if utterance_stats["included_utterances"] else 0} for t, c in [("Energy Savings", utterances_df['energy_savings_measurement'].ne('').sum() if include_energy_savings else 0), ("HVAC Topics", utterances_df['hvac_topics'].ne('').sum())] + [(t, utterances_df['tracker'].str.count(t).sum()) for t in set(utterances_df['tracker'].str.split("|").explode()) if t] if c > 0], key=lambda x: (-x["count"], x["topic"]))
-    }})
-    return render_template('index.html', form_state=form_state, available_products=ALL_PRODUCT_TAGS, **form_state)
 
 @app.route('/download/<file_type>')
 def download(file_type):
-    paths = load_file_paths()
-    file_mapping = {'utterances': ('utterances_path', 'utterances.csv', 'text/csv'), 'call_summary': ('call_summary_path', 'call_summary.csv', 'text/csv'), 'json': ('json_path', 'transcripts.json', 'application/json'), 'logs': ('log_path', 'app.log', 'text/plain')}
-    if file_type not in file_mapping or not (file_path := paths.get(file_mapping[file_type][0])) or not os.path.exists(file_path):
-        return "Invalid file type" if file_type not in file_mapping else "File not found", 400 if file_type not in file_mapping else 404
-    return send_file(file_path, as_attachment=True, download_name=file_mapping[file_type][1], mimetype=file_mapping[file_type][2])
+    try:
+        paths = load_file_paths()
+        file_mapping = {
+            'utterances': ('utterances_path', 'utterances.csv', 'text/csv'),
+            'call_summary': ('call_summary_path', 'call_summary.csv', 'text/csv'),
+            'json': ('json_path', 'transcripts.json', 'application/json'),
+            'logs': ('log_path', 'app.log', 'text/plain')
+        }
+        if file_type not in file_mapping:
+            logger.warning(f"Invalid file type requested: {file_type}")
+            return "Invalid file type", 400
+        file_path = paths.get(file_mapping[file_type][0])
+        if not file_path or not os.path.exists(file_path):
+            logger.warning(f"File not found for type {file_type}: {file_path}")
+            return "File not found", 404
+        logger.debug(f"Serving file {file_path} for type {file_type}")
+        return send_file(file_path, as_attachment=True, download_name=file_mapping[file_type][1], mimetype=file_mapping[file_type][2])
+    except Exception as e:
+        logger.error(f"Error in /download for {file_type}: {str(e)}\n{traceback.format_exc()}")
+        return "Error downloading file", 500
 
 if __name__ == '__main__':
     app.run(debug=os.environ.get('FLASK_DEBUG', 'False').lower() == 'true', host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
