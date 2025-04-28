@@ -107,6 +107,13 @@
         .capitalize {
             text-transform: capitalize;
         }
+        .products-label {
+            font-weight: bold !important;
+        }
+        .checkbox-group input, .checkbox-group label {
+            display: inline;
+            vertical-align: middle;
+        }
     </style>
 </head>
 <body>
@@ -128,26 +135,24 @@
             </div>
             <div class="form-group">
                 <label for="start_date">Start Date</label>
-                <input type="date" id="start_date" name="start_date" value="{{ form_state.start_date }}" required>
+                <input type="date" id="start_date" name="start_date" value="{{ form_state.start_date }}" required max="{{ max_date }}">
             </div>
             <div class="form-group">
                 <label for="end_date">End Date</label>
-                <input type="date" id="end_date" name="end_date" value="{{ form_state.end_date }}" required>
+                <input type="date" id="end_date" name="end_date" value="{{ form_state.end_date }}" required max="{{ max_date }}">
             </div>
             <div class="checkbox-group">
-                <label>Products</label>
+                <label class="products-label">Products</label>
                 {% set product_display = {
                     'iaq monitoring': 'IAQ Monitoring',
-                    'odcv': 'ODCV',
                     'secure air': 'SecureAire',
-                    'occupancy analytics': 'Occupancy Analytics'
+                    'occupancy analytics': 'Occupancy Analytics',
+                    'odcv': 'ODCV'
                 } %}
                 {% for product in available_products %}
-                <div>
-                    <input type="checkbox" id="{{ product }}" name="products" value="{{ product }}"
-                        {% if product in form_state.products %}checked{% endif %}>
-                    <label for="{{ product }}">{{ product_display[product] }}</label>
-                </div>
+                <input type="checkbox" id="{{ product }}" name="products" value="{{ product }}"
+                    {% if product in form_state.products %}checked{% endif %}>
+                <label for="{{ product }}">{{ product_display[product] }}</label>
                 {% endfor %}
             </div>
             <button type="submit">Process Calls</button>
@@ -159,7 +164,6 @@
                 <tr>
                     <th>EXCLUSION</th>
                     <th>COUNT</th>
-                    <th>PERCENT</th>
                 </tr>
             </thead>
             <tbody>
@@ -167,7 +171,6 @@
                 <tr>
                     <td>{{ entry.exclusion }}</td>
                     <td>{{ entry.count_formatted }}</td>
-                    <td>{{ entry.percent }}%</td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -178,7 +181,6 @@
                 <tr>
                     <th>EXCLUSION</th>
                     <th>COUNT</th>
-                    <th>PERCENT</th>
                 </tr>
             </thead>
             <tbody>
@@ -186,7 +188,6 @@
                 <tr>
                     <td class="capitalize">{{ entry.exclusion }}</td>
                     <td>{{ entry.count_formatted }}</td>
-                    <td>{{ entry.percent }}%</td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -198,34 +199,31 @@
                 <tr>
                     <th>PRODUCT</th>
                     <th>COUNT</th>
-                    <th>PERCENT</th>
                 </tr>
             </thead>
             <tbody>
                 {% set product_display = {
                     'iaq monitoring': 'IAQ Monitoring',
-                    'odcv': 'ODCV',
                     'secure air': 'SecureAire',
-                    'occupancy analytics': 'Occupancy Analytics'
+                    'occupancy analytics': 'Occupancy Analytics',
+                    'odcv': 'ODCV'
                 } %}
                 {% for product in form_state.utterance_breakdown.product %}
                 <tr>
                     <td class="capitalize">{{ product_display[product.value] }}</td>
                     <td>{{ product.count_formatted }}</td>
-                    <td>{{ product.percentage }}%</td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
         {% endif %}
         {% if form_state.utterance_breakdown.topics %}
-        <h2>Topics</h2>
+        <h2>Topic Breakdown</h2>
         <table>
             <thead>
                 <tr>
                     <th>TOPIC</th>
                     <th>COUNT</th>
-                    <th>PERCENT</th>
                 </tr>
             </thead>
             <tbody>
@@ -233,7 +231,6 @@
                 <tr>
                     <td class="capitalize">{{ topic.topic }}</td>
                     <td>{{ topic.count_formatted }}</td>
-                    <td>{{ topic.percent }}%</td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -248,14 +245,13 @@
         {% endif %}
     </div>
     <script>
-        // Set max end date to day before current date
         document.addEventListener('DOMContentLoaded', function() {
-            const endDateInput = document.getElementById('end_date');
             const today = new Date();
-            const maxDate = new Date(today);
-            maxDate.setDate(today.getDate() - 1); // Day before current date
-            const maxDateStr = maxDate.toISOString().split('T')[0]; // Format as YYYY-MM-DD
-            endDateInput.setAttribute('max', maxDateStr);
+            const yesterday = new Date(today);
+            yesterday.setDate(today.getDate() - 1);
+            const maxDateStr = yesterday.toISOString().split('T')[0];
+            document.getElementById('start_date').setAttribute('max', maxDateStr);
+            document.getElementById('end_date').setAttribute('max', maxDateStr);
         });
     </script>
 </body>

@@ -30,6 +30,7 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[logging.FileHandler(log_file_path), logging.StreamHandler()]
 )
+logging.getLogger('').setLevel(logging.DEBUG if os.environ.get('FLASK_DEBUG', 'False').lower() == 'true' else logging.INFO)
 
 logger.info("Starting Gong Wizard Web Flask - Version 2025-04-21")
 GONG_BASE_URL = "https://us-11211.api.gong.io"
@@ -720,7 +721,7 @@ def prepare_json_output(calls, utterance_call_ids, selected_products):
     filtered_calls.sort(key=lambda x: datetime.strptime(x["date"], "%b %d, %Y"), reverse=True)
     return filtered_calls
 
-@app.route('/', methods=['GET', 'HEAD'])
+@app.route('/', methods=['GET', 'POST'])
 def index():
     current_date, yesterday = datetime.now(pytz.UTC), datetime.now(pytz.UTC) - timedelta(days=1)
     form_state = {
@@ -891,40 +892,26 @@ def process():
             "stats": stats,
             "utterance_breakdown": {
                 "product": sorted([
-                    {"value": p, "count": c, "count_formatted": "{:,}".format(c),
-                     "percentage": round(c / total_tags * 100) if total_tags > 0 else 0}
+                    {"value": p, "count": c, "count_formatted": "{:,}".format(c)}
                     for p, c in utterances_df['product'].str.split("|").explode().value_counts().items() if p
                 ], key=lambda x: (-x["count"], x["value"])) if not utterances_df.empty else [],
                 "exclusions": [entry for entry in sorted([
                     {"exclusion": "Internal Speaker", "count": utterance_stats["internal_utterances"],
-                     "count_formatted": "{:,}".format(utterance_stats["internal_utterances"]),
-                     "percent": utterance_stats["percentInternalUtterances"]},
+                     "count_formatted": "{:,}".format(utterance_stats["internal_utterances"])},
                     {"exclusion": "Short Utterance", "count": utterance_stats["short_utterances"],
-                     "count_formatted": "{:,}".format(utterance_stats["short_utterances"]),
-                     "percent": utterance_stats["percentShortUtterances"]},
+                     "count_formatted": "{:,}".format(utterance_stats["short_utterances"])},
                     {"exclusion": "No Tag", "count": utterance_stats["no_metadata_utterances"],
-                     "count_formatted": "{:,}".format(utterance_stats["no_metadata_utterances"]),
-                     "percent": utterance_stats["percentNoMetadataUtterances"]},
+                     "count_formatted": "{:,}".format(utterance_stats["no_metadata_utterances"])},
                     {"exclusion": "Non Matching Product Tag", "count": utterance_stats["non_matching_product_utterances"],
-                     "count_formatted": "{:,}".format(utterance_stats["non_matching_product_utterances"]),
-                     "percent": utterance_stats["percentNonMatchingProductUtterances"]}
+                     "count_formatted": "{:,}".format(utterance_stats["non_matching_product_utterances"])}
                 ] + [
-                    {"exclusion": t.title(), "count": c, "count_formatted": "{:,}".format(c),
-                     "percent": round(c / utterance_stats["total_utterances"] * 100) if utterance_stats["total_utterances"] else 0}
+                    {"exclusion": t.title(), "count": c, "count_formatted": "{:,}".format(c)}
                     for t, c in utterance_stats["excluded_topics"].items() if c > 0
                 ], key=lambda x: (-x["count"], x["exclusion"])) if entry["count"] > 0],
-                "topics": [
-                    {"topic": "Energy Savings", "count": energy_savings_count,
-                     "count_formatted": "{:,}".format(energy_savings_count),
-                     "percent": round(energy_savings_count / utterance_stats["included_utterances"] * 100) if utterance_stats["included_utterances"] else 0},
-                    {"topic": "HVAC Topics", "count": hvac_topics_count,
-                     "count_formatted": "{:,}".format(hvac_topics_count),
-                     "percent": round(hvac_topics_count / utterance_stats["included_utterances"] * 100) if utterance_stats["included_utterances"] else 0}
-                ] + [
-                    {"topic": t, "count": c, "count_formatted": "{:,}".format(c),
-                     "percent": round(c / utterance_stats["included_utterances"] * 100) if utterance_stats["included_utterances"] else 0}
-                    for t, c in other_topics
-                ]
+                "topics": sorted([
+                    {"topic": t, "count": c, "count_formatted": "{:,}".format(c)}
+                    for t, c in other_topics + [("Energy Savings", energy_savings_count), ("HVAC Topics", hvac_topics_count)]
+                ], key=lambda x: -x["count"]) if not utterances_df.empty else []
             }
         })
         logger.info("Processing completed successfully")
@@ -953,7 +940,7 @@ def download(file_type):
             logger.warning(f"File not found for type {file_type}: {file_path}")
             return "File not found", 404
         logger.debug(f"Serving file {file_path} for type {file_type}")
-        return send_file(file_path, as_attachment=True, download_name=file_mapping[file_type][1], mimetype=file_mapping[file_type][2])
+        return send_file(file_path, as_attachment=True, download_name=os.path.basename(file_path), mimetype=file_mapping[file_type][2])
     except Exception as e:
         logger.error(f"Error in /download for {file_type}: {str(e)}\n{traceback.format_exc()}")
         return "Error downloading file", 500
