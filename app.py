@@ -16,7 +16,6 @@ import pytz
 import requests
 import gspread
 from flask import Flask, render_template, request, send_file, jsonify
-import google.auth
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', os.urandom(24))
@@ -80,9 +79,10 @@ def get_email_local_part(email):
 
 def init_gspread():
     try:
-        from google.auth import default
-        credentials, _ = default()
-        return gspread.authorize(credentials)
+        # Since the spreadsheet is shared with "Anyone with the link" as a viewer,
+        # we can use anonymous access without credentials.
+        gc = gspread.Client(None)
+        return gc
     except Exception as e:
         logger.error(f"Failed to initialize gspread client: {str(e)}\n{traceback.format_exc()}")
         raise
