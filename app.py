@@ -14,7 +14,6 @@ import csv
 import pandas as pd
 import pytz
 import requests
-import gspread
 from flask import Flask, render_template, request, send_file, jsonify
 
 app = Flask(__name__)
@@ -77,152 +76,141 @@ def get_email_domain(email):
 def get_email_local_part(email):
     return "" if not email or "@" not in email else email.split("@")[0].strip().lower()
 
-def init_gspread():
-    try:
-        # Since the spreadsheet is shared with "Anyone with the link" as a viewer,
-        # we can use anonymous access without credentials.
-        gc = gspread.Client(None)
-        return gc
-    except Exception as e:
-        logger.error(f"Failed to initialize gspread client: {str(e)}\n{traceback.format_exc()}")
-        raise
+def load_csv_from_sheet(sheet_id, label):
+    url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
+    response = safe_operation(
+        requests.get, None, f"Failed to fetch {label} Google Sheet", url, timeout=10
+    )
+    if response and response.status_code == 200:
+        df = safe_operation(
+            pd.read_csv, None, f"Failed to read {label} CSV", StringIO(response.text)
+        )
+        if df is not None:
+            logger.info(f"Loaded {label} sheet with {len(df)} records")
+            return df
+        else:
+            logger.warning(f"Failed to parse {label} CSV, returning empty DataFrame")
+            return pd.DataFrame()
+    else:
+        logger.warning(f"Continuing without {label} data")
+        return pd.DataFrame()
 
-def load_product_mappings(spreadsheet):
-    try:
-        records = spreadsheet.worksheet("PRODUCT_MAPPINGS").get_all_records()
-        mappings = {}
-        for record in records:
-            product, keyword = record.get("Product", "").lower(), record.get("Keyword", "")
-            if product and keyword:
-                mappings.setdefault(product, []).append(keyword)
-        for product in ["occupancy analytics", "odcv_keywords"]:
-            if product in mappings:
-                mappings[product] = [re.compile(pattern, re.IGNORECASE) for pattern in mappings[product]]
-        logger.info(f"Loaded {len(records)} product mappings")
-        return mappings
-    except Exception as e:
-        logger.error(f"Failed to load PRODUCT_MAPPINGS: {str(e)}\n{traceback.format_exc()}")
+def load_product_mappings():
+    df = load_csv_from_sheet("1tvItwAqONZYhetTbg7KAHw0OMPaDfCoFC4g6rSg0QvE", "PRODUCT_MAPPINGS")
+    if df.empty:
         return {}
+    mappings = {}
+    for _, row in df.iterrows():
+        product = row.get("Product", "").lower()
+        keyword = row.get("Keyword", "")
+        if product and keyword:
+            mappings.setdefault(product, []).append(keyword)
+    for product in ["occupancy analytics", "odcv_keywords"]:
+        if product in mappings:
+            mappings[product] = [re.compile(pattern, re.IGNORECASE) for pattern in mappings[product]]
+    logger.info(f"Loaded {len(mappings)} product mappings")
+    return mappings
 
-def load_energy_savings_keywords(spreadsheet):
-    try:
-        records = spreadsheet.worksheet("ENERGY_SAVINGS_KEYWORDS").get_all_records()
-        keywords = [r.get("Keyword", "") for r in records if r.get("Keyword")]
-        logger.info(f"Loaded {len(keywords)} energy savings keywords")
-        return keywords
-    except Exception as e:
-        logger.error(f"Failed to load ENERGY_SAVINGS_KEYWORDS: {str(e)}\n{traceback.format_exc()}")
+def load_energy_savings_keywords():
+    df = load_csv_from_sheet("1tvItwAqONZYhetTbg7KAHw0OMPaDfCoFC4g6rSg0QvE", "ENERGY_SAVINGS_KEYWORDS")
+    if df.empty:
         return []
+    keywords = df["Keyword"].dropna().astype(str).tolist()
+    logger.info(f"Loaded {len(keywords)} energy savings keywords")
+    return keywords
 
-def load_hvac_topics_keywords(spreadsheet):
-    try:
-        records = spreadsheet.worksheet("HVAC_TOPICS_KEYWORDS").get_all_records()
-        keywords = [r.get("Keyword", "") for r in records if r.get("Keyword")]
-        logger.info(f"Loaded {len(keywords)} HVAC topics keywords")
-        return keywords
-    except Exception as e:
-        logger.error(f"Failed to load HVAC_TOPICS_KEYWORDS: {str(e)}\n{traceback.format_exc()}")
+def load_hvac_topics_keywords():
+    df = load_csv_from_sheet("1tvItwAqONZYhetTbg7KAHw0OMPaDfCoFC4g6rSg0QvE", "HVAC_TOPICS_KEYWORDS")
+    if df.empty:
         return []
+    keywords = df["Keyword"].dropna().astype(str).tolist()
+    logger.info(f"Loaded {len(keywords)} HVAC topics keywords")
+    return keywords
 
-def load_internal_domains(spreadsheet):
-    try:
-        records = spreadsheet.worksheet("INTERNAL_DOMAINS").get_all_records()
-        domains = {r.get("Domain", "").lower() for r in records if r.get("Domain")}
-        logger.info(f"Loaded {len(domains)} internal domains")
-        return domains
-    except Exception as e:
-        logger.error(f"Failed to load INTERNAL_DOMAINS: {str(e)}\n{traceback.format_exc()}")
+def load_internal_domains():
+    df = load_csv_from_sheet("1tvItwAqONZYhetTbg7KAHw0OMPaDfCoFC4g6rSg0QvE", "INTERNAL_DOMAINS")
+    if df.empty:
         return set()
+    domains = set(df["Domain"].dropna().astype(str).str.lower())
+    logger.info(f"Loaded {len(domains)} internal domains")
+    return domains
 
-def load_excluded_domains(spreadsheet):
-    try:
-        records = spreadsheet.worksheet("EXCLUDED_DOMAINS").get_all_records()
-        domains = {r.get("Domain", "").lower() for r in records if r.get("Domain")}
-        logger.info(f"Loaded {len(domains)} excluded domains")
-        return domains
-    except Exception as e:
-        logger.error(f"Failed to load EXCLUDED_DOMAINS: {str(e)}\n{traceback.format_exc()}")
+def load_excluded_domains():
+    df = load_csv_from_sheet("1tvItwAqONZYhetTbg7KAHw0OMPaDfCoFC4g6rSg0QvE", "EXCLUDED_DOMAINS")
+    if df.empty:
         return set()
+    domains = set(df["Domain"].dropna().astype(str).str.lower())
+    logger.info(f"Loaded {len(domains)} excluded domains")
+    return domains
 
-def load_excluded_account_names(spreadsheet):
-    try:
-        records = spreadsheet.worksheet("EXCLUDED_ACCOUNT_NAMES").get_all_records()
-        names = {r.get("Account Name", "").lower() for r in records if r.get("Account Name")}
-        logger.info(f"Loaded {len(names)} excluded account names")
-        return names
-    except Exception as e:
-        logger.error(f"Failed to load EXCLUDED_ACCOUNT_NAMES: {str(e)}\n{traceback.format_exc()}")
+def load_excluded_account_names():
+    df = load_csv_from_sheet("1tvItwAqONZYhetTbg7KAHw0OMPaDfCoFC4g6rSg0QvE", "EXCLUDED_ACCOUNT_NAMES")
+    if df.empty:
         return set()
+    names = set(df["Account Name"].dropna().astype(str).str.lower())
+    logger.info(f"Loaded {len(names)} excluded account names")
+    return names
 
-def load_excluded_trackers(spreadsheet):
-    try:
-        records = spreadsheet.worksheet("EXCLUDED_TRACKERS").get_all_records()
-        trackers = {r.get("Tracker", "").lower() for r in records if r.get("Tracker")}
-        logger.info(f"Loaded {len(trackers)} excluded trackers")
-        return trackers
-    except Exception as e:
-        logger.error(f"Failed to load EXCLUDED_TRACKERS: {str(e)}\n{traceback.format_exc()}")
+def load_excluded_trackers():
+    df = load_csv_from_sheet("1tvItwAqONZYhetTbg7KAHw0OMPaDfCoFC4g6rSg0QvE", "EXCLUDED_TRACKERS")
+    if df.empty:
         return set()
+    trackers = set(df["Tracker"].dropna().astype(str).str.lower())
+    logger.info(f"Loaded {len(trackers)} excluded trackers")
+    return trackers
 
-def load_internal_speakers(spreadsheet):
-    try:
-        records = spreadsheet.worksheet("INTERNAL_SPEAKERS").get_all_records()
-        speakers = {r.get("Speaker", "").lower() for r in records if r.get("Speaker")}
-        logger.info(f"Loaded {len(speakers)} internal speakers")
-        return speakers
-    except Exception as e:
-        logger.error(f"Failed to load INTERNAL_SPEAKERS: {str(e)}\n{traceback.format_exc()}")
+def load_internal_speakers():
+    df = load_csv_from_sheet("1tvItwAqONZYhetTbg7KAHw0OMPaDfCoFC4g6rSg0QvE", "INTERNAL_SPEAKERS")
+    if df.empty:
         return set()
+    speakers = set(df["Speaker"].dropna().astype(str).str.lower())
+    logger.info(f"Loaded {len(speakers)} internal speakers")
+    return speakers
 
-def load_excluded_topics(spreadsheet):
-    try:
-        records = spreadsheet.worksheet("EXCLUDED_TOPICS").get_all_records()
-        topics = {r.get("Topic", "").lower() for r in records if r.get("Topic")}
-        logger.info(f"Loaded {len(topics)} excluded topics")
-        return topics
-    except Exception as e:
-        logger.error(f"Failed to load EXCLUDED_TOPICS: {str(e)}\n{traceback.format_exc()}")
+def load_excluded_topics():
+    df = load_csv_from_sheet("1tvItwAqONZYhetTbg7KAHw0OMPaDfCoFC4g6rSg0QvE", "EXCLUDED_TOPICS")
+    if df.empty:
         return set()
+    topics = set(df["Topic"].dropna().astype(str).str.lower())
+    logger.info(f"Loaded {len(topics)} excluded topics")
+    return topics
 
-def load_call_id_to_account_name(spreadsheet):
-    try:
-        records = spreadsheet.worksheet("CALL_ID_TO_ACCOUNT_NAME").get_all_records()
-        mappings = {str(r.get("Call ID", "")): r.get("Account Name", "").lower() for r in records if r.get("Call ID") and r.get("Account Name")}
-        logger.info(f"Loaded {len(mappings)} call ID to account name mappings")
-        return mappings
-    except Exception as e:
-        logger.error(f"Failed to load CALL_ID_TO_ACCOUNT_NAME: {str(e)}\n{traceback.format_exc()}")
+def load_call_id_to_account_name():
+    df = load_csv_from_sheet("1tvItwAqONZYhetTbg7KAHw0OMPaDfCoFC4g6rSg0QvE", "CALL_ID_TO_ACCOUNT_NAME")
+    if df.empty:
         return {}
+    mappings = {}
+    for _, row in df.iterrows():
+        call_id = str(row.get("Call ID", ""))
+        account_name = row.get("Account Name", "").lower()
+        if call_id and account_name:
+            mappings[call_id] = account_name
+    logger.info(f"Loaded {len(mappings)} call ID to account name mappings")
+    return mappings
 
-def load_owner_account_names(spreadsheet):
-    try:
-        records = spreadsheet.worksheet("OWNER_ACCOUNT_NAMES").get_all_records()
-        names = {r.get("Account Name", "").lower() for r in records if r.get("Account Name")}
-        logger.info(f"Loaded {len(names)} owner account names")
-        return names
-    except Exception as e:
-        logger.error(f"Failed to load OWNER_ACCOUNT_NAMES: {str(e)}\n{traceback.format_exc()}")
+def load_owner_account_names():
+    df = load_csv_from_sheet("1tvItwAqONZYhetTbg7KAHw0OMPaDfCoFC4g6rSg0QvE", "OWNER_ACCOUNT_NAMES")
+    if df.empty:
         return set()
+    names = set(df["Account Name"].dropna().astype(str).str.lower())
+    logger.info(f"Loaded {len(names)} owner account names")
+    return names
 
-def load_target_domains(spreadsheet):
-    try:
-        records = spreadsheet.worksheet("OWNER_DOMAINS").get_all_records()
-        domains = {normalize_domain(r.get("Domain", "")).lower() for r in records if r.get("Domain")}
-        logger.info(f"Loaded {len(domains)} target domains")
-        return domains
-    except Exception as e:
-        logger.error(f"Failed to load OWNER_DOMAINS: {str(e)}\n{traceback.format_exc()}")
+def load_target_domains():
+    df = load_csv_from_sheet("1HMAQ3eNhXhCAfcxPqQwds1qn1ZW8j6Sc1oCM9_TLjtQ", "OWNER_DOMAINS")
+    if df.empty:
         return set()
+    domains = set(normalize_domain(domain) for domain in df.iloc[:, 0].dropna().astype(str))
+    logger.info(f"Loaded {len(domains)} target domains")
+    return domains
 
-def load_tenant_domains(spreadsheet):
-    try:
-        records = spreadsheet.worksheet("TENANT_DOMAINS").get_all_records()
-        domains = {normalize_domain(r.get("Domain", "")).lower() for r in records if r.get("Domain")}
-        logger.info(f"Loaded {len(domains)} tenant domains")
-        return domains
-    except Exception as e:
-        logger.error(f"Failed to load TENANT_DOMAINS: {str(e)}\n{traceback.format_exc()}")
+def load_tenant_domains():
+    df = load_csv_from_sheet("19WrPxtEZV59_irXRm36TJGRNJFRoYsi0KnrOUDIDBVM", "TENANT_DOMAINS")
+    if df.empty:
         return set()
+    domains = set(normalize_domain(domain) for domain in df.iloc[:, 0].dropna().astype(str))
+    logger.info(f"Loaded {len(domains)} tenant domains")
+    return domains
 
 def cleanup_old_files():
     now = time.time()
@@ -261,21 +249,19 @@ def initialize():
     with _init_lock:
         if not _initialization_done:
             logger.info("Starting initialization")
-            client = init_gspread()
-            spreadsheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1tvItwAqONZYhetTbg7KAHw0OMPaDfCoFC4g6rSg0QvE")
-            PRODUCT_MAPPINGS.update(load_product_mappings(spreadsheet))
-            ENERGY_SAVINGS_KEYWORDS.extend(load_energy_savings_keywords(spreadsheet))
-            HVAC_TOPICS_KEYWORDS.extend(load_hvac_topics_keywords(spreadsheet))
-            INTERNAL_DOMAINS.update(load_internal_domains(spreadsheet))
-            EXCLUDED_DOMAINS.update(load_excluded_domains(spreadsheet))
-            EXCLUDED_ACCOUNT_NAMES.update(load_excluded_account_names(spreadsheet))
-            EXCLUDED_TRACKERS.update(load_excluded_trackers(spreadsheet))
-            INTERNAL_SPEAKERS.update(load_internal_speakers(spreadsheet))
-            EXCLUDED_TOPICS.update(load_excluded_topics(spreadsheet))
-            CALL_ID_TO_ACCOUNT_NAME.update(load_call_id_to_account_name(spreadsheet))
-            OWNER_ACCOUNT_NAMES.update(load_owner_account_names(spreadsheet))
-            TARGET_DOMAINS.update(load_target_domains(spreadsheet))
-            TENANT_DOMAINS.update(load_tenant_domains(spreadsheet))
+            PRODUCT_MAPPINGS.update(load_product_mappings())
+            ENERGY_SAVINGS_KEYWORDS.extend(load_energy_savings_keywords())
+            HVAC_TOPICS_KEYWORDS.extend(load_hvac_topics_keywords())
+            INTERNAL_DOMAINS.update(load_internal_domains())
+            EXCLUDED_DOMAINS.update(load_excluded_domains())
+            EXCLUDED_ACCOUNT_NAMES.update(load_excluded_account_names())
+            EXCLUDED_TRACKERS.update(load_excluded_trackers())
+            INTERNAL_SPEAKERS.update(load_internal_speakers())
+            EXCLUDED_TOPICS.update(load_excluded_topics())
+            CALL_ID_TO_ACCOUNT_NAME.update(load_call_id_to_account_name())
+            OWNER_ACCOUNT_NAMES.update(load_owner_account_names())
+            TARGET_DOMAINS.update(load_target_domains())
+            TENANT_DOMAINS.update(load_tenant_domains())
             ALL_PRODUCT_TAGS.extend([p for p in PRODUCT_MAPPINGS.keys() if p != "odcv_keywords"])
             cleanup_old_files()
             _initialization_done = True
