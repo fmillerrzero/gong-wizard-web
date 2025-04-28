@@ -35,8 +35,8 @@
             font-weight: bold;
             color: #555;
         }
-        .checkbox-group label.products-label {
-            font-weight: normal; /* Unbold the "Products" label */
+        .checkbox-group label {
+            font-weight: normal;
         }
         input[type="text"], input[type="date"] {
             width: 100%;
@@ -132,15 +132,21 @@
             </div>
             <div class="form-group">
                 <label for="end_date">End Date</label>
-                <input type="date" id="end_date" name="end_date" value="{{ form_state.end_date }}" max="{{ max_date }}" required>
+                <input type="date" id="end_date" name="end_date" value="{{ form_state.end_date }}" required>
             </div>
             <div class="checkbox-group">
-                <label class="products-label">Products</label>
+                <label>Products</label>
+                {% set product_display = {
+                    'iaq monitoring': 'IAQ Monitoring',
+                    'odcv': 'ODCV',
+                    'secure air': 'SecureAire',
+                    'occupancy analytics': 'Occupancy Analytics'
+                } %}
                 {% for product in available_products %}
                 <div>
                     <input type="checkbox" id="{{ product }}" name="products" value="{{ product }}"
                         {% if product in form_state.products %}checked{% endif %}>
-                    <label for="{{ product }}">{{ product | replace('iaq monitoring', 'IAQ Monitoring') | replace('odcv', 'ODCV') | title }}</label>
+                    <label for="{{ product }}">{{ product_display[product] }}</label>
                 </div>
                 {% endfor %}
             </div>
@@ -196,9 +202,15 @@
                 </tr>
             </thead>
             <tbody>
+                {% set product_display = {
+                    'iaq monitoring': 'IAQ Monitoring',
+                    'odcv': 'ODCV',
+                    'secure air': 'SecureAire',
+                    'occupancy analytics': 'Occupancy Analytics'
+                } %}
                 {% for product in form_state.utterance_breakdown.product %}
                 <tr>
-                    <td class="capitalize">{{ product.value | replace('iaq monitoring', 'IAQ Monitoring') | replace('odcv', 'ODCV') | title }}</td>
+                    <td class="capitalize">{{ product_display[product.value] }}</td>
                     <td>{{ product.count_formatted }}</td>
                     <td>{{ product.percentage }}%</td>
                 </tr>
@@ -235,5 +247,16 @@
         </div>
         {% endif %}
     </div>
+    <script>
+        // Set max end date to day before current date
+        document.addEventListener('DOMContentLoaded', function() {
+            const endDateInput = document.getElementById('end_date');
+            const today = new Date();
+            const maxDate = new Date(today);
+            maxDate.setDate(today.getDate() - 1); // Day before current date
+            const maxDateStr = maxDate.toISOString().split('T')[0]; // Format as YYYY-MM-DD
+            endDateInput.setAttribute('max', maxDateStr);
+        });
+    </script>
 </body>
 </html>

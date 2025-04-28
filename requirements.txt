@@ -12,3 +12,4 @@ charset-normalizer==3.3.2
 idna==3.10
 certifi==2024.8.30
 markupsafe==3.0.1
+gspread==6.1.2
