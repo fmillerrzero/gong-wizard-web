@@ -16,6 +16,7 @@ import pytz
 import requests
 import gspread
 from flask import Flask, render_template, request, send_file, jsonify
+import google.auth
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', os.urandom(24))
@@ -79,7 +80,9 @@ def get_email_local_part(email):
 
 def init_gspread():
     try:
-        return gspread.anonymous_client()
+        from google.auth import default
+        credentials, _ = default()
+        return gspread.authorize(credentials)
     except Exception as e:
         logger.error(f"Failed to initialize gspread client: {str(e)}\n{traceback.format_exc()}")
         raise
@@ -617,8 +620,28 @@ def prepare_json_output(calls, utterance_call_ids, selected_products):
 @app.route('/', methods=['GET', 'HEAD'])
 def index():
     current_date, yesterday = datetime.now(pytz.UTC), datetime.now(pytz.UTC) - timedelta(days=1)
-    form_state = {"products": ALL_PRODUCT_TAGS, "access_key": "", "secret_key": "", "start_date": (yesterday - timedelta(days=30)).strftime('%Y-%m-%d'), "end_date": yesterday.strftime('%Y-%m-%d'), "message": "", "show_download": False}
-    return render_template('index.html', start_date=form_state["start_date"], end_date=form_state["end_date"], available_products=ALL_PRODUCT_TAGS, access_key="", secret_key="", message="", show_download=False, form_state=form_state, current_date=current_date, max_date=yesterday.strftime('%Y-%m-%d'))
+    form_state = {
+        "products": ALL_PRODUCT_TAGS,
+        "access_key": "",
+        "secret_key": "",
+        "start_date": (yesterday - timedelta(days=30)).strftime('%Y-%m-%d'),
+        "end_date": yesterday.strftime('%Y-%m-%d'),
+        "message": "",
+        "show_download": False
+    }
+    return render_template(
+        'index.html',
+        start_date=form_state["start_date"],
+        end_date=form_state["end_date"],
+        available_products=ALL_PRODUCT_TAGS,
+        access_key="",
+        secret_key="",
+        message="",
+        show_download=False,
+        form_state=form_state,
+        current_date=current_date,
+        max_date=yesterday.strftime('%Y-%m-%d')
+    )
 
 @app.route('/process', methods=['POST'])
 def process():
