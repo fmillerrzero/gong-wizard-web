@@ -38,7 +38,7 @@ SF_TZ = pytz.timezone('America/Los_Angeles')
 OUTPUT_DIR = "/tmp/gong_output"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 PATHS_FILE = os.path.join(OUTPUT_DIR, "file_paths.json")
-BATCH_SIZE = 25
+BATCH_SIZE = 10
 MAX_DATE_RANGE_MONTHS = 12
 
 # Google Sheet ID
@@ -314,7 +314,7 @@ class GongAPIClient:
         url = f"{self.base_url}/{endpoint}"
         for attempt in range(5):
             try:
-                response = self.session.request(method, url, **kwargs, timeout=10)
+                response = self.session.request(method, url, **kwargs, timeout=30)
                 if response.status_code == 200:
                     return response.json()
                 elif response.status_code in (401, 403):
@@ -324,6 +324,11 @@ class GongAPIClient:
                     continue
                 else:
                     raise GongAPIError(response.status_code, f"API error: {response.text}")
+            except requests.Timeout:
+                logger.error(f"Timeout on attempt {attempt + 1} for {url}")
+                if attempt == 4:
+                    raise GongAPIError(0, "Request timed out after multiple attempts")
+                time.sleep(2 ** attempt)
             except requests.RequestException as e:
                 if attempt == 4:
                     raise GongAPIError(0, f"Network error: {str(e)}")
@@ -348,7 +353,7 @@ class GongAPIClient:
             cursor = response.get("records", {}).get("cursor")
             if not cursor:
                 break
-        logger.info(f"Fetched {len(call_ids)} unique call IDs")
+        logger.info(f"Fetched {len(call_ids)} unique call IDs for range {from_date} to {to_date}")
         return call_ids
 
     def fetch_call_details(self, call_ids):
@@ -844,23 +849,53 @@ def process():
             return render_template('index.html', form_state=form_state, available_products=ALL_PRODUCT_TAGS, **form_state)
 
         client = GongAPIClient(access_key, secret_key)
-        start_date_utc = start_dt.isoformat().replace('+00:00', 'Z')
-        end_date_utc = end_dt.replace(hour=23, minute=59, second=59).isoformat().replace('+00:00', 'Z')
-        logger.debug(f"Fetching call list from {start_date_utc} to {end_date_utc}")
-        call_ids = client.fetch_call_list(start_date_utc, end_date_utc)
+        # Break the date range into 30-day chunks
+        chunk_days = 30
+        current_start = start_dt
+        all_call_ids = set()
+        while current_start <= end_dt:
+            chunk_end = min(current_start + timedelta(days=chunk_days - 1), end_dt)
+            chunk_end = chunk_end.replace(hour=23, minute=59, second=59)
+            start_date_utc = current_start.isoformat().replace('+00:00', 'Z')
+            end_date_utc = chunk_end.isoformat().replace('+00:00', 'Z')
+            logger.debug(f"Fetching call list chunk from {start_date_utc} to {end_date_utc}")
+            try:
+                chunk_call_ids = client.fetch_call_list(start_date_utc, end_date_utc)
+                all_call_ids.update(chunk_call_ids)
+            except GongAPIError as e:
+                logger.error(f"Failed to fetch calls for chunk {start_date_utc} to {end_date_utc}: {str(e)}")
+                form_state["message"] = f"Failed to fetch calls: {str(e)}"
+                return render_template('index.html', form_state=form_state, available_products=ALL_PRODUCT_TAGS, **form_state)
+            current_start = chunk_end + timedelta(days=1)
+
+        call_ids = list(all_call_ids)
         if not call_ids:
             form_state["message"] = "No calls found."
             logger.info("No calls found for the specified date range")
             return render_template('index.html', form_state=form_state, available_products=ALL_PRODUCT_TAGS, **form_state)
 
-        full_data, dropped_calls, transcripts = [], 0, client.fetch_transcript(call_ids)
+        full_data, dropped_calls, transcripts = [], 0, {}
+        # Fetch transcripts for all call IDs
+        try:
+            transcripts = client.fetch_transcript(call_ids)
+        except GongAPIError as e:
+            logger.error(f"Failed to fetch transcripts: {str(e)}")
+            form_state["message"] = f"Failed to fetch transcripts: {str(e)}"
+            return render_template('index.html', form_state=form_state, available_products=ALL_PRODUCT_TAGS, **form_state)
+
         for i in range(0, len(call_ids), BATCH_SIZE):
-            for call in client.fetch_call_details(call_ids[i:i + BATCH_SIZE]):
-                call_id = get_field(call.get("metaData", {}), "id", "")
-                if not call_id:
-                    dropped_calls += 1
-                    continue
-                full_data.append(normalize_call_data(call, transcripts.get(call_id, [])))
+            batch_ids = call_ids[i:i + BATCH_SIZE]
+            try:
+                for call in client.fetch_call_details(batch_ids):
+                    call_id = get_field(call.get("metaData", {}), "id", "")
+                    if not call_id:
+                        dropped_calls += 1
+                        continue
+                    full_data.append(normalize_call_data(call, transcripts.get(call_id, [])))
+            except GongAPIError as e:
+                logger.error(f"Failed to fetch call details for batch {i} to {i + BATCH_SIZE}: {str(e)}")
+                form_state["message"] = f"Failed to fetch call details: {str(e)}"
+                return render_template('index.html', form_state=form_state, available_products=ALL_PRODUCT_TAGS, **form_state)
 
         if not full_data:
             form_state["message"] = "No valid call data retrieved."
@@ -898,12 +933,12 @@ def process():
             "calls_table": sorted([
                 {"exclusion": e, "count": c, "count_formatted": "{:,}".format(c), "percent": round(c / total_calls * 100)}
                 for e, c in [
-                    ("Excluded: Invalid Date", sum(1 for c in full_data if c["call_date"] == "N/A")),
+                    ("Invalid Date", sum(1 for c in full_data if c["call_date"] == "N/A")),
                     ("No product tag", len(call_summary_df[call_summary_df["filtered_out"] == "no product tags"]) if not call_summary_df.empty else 0),
-                    ("Excluded: Unselected Product Tags", len(call_summary_df[call_summary_df["filtered_out"] == "no matching product"]) if not call_summary_df.empty else 0),
-                    ("Excluded: Dropped Calls", dropped_calls),
+                    ("Unselected Product Tags", len(call_summary_df[call_summary_df["filtered_out"] == "no matching product"]) if not call_summary_df.empty else 0),
+                    ("Dropped Calls", dropped_calls),
                     ("Internal only", excluded_account_calls),
-                    ("Excluded: No Utterances", no_utterances_calls)
+                    ("No Utterances", no_utterances_calls)  # Renamed from "Excluded: No Utterances"
                 ]
             ], key=lambda x: (-x["count"], x["exclusion"])),
             "included_utterances": utterance_stats["included_utterances"],
@@ -955,7 +990,7 @@ def process():
             "message": "Processing complete. Download files below.",
             "show_download": True,
             "stats": stats,
-            "products_line_break": True,  # Flag for line break in template
+            "products_line_break": True,
             "utterance_breakdown": {
                 "product": sorted([
                     {"value": p, "count": c, "count_formatted": "{:,}".format(c)}
