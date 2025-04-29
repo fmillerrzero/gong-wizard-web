@@ -59,25 +59,7 @@ TARGET_DOMAINS = set()
 TENANT_DOMAINS = set()
 ALL_PRODUCT_TAGS = []
 
-# Perform initialization immediately when the module is loaded
-logger.info("Starting initialization")
-PRODUCT_MAPPINGS.update(load_product_mappings())
-ENERGY_SAVINGS_KEYWORDS.extend(load_energy_savings_keywords())
-HVAC_TOPICS_KEYWORDS.extend(load_hvac_topics_keywords())
-INTERNAL_DOMAINS.update(load_internal_domains())
-EXCLUDED_DOMAINS.update(load_excluded_domains())
-EXCLUDED_ACCOUNT_NAMES.update(load_excluded_account_names())
-EXCLUDED_TRACKERS.update(load_excluded_trackers())
-INTERNAL_SPEAKERS.update(load_internal_speakers())
-EXCLUDED_TOPICS.update(load_excluded_topics())
-CALL_ID_TO_ACCOUNT_NAME.update(load_call_id_to_account_name())
-OWNER_ACCOUNT_NAMES.update(load_owner_account_names())
-TARGET_DOMAINS.update(load_target_domains())
-TENANT_DOMAINS.update(load_tenant_domains())
-ALL_PRODUCT_TAGS.extend([p for p in PRODUCT_MAPPINGS.keys() if p != "odcv_keywords"])
-cleanup_old_files()
-logger.info("Initialization completed")
-
+# Define helper functions before they are called
 def safe_operation(operation, default_value=None, log_message=None, *args, **kwargs):
     try:
         return operation(*args, **kwargs)
@@ -291,6 +273,25 @@ def load_file_paths():
     except Exception as e:
         logger.error(f"Error loading paths file: {str(e)}\n{traceback.format_exc()}")
         return {}
+
+# Perform initialization after all functions are defined
+logger.info("Starting initialization")
+PRODUCT_MAPPINGS.update(load_product_mappings())
+ENERGY_SAVINGS_KEYWORDS.extend(load_energy_savings_keywords())
+HVAC_TOPICS_KEYWORDS.extend(load_hvac_topics_keywords())
+INTERNAL_DOMAINS.update(load_internal_domains())
+EXCLUDED_DOMAINS.update(load_excluded_domains())
+EXCLUDED_ACCOUNT_NAMES.update(load_excluded_account_names())
+EXCLUDED_TRACKERS.update(load_excluded_trackers())
+INTERNAL_SPEAKERS.update(load_internal_speakers())
+EXCLUDED_TOPICS.update(load_excluded_topics())
+CALL_ID_TO_ACCOUNT_NAME.update(load_call_id_to_account_name())
+OWNER_ACCOUNT_NAMES.update(load_owner_account_names())
+TARGET_DOMAINS.update(load_target_domains())
+TENANT_DOMAINS.update(load_tenant_domains())
+ALL_PRODUCT_TAGS.extend([p for p in PRODUCT_MAPPINGS.keys() if p != "odcv_keywords"])
+cleanup_old_files()
+logger.info("Initialization completed")
 
 class GongAPIError(Exception):
     def __init__(self, status_code, message):
@@ -831,7 +832,7 @@ def process():
         if utterances_df.empty and call_summary_df.empty:
             form_state["message"] = "No calls matched the selected products."
             logger.info("No calls matched the selected products")
-            return render_template('index.html', form_state=form_state, available_products=ALL_PRODUCT_TAGS, **form_state)
+            return render_template('index.html', form_state(form_state, available_products=ALL_PRODUCT_TAGS, **form_state)
 
         total_calls = len(full_data) + dropped_calls + excluded_account_calls + no_utterances_calls
         stats = {
