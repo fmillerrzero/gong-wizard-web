@@ -964,7 +964,7 @@ def process():
                 "exclusions": [entry for entry in sorted([
                     {"exclusion": "Internal Speaker", "count": utterance_stats["internal_utterances"],
                      "count_formatted": "{:,}".format(utterance_stats["internal_utterances"])},
-                    {"exclusion": "Short Utterance", "count": utterance_stats["short_utterances"],
+                    {"exclusion": "Under 8 words", "count": utterance_stats["short_utterances"],
                      "count_formatted": "{:,}".format(utterance_stats["short_utterances"])},
                     {"exclusion": "No Tag", "count": utterance_stats["no_metadata_utterances"],
                      "count_formatted": "{:,}".format(utterance_stats["no_metadata_utterances"])}
