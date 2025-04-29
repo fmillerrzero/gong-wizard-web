@@ -73,12 +73,16 @@ def normalize_domain(url):
     if not url or url.lower() in ["n/a", "unknown"]:
         logger.debug(f"Missing domain for URL: '{url}', defaulting to 'Unknown'")
         return "Unknown"
-    domain = re.sub(r'^https?://', '', str(url).lower(), flags=re.IGNORECASE)
-    domain = re.sub(r'^www\.', '', domain, flags=re.IGNORECASE)
-    result = domain.split('/')[0].strip() or "Unknown"
-    if result == "Unknown":
-        logger.debug(f"Normalized domain empty for URL: '{url}', defaulting to 'Unknown'")
-    return result
+    try:
+        domain = re.sub(r'^https?://', '', str(url).lower(), flags=re.IGNORECASE)
+        domain = re.sub(r'^www\.', '', domain, flags=re.IGNORECASE)
+        result = domain.split('/')[0].strip() or "Unknown"
+        if result == "Unknown":
+            logger.debug(f"Normalized domain empty for URL: '{url}', defaulting to 'Unknown'")
+        return result
+    except Exception as e:
+        logger.error(f"Error normalizing domain '{url}': {str(e)}")
+        return "Unknown"
 
 def get_email_domain(email):
     if not email or "@" not in email:
@@ -438,13 +442,21 @@ def normalize_call_data(call, transcript):
             if not account_name and account_website:
                 account_name = normalized_domain
             elif not account_name:
+                email_domains = []
                 for party in parties:
-                    email_domain = get_email_domain(get_field(party, "emailAddress", ""))
-                    if email_domain and email_domain not in INTERNAL_DOMAINS and email_domain not in EXCLUDED_DOMAINS:
-                        account_name = email_domain
-                        break
+                    email = get_field(party, "emailAddress", "")
+                    if email:
+                        email_domain = get_email_domain(email)
+                        if email_domain and email_domain not in INTERNAL_DOMAINS and email_domain not in EXCLUDED_DOMAINS:
+                            email_domains.append(email_domain)
+                # Use the most common email domain as a fallback
+                if email_domains:
+                    email_domain_counts = pd.Series(email_domains).value_counts()
+                    account_name = email_domain_counts.index[0]  # Take the most frequent domain
+                    logger.debug(f"Inferred account_name '{account_name}' from email domains for call {call_id}: {email_domain_counts.to_dict()}")
                 account_name = "" if not account_name or account_name in INTERNAL_DOMAINS or account_name in EXCLUDED_DOMAINS else account_name
             org_type = "owner" if account_name in OWNER_ACCOUNT_NAMES or normalized_domain in TARGET_DOMAINS else "tenant" if normalized_domain in TENANT_DOMAINS else "other"
+            logger.debug(f"Assigned org_type '{org_type}' for call {call_id}: account_name='{account_name}', normalized_domain='{normalized_domain}'")
 
         trackers = content.get("trackers", [])
         tracker_counts = {get_field(t, "name").lower(): get_field(t, "count", 0) for t in trackers}
@@ -460,9 +472,9 @@ def normalize_call_data(call, transcript):
             if product == "occupancy analytics" and product not in products:
                 if apply_occupancy_analytics_tags(call):
                     products.append(product)
-            # For other products, check tracker matches
+            # For other products, check tracker matches using regex patterns
             else:
-                if any(isinstance(tracker, str) and tracker_counts.get(tracker.lower(), 0) > 0 for tracker in PRODUCT_MAPPINGS[product]):
+                if any(pattern.search(tracker_name) for pattern in PRODUCT_MAPPINGS[product] for tracker_name in tracker_counts.keys() if tracker_counts[tracker_name] > 0):
                     products.append(product)
 
         # Debug logging to understand tagging decisions
@@ -642,7 +654,7 @@ def prepare_utterances_df(calls, selected_products):
                 "product": product,
                 "energy_savings_measurement": energy_savings if include_energy_savings else "",
                 "hvac_topics": hvac_topics,
-                "tracker": "",
+                "tracker": tracker_str,
                 "utterance_text": text,
                 "is_incomplete": u["is_incomplete"]
             })
