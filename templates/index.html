@@ -114,6 +114,11 @@
             display: inline;
             vertical-align: middle;
         }
+        #loading {
+            display: none;
+            margin-top: 10px;
+            color: #555;
+        }
     </style>
 </head>
 <body>
@@ -124,7 +129,7 @@
             {{ form_state.message }}
         </div>
         {% endif %}
-        <form action="/process" method="post">
+        <form action="/process" method="post" onsubmit="return validateForm()">
             <div class="form-group">
                 <label for="access_key">Access Key</label>
                 <input type="text" id="access_key" name="access_key" value="{{ form_state.access_key }}" required>
@@ -156,6 +161,7 @@
                 {% endfor %}
             </div>
             <button type="submit">Process Calls</button>
+            <div id="loading">Processing...</div>
         </form>
         {% if form_state.show_download %}
         <h2>Calls: {{ form_state.stats.callsIncludedFormatted }} Included ({{ form_state.stats.percentIncluded }}%)</h2>
@@ -253,6 +259,17 @@
             document.getElementById('start_date').setAttribute('max', maxDateStr);
             document.getElementById('end_date').setAttribute('max', maxDateStr);
         });
+
+        function validateForm() {
+            const start = document.getElementById('start_date').value;
+            const end = document.getElementById('end_date').value;
+            if (!start || !end || new Date(start) > new Date(end)) {
+                alert('Please enter valid start and end dates.');
+                return false;
+            }
+            document.getElementById('loading').style.display = 'block';
+            return true;
+        }
     </script>
 </body>
 </html>
