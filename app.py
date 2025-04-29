@@ -38,7 +38,8 @@ SF_TZ = pytz.timezone('America/Los_Angeles')
 OUTPUT_DIR = "/tmp/gong_output"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 PATHS_FILE = os.path.join(OUTPUT_DIR, "file_paths.json")
-BATCH_SIZE = 10
+BATCH_SIZE = 10  # For fetch_call_details
+TRANSCRIPT_BATCH_SIZE = 50  # For fetch_transcript
 MAX_DATE_RANGE_MONTHS = 12
 
 # Google Sheet ID
@@ -875,16 +876,24 @@ def process():
             return render_template('index.html', form_state=form_state, available_products=ALL_PRODUCT_TAGS, **form_state)
 
         full_data, dropped_calls, transcripts = [], 0, {}
-        # Fetch transcripts for all call IDs
-        try:
-            transcripts = client.fetch_transcript(call_ids)
-        except GongAPIError as e:
-            logger.error(f"Failed to fetch transcripts: {str(e)}")
-            form_state["message"] = f"Failed to fetch transcripts: {str(e)}"
-            return render_template('index.html', form_state=form_state, available_products=ALL_PRODUCT_TAGS, **form_state)
+        # Fetch transcripts in batches
+        logger.info(f"Fetching transcripts for {len(call_ids)} call IDs in batches of {TRANSCRIPT_BATCH_SIZE}")
+        for i in range(0, len(call_ids), TRANSCRIPT_BATCH_SIZE):
+            batch_ids = call_ids[i:i + TRANSCRIPT_BATCH_SIZE]
+            logger.debug(f"Fetching transcripts for batch {i} to {i + TRANSCRIPT_BATCH_SIZE}")
+            try:
+                batch_transcripts = client.fetch_transcript(batch_ids)
+                transcripts.update(batch_transcripts)
+            except GongAPIError as e:
+                logger.error(f"Failed to fetch transcripts for batch {i} to {i + TRANSCRIPT_BATCH_SIZE}: {str(e)}")
+                form_state["message"] = f"Failed to fetch transcripts: {str(e)}"
+                return render_template('index.html', form_state=form_state, available_products=ALL_PRODUCT_TAGS, **form_state)
 
+        # Fetch call details in batches
+        logger.info(f"Fetching call details for {len(call_ids)} call IDs in batches of {BATCH_SIZE}")
         for i in range(0, len(call_ids), BATCH_SIZE):
             batch_ids = call_ids[i:i + BATCH_SIZE]
+            logger.debug(f"Fetching call details for batch {i} to {i + BATCH_SIZE}")
             try:
                 for call in client.fetch_call_details(batch_ids):
                     call_id = get_field(call.get("metaData", {}), "id", "")
@@ -938,7 +947,7 @@ def process():
                     ("Unselected Product Tags", len(call_summary_df[call_summary_df["filtered_out"] == "no matching product"]) if not call_summary_df.empty else 0),
                     ("Dropped Calls", dropped_calls),
                     ("Internal only", excluded_account_calls),
-                    ("No Utterances", no_utterances_calls)  # Renamed from "Excluded: No Utterances"
+                    ("No Utterances", no_utterances_calls)
                 ]
             ], key=lambda x: (-x["count"], x["exclusion"])),
             "included_utterances": utterance_stats["included_utterances"],
