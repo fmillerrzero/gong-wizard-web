@@ -38,8 +38,8 @@ SF_TZ = pytz.timezone('America/Los_Angeles')
 OUTPUT_DIR = "/tmp/gong_output"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 PATHS_FILE = os.path.join(OUTPUT_DIR, "file_paths.json")
-BATCH_SIZE = 10  # For fetch_call_details
-TRANSCRIPT_BATCH_SIZE = 50  # For fetch_transcript
+BATCH_SIZE = 10
+TRANSCRIPT_BATCH_SIZE = 50
 MAX_DATE_RANGE_MONTHS = 12
 
 # Google Sheet ID
@@ -48,7 +48,9 @@ SHEET_ID = "1tvItwAqONZYhetTbg7KAHw0OMPaDfCoFC4g6rSg0QvE"
 # Initialize global variables
 PRODUCT_MAPPINGS = {}
 ENERGY_SAVINGS_KEYWORDS = []
+ENERGY_SAVINGS_KEYWORDS_NORMALIZED = []  # Pre-normalized keywords
 HVAC_TOPICS_KEYWORDS = []
+HVAC_TOPICS_KEYWORDS_NORMALIZED = []  # Pre-normalized keywords
 INTERNAL_DOMAINS = set()
 EXCLUDED_DOMAINS = set()
 EXCLUDED_ACCOUNT_NAMES = set()
@@ -127,6 +129,14 @@ def load_product_mappings() -> dict:
     logger.info(f"Loaded {len(mappings)} product mappings with precompiled regex patterns")
     return mappings
 
+def normalize_keyword(keyword):
+    if not isinstance(keyword, str):
+        return ""
+    # Simplified normalization: lowercase, strip, replace specific patterns
+    keyword = keyword.lower().strip()
+    keyword = keyword.replace('-', ' ').replace('m&v', 'm and v').replace('m & v', 'm and v')
+    return keyword
+
 def load_energy_savings_keywords() -> list:
     gid = 482507272
     df = load_csv_from_sheet(gid, "ENERGY_SAVINGS_KEYWORDS")
@@ -134,8 +144,9 @@ def load_energy_savings_keywords() -> list:
         logger.warning("ENERGY_SAVINGS_KEYWORDS sheet is empty or missing 'Keyword' column")
         return []
     keywords = df["Keyword"].dropna().astype(str).tolist()
+    normalized_keywords = [normalize_keyword(kw) for kw in keywords]
     logger.info(f"Loaded {len(keywords)} energy savings keywords")
-    return keywords
+    return keywords, normalized_keywords
 
 def load_hvac_topics_keywords() -> list:
     gid = 746230823
@@ -144,8 +155,9 @@ def load_hvac_topics_keywords() -> list:
         logger.warning("HVAC_TOPICS_KEYWORDS sheet is empty or missing 'Keyword' column")
         return []
     keywords = df["Keyword"].dropna().astype(str).tolist()
+    normalized_keywords = [normalize_keyword(kw) for kw in keywords]
     logger.info(f"Loaded {len(keywords)} HVAC topics keywords")
-    return keywords
+    return keywords, normalized_keywords
 
 def load_internal_domains() -> set:
     gid = 784372544
@@ -283,8 +295,8 @@ def load_file_paths():
 # Perform initialization after all functions are defined
 logger.info("Starting initialization")
 PRODUCT_MAPPINGS.update(load_product_mappings())
-ENERGY_SAVINGS_KEYWORDS.extend(load_energy_savings_keywords())
-HVAC_TOPICS_KEYWORDS.extend(load_hvac_topics_keywords())
+ENERGY_SAVINGS_KEYWORDS, ENERGY_SAVINGS_KEYWORDS_NORMALIZED = load_energy_savings_keywords()
+HVAC_TOPICS_KEYWORDS, HVAC_TOPICS_KEYWORDS_NORMALIZED = load_hvac_topics_keywords()
 INTERNAL_DOMAINS.update(load_internal_domains())
 EXCLUDED_DOMAINS.update(load_excluded_domains())
 EXCLUDED_ACCOUNT_NAMES.update(load_excluded_account_names())
@@ -510,14 +522,12 @@ def normalize_call_data(call, transcript):
             "key_points": "Unknown", "highlights": "Unknown", "partial_data_reason": str(e)
         }
 
-def normalize_keyword(keyword):
-    return " ".join(re.sub(r'm\s*&\s*v|m&v', 'm and v', re.sub(r'[-]', ' ', keyword.lower().strip())).split())
-
-def find_keyword(text, keywords):
-    text_normalized, text_words = normalize_keyword(text), normalize_keyword(text).split()
-    for keyword in keywords:
-        keyword_normalized, keyword_parts = normalize_keyword(keyword), normalize_keyword(keyword).split()
-        if keyword_normalized in text_normalized or any(" ".join(text_words[i:i + len(keyword_parts)]) == keyword_normalized for i in range(len(text_words) - len(keyword_parts) + 1)):
+def find_keyword(text, keywords, normalized_keywords):
+    text_normalized = normalize_keyword(text)
+    text_words = text_normalized.split()
+    for keyword, norm_keyword in zip(keywords, normalized_keywords):
+        norm_keyword_parts = norm_keyword.split()
+        if norm_keyword in text_normalized or any(" ".join(text_words[i:i + len(norm_keyword_parts)]) == norm_keyword for i in range(len(text_words) - len(norm_keyword_parts) + 1)):
             return keyword
     return ""
 
@@ -553,6 +563,7 @@ def prepare_utterances_df(calls, selected_products):
     excluded_topics, selected_products_lower = {t: 0 for t in EXCLUDED_TOPICS}, [p.lower() for p in selected_products]
     include_energy_savings, call_utterances = any(p in ["secure air", "odcv"] for p in selected_products_lower), []
     seen_utterances = set()
+    processed_utterances = 0
 
     for call in calls:
         call_id, products = call["call_id"], call.get("products", [])
@@ -603,6 +614,10 @@ def prepare_utterances_df(calls, selected_products):
 
         for u in utterances:
             total_utterances += 1
+            processed_utterances += 1
+            if processed_utterances % 1000 == 0:
+                logger.info(f"Processed {processed_utterances} utterances")
+
             text = " ".join(s.get("text", "") for s in u.get("sentences", [])) or "No transcript available"
             text = re.sub(r'\bR0\b', 'R-Zero', text, flags=re.IGNORECASE)
             speaker = speaker_info.get(get_field(u, "speakerId", ""), {})
@@ -636,8 +651,8 @@ def prepare_utterances_df(calls, selected_products):
             product = "|".join(mapped_products) if mapped_products else ""
             tracker_set = {t["tracker_name"].lower() for t in u.get("trackers", [])}
             tracker_str = "|".join(sorted(tracker_set)) or (topic if topic and topic not in EXCLUDED_TOPICS else "")
-            energy_savings = find_keyword(text, ENERGY_SAVINGS_KEYWORDS) if include_energy_savings and "energy savings" not in tracker_set else "energy savings" if "energy savings" in tracker_set else ""
-            hvac_topics = find_keyword(text, HVAC_TOPICS_KEYWORDS)
+            energy_savings = find_keyword(text, ENERGY_SAVINGS_KEYWORDS, ENERGY_SAVINGS_KEYWORDS_NORMALIZED) if include_energy_savings and "energy savings" not in tracker_set else "energy savings" if "energy savings" in tracker_set else ""
+            hvac_topics = find_keyword(text, HVAC_TOPICS_KEYWORDS, HVAC_TOPICS_KEYWORDS_NORMALIZED)
 
             # Map trackers to product tags and remove them from tracker_str
             product_set = set(product.split("|")) if product else set()
@@ -686,6 +701,7 @@ def prepare_utterances_df(calls, selected_products):
             call_data["utterances"].sort(key=lambda x: x["utterance_start_time"])
             call_utterances.append(call_data)
 
+    logger.info(f"Finished processing {processed_utterances} utterances")
     call_utterances.sort(key=lambda x: datetime.strptime(x["call_date"], "%b %d, %Y"), reverse=True)
     data = [
         dict({"call_id": c["call_id"], "call_date": c["call_date"], "account_name": c["account_name"],
