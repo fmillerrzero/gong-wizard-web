@@ -550,6 +550,8 @@ def prepare_utterances_df(calls, selected_products):
 
     for call in calls:
         call_id, products = call["call_id"], call.get("products", [])
+        # Check if the call has any selected products
+        call_has_selected_product = any(p.lower() in selected_products_lower for p in products)
         # Early filtering: exclude calls based on account name or domain
         if not filter_call(call):
             excluded_account_calls += 1
@@ -618,7 +620,7 @@ def prepare_utterances_df(calls, selected_products):
                 short_utterances += 1
                 continue
 
-            # Product mapping with precompiled regex patterns
+            # Product mapping with precompiled regex patterns (optional for inclusion)
             mapped_products = set()
             for product, patterns in PRODUCT_MAPPINGS.items():
                 for pattern in patterns:
@@ -626,20 +628,14 @@ def prepare_utterances_df(calls, selected_products):
                         mapped_products.add(product)
 
             product = "|".join(mapped_products) if mapped_products else ""
-            if not product:
-                no_metadata_utterances += 1
-                continue
-            if not any(p in selected_products_lower for p in products) and not any(tag in selected_products_lower for tag in product.split("|")):
-                non_matching_product_utterances += 1
-                continue
-
             tracker_set = {t["tracker_name"].lower() for t in u.get("trackers", [])}
             tracker_str = "|".join(sorted(tracker_set)) or (topic if topic and topic not in EXCLUDED_TOPICS else "")
             energy_savings = find_keyword(text, ENERGY_SAVINGS_KEYWORDS) if include_energy_savings and "energy savings" not in tracker_set else "energy savings" if "energy savings" in tracker_set else ""
             hvac_topics = find_keyword(text, HVAC_TOPICS_KEYWORDS)
 
-            if not (product or tracker_str or (include_energy_savings and energy_savings) or hvac_topics):
-                no_metadata_utterances += 1
+            # Include utterance if the call has a selected product
+            if not call_has_selected_product:
+                non_matching_product_utterances += 1
                 continue
 
             utterance_key = (call_id, text, u["start_time"])
