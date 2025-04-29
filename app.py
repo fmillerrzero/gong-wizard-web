@@ -14,6 +14,7 @@ import pandas as pd
 import pytz
 import requests
 from flask import Flask, render_template, request, send_file, jsonify
+import importlib.util
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', os.urandom(24))
@@ -832,7 +833,7 @@ def process():
         if utterances_df.empty and call_summary_df.empty:
             form_state["message"] = "No calls matched the selected products."
             logger.info("No calls matched the selected products")
-            return render_template('index.html', form_state(form_state, available_products=ALL_PRODUCT_TAGS, **form_state)
+            return render_template('index.html', form_state=form_state, available_products=ALL_PRODUCT_TAGS, **form_state)
 
         total_calls = len(full_data) + dropped_calls + excluded_account_calls + no_utterances_calls
         stats = {
