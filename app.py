@@ -290,7 +290,7 @@ CALL_ID_TO_ACCOUNT_NAME.update(load_call_id_to_account_name())
 OWNER_ACCOUNT_NAMES.update(load_owner_account_names())
 TARGET_DOMAINS.update(load_target_domains())
 TENANT_DOMAINS.update(load_tenant_domains())
-ALL_PRODUCT_TAGS.extend([p for p in PRODUCT_MAPPINGS.keys() if p != "odcv_keywords"])
+ALL_PRODUCT_TAGS.extend([p for p in PRODUCT_MAPPINGS.keys()])
 cleanup_old_files()
 logger.info("Initialization completed")
 
@@ -448,13 +448,25 @@ def normalize_call_data(call, transcript):
 
         trackers = content.get("trackers", [])
         tracker_counts = {get_field(t, "name").lower(): get_field(t, "count", 0) for t in trackers}
-        products = ["occupancy analytics"] if org_type == "tenant" and apply_occupancy_analytics_tags(call) else []
+        products = []
+        
+        # Automatically apply "occupancy analytics" to all tenant organizations
+        if org_type == "tenant" and "occupancy analytics" in PRODUCT_MAPPINGS:
+            products.append("occupancy analytics")
+        
+        # Apply product tags based on trackers and metadata for all org_types
         for product in PRODUCT_MAPPINGS:
-            if product == "occupancy analytics" and product not in products and apply_occupancy_analytics_tags(call):
-                products.append(product)
-            elif product != "odcv_keywords":
-                if any(tracker_counts.get(tracker.lower(), 0) > 0 for tracker in PRODUCT_MAPPINGS[product] if isinstance(tracker, str)):
+            # For "occupancy analytics", check metadata for non-tenants or if not already added
+            if product == "occupancy analytics" and product not in products:
+                if apply_occupancy_analytics_tags(call):
                     products.append(product)
+            # For other products, check tracker matches
+            else:
+                if any(isinstance(tracker, str) and tracker_counts.get(tracker.lower(), 0) > 0 for tracker in PRODUCT_MAPPINGS[product]):
+                    products.append(product)
+
+        # Debug logging to understand tagging decisions
+        logger.debug(f"Call {call_id} has products: {products}, trackers: {[get_field(t, 'name', '') for t in trackers]}")
 
         tracker_occurrences = [
             {"tracker_name": str(get_field(t, "name", "")).lower(), "phrase": str(get_field(o, "phrase", "")),
@@ -493,19 +505,21 @@ def find_keyword(text, keywords):
 
 def filter_call(call):
     if call["account_name"].lower() in EXCLUDED_ACCOUNT_NAMES:
+        logger.debug(f"Call {call['call_id']} excluded due to account name: {call['account_name']}")
         return False
     if call["account_name"].lower() in INTERNAL_DOMAINS:
+        logger.debug(f"Call {call['call_id']} excluded due to account name in internal domains: {call['account_name']}")
         return False
     for party in call.get("parties", []):
         email = get_field(party, "emailAddress", "")
         if email and "@" in email:
             domain = get_email_domain(email)
             if domain in EXCLUDED_DOMAINS:
+                logger.debug(f"Call {call['call_id']} excluded due to email domain: {domain}")
                 return False
     return True
 
 def prepare_utterances_df(calls, selected_products):
-    # Optimized filtering with fail-fast logic for efficiency
     if not calls:
         logger.debug("No calls provided to prepare_utterances_df")
         return pd.DataFrame(), {
@@ -542,7 +556,7 @@ def prepare_utterances_df(calls, selected_products):
                 "is_incomplete": not sentences, "trackers": []
             })
 
-        # Assign trackers to utterances (Note: Validate this logic with real data for precision)
+        # Assign trackers to utterances
         valid_trackers = [t for t in call.get("tracker_occurrences", []) if float(t.get("start", 0.0)) > 0]
         unmatched_trackers = []
         for tracker in valid_trackers:
@@ -550,6 +564,7 @@ def prepare_utterances_df(calls, selected_products):
             if tracker_name == "negative impact (by gong)":
                 tracker_name = "objection"
             if tracker_name in EXCLUDED_TRACKERS:
+                logger.debug(f"Tracker '{tracker_name}' excluded for call {call_id}")
                 continue
             eligible = [(u, abs(tracker_time - u["start_time"]), u["end_time"]) for u in utterances if (u["start_time"] - 3) <= tracker_time <= (u["end_time"] + 3)]
             if eligible:
@@ -579,11 +594,13 @@ def prepare_utterances_df(calls, selected_products):
                 continue
             if speaker_name in INTERNAL_SPEAKERS or (email_domain and (email_domain in INTERNAL_DOMAINS or any(email_domain.endswith("." + d) for d in INTERNAL_DOMAINS))):
                 internal_utterances += 1
+                logger.debug(f"Utterance in call {call_id} excluded due to internal speaker: {speaker_name}")
                 continue
             topic = get_field(u, "topic", "").lower()
             if topic in EXCLUDED_TOPICS:
                 excluded_topic_utterances += 1
                 excluded_topics[topic] += 1
+                logger.debug(f"Utterance in call {call_id} excluded due to topic: {topic}")
                 continue
             if len(text.split()) < 8 and text != "No transcript available":
                 short_utterances += 1
@@ -688,7 +705,6 @@ def prepare_call_summary_df(calls, selected_products):
     return df
 
 def prepare_json_output(calls, utterance_call_ids, selected_products):
-    # Generate JSON output with validated timestamps and speaker fields
     if not calls or not utterance_call_ids:
         logger.debug("No calls or utterance call IDs provided to prepare_json_output")
         return []
@@ -719,7 +735,7 @@ def prepare_json_output(calls, utterance_call_ids, selected_products):
             if sentences:
                 start_time = min([s.get("start", 0) for s in sentences]) / 1000
                 end_time = max([s.get("end", 0) for s in sentences]) / 1000
-                if start_time < 0 or end_time < 0:  # Validate positive timestamps
+                if start_time < 0 or end_time < 0:
                     logger.debug(f"Skipping utterance with invalid timestamps in call {call_id}: start={start_time}, end={end_time}")
                     continue
                 if prev_end_time and start_time < prev_end_time:
