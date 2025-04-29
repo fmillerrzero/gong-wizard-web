@@ -537,13 +537,13 @@ def prepare_utterances_df(calls, selected_products):
         return pd.DataFrame(), {
             "total_utterances": 0, "internal_utterances": 0, "short_utterances": 0,
             "excluded_topic_utterances": 0, "excluded_topics": {t: 0 for t in EXCLUDED_TOPICS},
-            "no_metadata_utterances": 0, "non_matching_product_utterances": 0, "included_utterances": 0,
+            "no_metadata_utterances": 0, "included_utterances": 0,
             "percentInternalUtterances": 0, "percentShortUtterances": 0, "percentExcludedTopicUtterances": 0,
-            "percentNoMetadataUtterances": 0, "percentNonMatchingProductUtterances": 0, "percentIncludedUtterances": 0
+            "percentNoMetadataUtterances": 0, "percentIncludedUtterances": 0
         }, False, 0, 0
 
     total_utterances, internal_utterances, short_utterances, excluded_topic_utterances = 0, 0, 0, 0
-    no_metadata_utterances, non_matching_product_utterances, excluded_account_calls, no_utterances_calls = 0, 0, 0, 0
+    no_metadata_utterances, excluded_account_calls, no_utterances_calls = 0, 0, 0
     excluded_topics, selected_products_lower = {t: 0 for t in EXCLUDED_TOPICS}, [p.lower() for p in selected_products]
     include_energy_savings, call_utterances = any(p in ["secure air", "odcv"] for p in selected_products_lower), []
     seen_utterances = set()
@@ -633,10 +633,31 @@ def prepare_utterances_df(calls, selected_products):
             energy_savings = find_keyword(text, ENERGY_SAVINGS_KEYWORDS) if include_energy_savings and "energy savings" not in tracker_set else "energy savings" if "energy savings" in tracker_set else ""
             hvac_topics = find_keyword(text, HVAC_TOPICS_KEYWORDS)
 
-            # Include utterance if the call has a selected product
+            # Map trackers to product tags and remove them from tracker_str
+            product_set = set(product.split("|")) if product else set()
+            
+            # Map "Air Quality" to "IAQ Monitoring"
+            if "air quality" in tracker_set:
+                product_set.add("iaq monitoring")
+                tracker_set.discard("air quality")
+            
+            # Map "ODCV" to "ODCV"
+            if "odcv" in tracker_set:
+                product_set.add("odcv")
+                tracker_set.discard("odcv")
+            
+            # Map "Filter" to "Secure Air"
+            if "filter" in tracker_set:
+                product_set.add("secure air")
+                tracker_set.discard("filter")
+
+            # Update product and tracker_str after mapping
+            product = "|".join(sorted(product_set)) if product_set else ""
+            tracker_str = "|".join(sorted(tracker_set)) if tracker_set else (topic if topic and topic not in EXCLUDED_TOPICS else "")
+
+            # Include the utterance if the call has a selected product
             if not call_has_selected_product:
-                non_matching_product_utterances += 1
-                continue
+                continue  # Skip utterances from calls without selected products
 
             utterance_key = (call_id, text, u["start_time"])
             if utterance_key in seen_utterances:
@@ -677,12 +698,11 @@ def prepare_utterances_df(calls, selected_products):
         "total_utterances": total_utterances, "internal_utterances": internal_utterances,
         "short_utterances": short_utterances, "excluded_topic_utterances": excluded_topic_utterances,
         "excluded_topics": excluded_topics, "no_metadata_utterances": no_metadata_utterances,
-        "non_matching_product_utterances": non_matching_product_utterances, "included_utterances": len(df),
+        "included_utterances": len(df),
         "percentInternalUtterances": round(internal_utterances / total_utterances * 100) if total_utterances else 0,
         "percentShortUtterances": round(short_utterances / total_utterances * 100) if total_utterances else 0,
         "percentExcludedTopicUtterances": round(excluded_topic_utterances / total_utterances * 100) if total_utterances else 0,
         "percentNoMetadataUtterances": round(no_metadata_utterances / total_utterances * 100) if total_utterances else 0,
-        "percentNonMatchingProductUtterances": round(non_matching_product_utterances / total_utterances * 100) if total_utterances else 0,
         "percentIncludedUtterances": round(len(df) / total_utterances * 100) if total_utterances else 0
     }
     logger.debug(f"Utterance stats for calls: {utterance_stats}")
@@ -861,7 +881,9 @@ def process():
 
         total_calls = len(full_data) + dropped_calls + excluded_account_calls + no_utterances_calls
         stats = {
-            "totalCallsRetrieved": total_calls, "droppedCalls": dropped_calls, "validCalls": len(full_data),
+            "totalCallsRetrieved": total_calls,
+            "droppedCalls": dropped_calls,
+            "validCalls": len(full_data),
             "callsWithNoProducts": len(call_summary_df[call_summary_df["filtered_out"] == "no product tags"]) if not call_summary_df.empty else 0,
             "callsNotMatchingSelection": len(call_summary_df[call_summary_df["filtered_out"] == "no matching product"]) if not call_summary_df.empty else 0,
             "callsIncluded": len(call_summary_df[call_summary_df["filtered_out"] == "included"]) if not call_summary_df.empty else 0,
@@ -876,12 +898,12 @@ def process():
             "calls_table": sorted([
                 {"exclusion": e, "count": c, "count_formatted": "{:,}".format(c), "percent": round(c / total_calls * 100)}
                 for e, c in [
-                    ("Excluded (Invalid Date)", sum(1 for c in full_data if c["call_date"] == "N/A")),
-                    ("Excluded (No Product Tag)", len(call_summary_df[call_summary_df["filtered_out"] == "no product tags"]) if not call_summary_df.empty else 0),
-                    ("Excluded (Unselected Product Tag)", len(call_summary_df[call_summary_df["filtered_out"] == "no matching product"]) if not call_summary_df.empty else 0),
-                    ("Excluded (Dropped)", dropped_calls),
-                    ("Excluded (Account Name)", excluded_account_calls),
-                    ("Excluded (No Utterances)", no_utterances_calls)
+                    ("Excluded: Invalid Date", sum(1 for c in full_data if c["call_date"] == "N/A")),
+                    ("No product tag", len(call_summary_df[call_summary_df["filtered_out"] == "no product tags"]) if not call_summary_df.empty else 0),
+                    ("Excluded: Unselected Product Tags", len(call_summary_df[call_summary_df["filtered_out"] == "no matching product"]) if not call_summary_df.empty else 0),
+                    ("Excluded: Dropped Calls", dropped_calls),
+                    ("Internal only", excluded_account_calls),
+                    ("Excluded: No Utterances", no_utterances_calls)
                 ]
             ], key=lambda x: (-x["count"], x["exclusion"])),
             "included_utterances": utterance_stats["included_utterances"],
@@ -925,7 +947,7 @@ def process():
         other_topics = sorted(
             [(t, utterances_df['tracker'].str.count(t).sum())
              for t in set(utterances_df['tracker'].str.split("|").explode())
-             if t and t.lower() not in ["energy savings", "hvac topics"]],
+             if t and t.lower() not in ["energy savings", "hvac"]],
             key=lambda x: -x[1]
         )[:8] if not utterances_df.empty else []
 
@@ -933,6 +955,7 @@ def process():
             "message": "Processing complete. Download files below.",
             "show_download": True,
             "stats": stats,
+            "products_line_break": True,  # Flag for line break in template
             "utterance_breakdown": {
                 "product": sorted([
                     {"value": p, "count": c, "count_formatted": "{:,}".format(c)}
@@ -944,16 +967,14 @@ def process():
                     {"exclusion": "Short Utterance", "count": utterance_stats["short_utterances"],
                      "count_formatted": "{:,}".format(utterance_stats["short_utterances"])},
                     {"exclusion": "No Tag", "count": utterance_stats["no_metadata_utterances"],
-                     "count_formatted": "{:,}".format(utterance_stats["no_metadata_utterances"])},
-                    {"exclusion": "Non Matching Product Tag", "count": utterance_stats["non_matching_product_utterances"],
-                     "count_formatted": "{:,}".format(utterance_stats["non_matching_product_utterances"])}
+                     "count_formatted": "{:,}".format(utterance_stats["no_metadata_utterances"])}
                 ] + [
                     {"exclusion": t.title(), "count": c, "count_formatted": "{:,}".format(c)}
                     for t, c in utterance_stats["excluded_topics"].items() if c > 0
                 ], key=lambda x: (-x["count"], x["exclusion"])) if entry["count"] > 0],
                 "topics": sorted([
                     {"topic": t, "count": c, "count_formatted": "{:,}".format(c)}
-                    for t, c in other_topics + [("Energy Savings", energy_savings_count), ("HVAC Topics", hvac_topics_count)]
+                    for t, c in other_topics + [("Energy Savings", energy_savings_count), ("HVAC", hvac_topics_count)]
                 ], key=lambda x: -x["count"]) if not utterances_df.empty else []
             }
         })
