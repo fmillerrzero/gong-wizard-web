@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GongGPT by Forrest</title>
+    <title>Gong Transcript Wizard</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -22,10 +22,6 @@
             text-align: center;
             color: #333;
         }
-        h2 {
-            color: #444;
-            margin-top: 20px;
-        }
         .form-group {
             margin-bottom: 15px;
         }
@@ -35,21 +31,20 @@
             font-weight: bold;
             color: #555;
         }
-        .checkbox-group label {
-            font-weight: normal;
-        }
-        input[type="text"], input[type="date"] {
+        input[type="text"], input[type="password"], input[type="date"] {
             width: 100%;
             padding: 8px;
             border: 1px solid #ddd;
             border-radius: 4px;
             box-sizing: border-box;
         }
-        input[type="checkbox"] {
-            margin-right: 5px;
-        }
         .checkbox-group {
             margin-bottom: 15px;
+        }
+        .checkbox-group label {
+            font-weight: normal;
+            display: inline;
+            margin-left: 5px;
         }
         button {
             background-color: #007bff;
@@ -58,220 +53,106 @@
             border: none;
             border-radius: 4px;
             cursor: pointer;
-            display: block;
             width: 100%;
         }
         button:hover {
             background-color: #0056b3;
         }
-        .message {
-            margin: 10px 0;
-            padding: 10px;
-            border-radius: 4px;
-        }
-        .message.success {
-            background-color: #d4edda;
-            color: #155724;
-        }
-        .message.error {
+        .error {
             background-color: #f8d7da;
             color: #721c24;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 15px;
         }
-        .download-links {
-            margin-top: 20px;
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 15px;
         }
-        .download-links a {
-            display: inline-block;
-            margin-right: 10px;
+        .file-item {
+            background-color: #f8f9fa;
+            padding: 10px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+        }
+        .file-item a {
             color: #007bff;
             text-decoration: none;
-        }
-        .download-links a:hover {
-            text-decoration: underline;
-        }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 10px;
-        }
-        th, td {
-            border: 1px solid #ddd;
-            padding: 8px;
-            text-align: left;
-        }
-        th {
-            background-color: #f2f2f2;
-            text-transform: uppercase;
             font-weight: bold;
         }
-        .capitalize {
-            text-transform: capitalize;
-        }
-        .products-label {
-            font-weight: bold !important;
-        }
-        .checkbox-group input, .checkbox-group label {
-            display: inline;
-            vertical-align: middle;
-        }
-        #loading {
-            display: none;
-            margin-top: 10px;
-            color: #555;
+        .file-item a:hover {
+            text-decoration: underline;
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>GongGPT by Forrest</h1>
-        {% if form_state.message %}
-        <div class="message {{ 'success' if form_state.show_download else 'error' }}">
-            {{ form_state.message }}
-        </div>
+        <h1>Gong Transcript Wizard</h1>
+        
+        {% if error %}
+        <div class="error">{{ error }}</div>
         {% endif %}
-        <form action="/process" method="post" onsubmit="return validateForm()">
+        
+        {% if success %}
+        <div class="success">
+            Processing complete! {{ total_calls }} calls processed.
+        </div>
+        <div class="results">
+            <h3>Download Files:</h3>
+            {% for product, filename in files %}
+            <div class="file-item">
+                <strong>{% if product == "summary" %}Call Summary CSV{% else %}{{ product|upper }} Transcripts{% endif %}:</strong><br>
+                <a href="/download/{{ filename }}">{{ filename }}</a>
+            </div>
+            {% endfor %}
+        </div>
+        <hr>
+        {% endif %}
+        
+        <form action="/process" method="post">
             <div class="form-group">
                 <label for="access_key">Access Key</label>
-                <input type="text" id="access_key" name="access_key" value="{{ form_state.access_key }}" required>
+                <input type="text" id="access_key" name="access_key" required>
             </div>
+            
             <div class="form-group">
                 <label for="secret_key">Secret Key</label>
-                <input type="text" id="secret_key" name="secret_key" value="{{ form_state.secret_key }}" required>
+                <input type="password" id="secret_key" name="secret_key" required>
             </div>
+            
             <div class="form-group">
                 <label for="start_date">Start Date</label>
-                <input type="date" id="start_date" name="start_date" value="{{ form_state.start_date }}" required max="{{ max_date }}">
+                <input type="date" id="start_date" name="start_date" required>
             </div>
+            
             <div class="form-group">
                 <label for="end_date">End Date</label>
-                <input type="date" id="end_date" name="end_date" value="{{ form_state.end_date }}" required max="{{ max_date }}">
+                <input type="date" id="end_date" name="end_date" required>
             </div>
+            
             <div class="checkbox-group">
-                <label class="products-label">Products</label>
-                <br>
-                {% set product_display = {
-                    'iaq monitoring': 'IAQ Monitoring',
-                    'secure air': 'SecureAire',
-                    'occupancy analytics': 'Occupancy Analytics',
-                    'odcv': 'ODCV'
-                } %}
-                {% for product in available_products %}
-                <input type="checkbox" id="{{ product }}" name="products" value="{{ product }}"
-                    {% if product in form_state.products %}checked{% endif %}>
-                <label for="{{ product }}">{{ product_display[product] }}</label>
-                {% endfor %}
+                <label style="font-weight: bold;">Products:</label><br>
+                <input type="checkbox" id="secure_air" name="products" value="secure air">
+                <label for="secure_air">SecureAire</label><br>
+                
+                <input type="checkbox" id="eaas" name="products" value="eaas and savings measurement">
+                <label for="eaas">EaaS and Savings Measurement</label><br>
+                
+                <input type="checkbox" id="odcv" name="products" value="odcv">
+                <label for="odcv">ODCV</label><br>
+                
+                <input type="checkbox" id="occupancy" name="products" value="occupancy analytics">
+                <label for="occupancy">Occupancy Analytics</label><br>
+                
+                <input type="checkbox" id="iaq" name="products" value="iaq monitoring">
+                <label for="iaq">IAQ Monitoring</label><br>
             </div>
+            
             <button type="submit">Process Calls</button>
-            <div id="loading">Processing...</div>
         </form>
-        {% if form_state.show_download %}
-        <h2>Calls: {{ form_state.stats.callsIncludedFormatted }} Included ({{ form_state.stats.percentIncluded }}%)</h2>
-        <table>
-            <thead>
-                <tr>
-                    <th>EXCLUSION</th>
-                    <th>COUNT</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for entry in form_state.stats.calls_table %}
-                <tr>
-                    <td>{{ entry.exclusion }}</td>
-                    <td>{{ entry.count_formatted }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-        <h2>Utterances: {{ form_state.stats.included_utterances_formatted }} Included ({{ form_state.stats.percentIncludedUtterances }}%)</h2>
-        <table>
-            <thead>
-                <tr>
-                    <th>EXCLUSION</th>
-                    <th>COUNT</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for entry in form_state.utterance_breakdown.exclusions %}
-                <tr>
-                    <td class="capitalize">{{ entry.exclusion }}</td>
-                    <td>{{ entry.count_formatted }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-        {% if form_state.utterance_breakdown.product %}
-        <h2>Product Breakdown</h2>
-        <table>
-            <thead>
-                <tr>
-                    <th>PRODUCT</th>
-                    <th>COUNT</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% set product_display = {
-                    'iaq monitoring': 'IAQ Monitoring',
-                    'secure air': 'SecureAire',
-                    'occupancy analytics': 'Occupancy Analytics',
-                    'odcv': 'ODCV'
-                } %}
-                {% for product in form_state.utterance_breakdown.product %}
-                <tr>
-                    <td class="capitalize">{{ product_display[product.value] }}</td>
-                    <td>{{ product.count_formatted }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-        {% endif %}
-        {% if form_state.utterance_breakdown.topics %}
-        <h2>Topic Breakdown</h2>
-        <table>
-            <thead>
-                <tr>
-                    <th>TOPIC</th>
-                    <th>COUNT</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for topic in form_state.utterance_breakdown.topics %}
-                <tr>
-                    <td class="capitalize">{{ topic.topic }}</td>
-                    <td>{{ topic.count_formatted }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-        {% endif %}
-        <div class="download-links">
-            <a href="/download/utterances">Utterances CSV</a>
-            <a href="/download/call_summary">Call Summary CSV</a>
-            <a href="/download/json">Transcripts JSON</a>
-            <a href="/download/logs">App Log</a>
-            <a href="https://docs.google.com/document/d/1Gmb07NWxO_XFXyKCKCxuvkKnQ1YWcew0EQfvIqbDotA/edit?tab=t.0" target="_blank">Gong GPT Instructions</a>
-        </div>
-        {% endif %}
     </div>
-    <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            const today = new Date();
-            const yesterday = new Date(today);
-            yesterday.setDate(today.getDate() - 1);
-            const maxDateStr = yesterday.toISOString().split('T')[0];
-            document.getElementById('start_date').setAttribute('max', maxDateStr);
-            document.getElementById('end_date').setAttribute('max', maxDateStr);
-        });
-
-        function validateForm() {
-            const start = document.getElementById('start_date').value;
-            const end = document.getElementById('end_date').value;
-            if (!start || !end || new Date(start) > new Date(end)) {
-                alert('Please enter valid start and end dates.');
-                return false;
-            }
-            document.getElementById('loading').style.display = 'block';
-            return true;
-        }
-    </script>
 </body>
 </html>
