@@ -86,6 +86,16 @@
         .file-item a:hover {
             text-decoration: underline;
         }
+        .product-group {
+            margin-bottom: 20px;
+        }
+        .product-group h4 {
+            margin-bottom: 10px;
+            color: #333;
+        }
+        .product-files {
+            margin-left: 20px;
+        }
     </style>
 </head>
 <body>
@@ -102,12 +112,51 @@
         </div>
         <div class="results">
             <h3>Download Files:</h3>
+            
+            {% set ns = namespace(current_product='', file_groups={}) %}
+            
+            <!-- Group files by product -->
             {% for product, filename in files %}
-            <div class="file-item">
-                <strong>{% if product == "summary" %}Call Summary CSV{% else %}{{ product|upper }} Transcripts{% endif %}:</strong><br>
-                <a href="/download/{{ filename }}">{{ filename }}</a>
-            </div>
+                {% if product != "summary" %}
+                    {% if product not in ns.file_groups %}
+                        {% set _ = ns.file_groups.update({product: []}) %}
+                    {% endif %}
+                    {% set _ = ns.file_groups[product].append(filename) %}
+                {% endif %}
             {% endfor %}
+            
+            <!-- Display CSV summary first -->
+            {% for product, filename in files %}
+                {% if product == "summary" %}
+                    <div class="file-item">
+                        <strong>Call Summary CSV:</strong><br>
+                        <a href="/download/{{ filename }}">{{ filename }}</a>
+                    </div>
+                {% endif %}
+            {% endfor %}
+            
+            <!-- Display transcript files grouped by product -->
+            {% for product, filenames in ns.file_groups.items() %}
+                <div class="product-group">
+                    <h4>{{ product|upper }} Transcripts:</h4>
+                    <div class="product-files">
+                        {% for filename in filenames|natural_sort %}
+                            <div class="file-item">
+                                <a href="/download/{{ filename }}">{{ filename }}</a>
+                            </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+        
+        <hr>
+        <div style="text-align: center; margin-top: 20px;">
+            <a href="https://docs.google.com/document/d/1HPjZcaTaG8o-zhBOfqSp4lN9V51Rd-yZhbgfV3RfxDE/edit?usp=drivesdk" 
+               target="_blank" 
+               style="display: inline-block; padding: 10px 20px; background-color: #007bff; color: white; text-decoration: none; border-radius: 4px;">
+                Bot Instructions
+            </a>
         </div>
         <hr>
         {% endif %}
