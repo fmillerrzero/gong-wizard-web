@@ -53,7 +53,6 @@ INTERNAL_SPEAKERS = set()
 EXCLUDED_DOMAINS = set()
 EXCLUDED_ACCOUNT_NAMES = set()
 ALWAYS_INCLUDE_DOMAINS = {}
-EXCLUDED_TOPICS = set()
 
 def natural_sort_key(filename):
     """Helper function for natural sorting of filenames with numbers"""
@@ -111,14 +110,6 @@ def extract_field_values(context, field_name, object_type=None):
                             values.append(str(value))
     return values
 
-def load_excluded_topics():
-    """Load excluded topics from Google Sheet"""
-    df = load_csv_from_sheet(1653785571)
-    excluded = set()
-    if not df.empty and "Topic" in df.columns:
-        excluded.update(df["Topic"].dropna().astype(str).str.lower())
-    return excluded
-
 # Load all Google Sheets data
 def initialize_data():
     global PRODUCT_MAPPINGS, TRACKER_MAPPINGS, TRACKER_TO_PRODUCT_MAPPINGS
@@ -126,7 +117,6 @@ def initialize_data():
     global OWNER_ACCOUNT_NAMES, TARGET_DOMAINS, TENANT_DOMAINS
     global INTERNAL_DOMAINS, INTERNAL_SPEAKERS
     global EXCLUDED_DOMAINS, EXCLUDED_ACCOUNT_NAMES, ALWAYS_INCLUDE_DOMAINS
-    global EXCLUDED_TOPICS
     
     # Product mappings
     df = load_csv_from_sheet(1216942066)
@@ -216,9 +206,6 @@ def initialize_data():
             product = row.get("Product", "").lower()
             if domain and product:
                 ALWAYS_INCLUDE_DOMAINS.setdefault(domain, []).append(product)
-    
-    # Load excluded topics
-    EXCLUDED_TOPICS.update(load_excluded_topics())
 
 # Gong API Client
 class GongAPIClient:
@@ -489,62 +476,23 @@ def format_transcript(call_data, transcript_data, product=None):
     if product and product.lower() == "eaas and savings measurement":
         eaas_patterns = PRODUCT_MAPPINGS.get("eaas and savings measurement", [])
     
-    # Get call-level topics for exclusion check - from the call_data which contains the full call
-    call_topics = set()
-    if "call" in call_data:
-        topics_list = call_data["call"].get("content", {}).get("topics", [])
-        if isinstance(topics_list, list):
-            for topic_obj in topics_list:
-                if isinstance(topic_obj, dict):
-                    topic_name = get_field(topic_obj, "name", "").lower()
-                    if topic_name:
-                        call_topics.add(topic_name)
-                elif isinstance(topic_obj, str):
-                    call_topics.add(topic_obj.lower())
-    
     # Group consecutive sentences from same speaker
     transcript_lines = []
     current_speaker = None
     current_sentences = []
     current_time_ms = 0
-    excluded_topics_shown = set()  # Track which excluded topics we've already shown
     
     for mono in transcript_data:
         speaker_id = mono.get("speakerId", "")
         speaker = speakers.get(speaker_id, {"first_name": "Unknown", "affiliation": "E"})
         
-        # Check if monologue has topic field (like utterance version)
-        mono_topic = mono.get("topic", "").lower() if mono.get("topic") else ""
-        
         for sentence in mono.get("sentences", []):
             ms = sentence.get("start", 0)
             text = sentence.get("text", "").strip()
             
-            # Edit 2+4: Check for excluded topics
-            # First check monologue-level topic, then fall back to call-level topics
-            excluded_topic = None
-            if mono_topic in EXCLUDED_TOPICS:
-                excluded_topic = mono_topic
-            else:
-                # Check if any call-level topic is excluded
-                for topic in call_topics:
-                    if topic in EXCLUDED_TOPICS:
-                        excluded_topic = topic
-                        break
-            
-            if excluded_topic:
-                # Only show each excluded topic once per speaker turn
-                if speaker_id != current_speaker or excluded_topic not in excluded_topics_shown:
-                    text = f"[excluded topic: {excluded_topic}]"
-                    excluded_topics_shown.add(excluded_topic)
-                else:
-                    continue  # Skip if same speaker and already shown this excluded topic
-            else:
-                # Reset excluded topics when we have non-excluded content
-                excluded_topics_shown.clear()
-                
+            if text:
                 # Edit 3: EaaS keyword tagging
-                if eaas_patterns and text:
+                if eaas_patterns:
                     for pattern in eaas_patterns:
                         if match := pattern.search(text):
                             matched_text = match.group()
@@ -552,7 +500,7 @@ def format_transcript(call_data, transcript_data, product=None):
                             break
                 
                 # Edit 8: External speakers in ALL CAPS
-                if speaker['affiliation'] != "I" and text and not text.startswith("[excluded topic:"):
+                if speaker['affiliation'] != "I":
                     text = text.upper()
             
             # If speaker changed or this is the first sentence
@@ -571,9 +519,6 @@ def format_transcript(call_data, transcript_data, product=None):
                 current_speaker = speaker_id
                 current_sentences = [text] if text else []
                 current_time_ms = ms
-                # Reset excluded topics for new speaker
-                if current_speaker != speaker_id:
-                    excluded_topics_shown.clear()
             else:
                 # Same speaker, add to current sentences
                 if text:
