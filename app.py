@@ -54,7 +54,6 @@ EXCLUDED_DOMAINS = set()
 EXCLUDED_ACCOUNT_NAMES = set()
 ALWAYS_INCLUDE_DOMAINS = {}
 EXCLUDED_TOPICS = set()
-EXCLUDED_TOPICS = set()
 
 def natural_sort_key(filename):
     """Helper function for natural sorting of filenames with numbers"""
@@ -65,49 +64,6 @@ def natural_sort_key(filename):
 @app.template_filter('natural_sort')
 def natural_sort_filter(filenames):
     return sorted(filenames, key=natural_sort_key)
-
-# Constants
-GONG_BASE_URL = "https://us-11211.api.gong.io"
-SF_TZ = pytz.timezone('America/Los_Angeles')
-OUTPUT_DIR = "/tmp/gong_output"
-os.makedirs(OUTPUT_DIR, exist_ok=True)
-BATCH_SIZE = 10
-TRANSCRIPT_BATCH_SIZE = 50
-SHEET_ID = "1tvItwAqONZYhetTbg7KAHw0OMPaDfCoFC4g6rSg0QvE"
-
-# Product precedence order
-PRODUCT_PRECEDENCE = [
-    "eaas and savings measurement",
-    "odcv", 
-    "secure air",
-    "occupancy analytics",
-    "iaq monitoring"
-]
-
-# Product abbreviations for ranking
-PRODUCT_ABBREVIATIONS = {
-    "secure air": "SA",
-    "odcv": "ODCV", 
-    "occupancy analytics": "Occ",
-    "iaq monitoring": "IAQ",
-    "eaas and savings measurement": "EaaS"
-}
-
-# Global variables for Google Sheets data
-PRODUCT_MAPPINGS = {}
-TRACKER_MAPPINGS = {}
-TRACKER_TO_PRODUCT_MAPPINGS = {}
-CALL_ID_TO_ACCOUNT_NAME = {}
-ACCOUNT_NAME_MAPPINGS = {}
-OWNER_ACCOUNT_NAMES = set()
-TARGET_DOMAINS = set()
-TENANT_DOMAINS = set()
-INTERNAL_DOMAINS = set()
-INTERNAL_SPEAKERS = set()
-EXCLUDED_DOMAINS = set()
-EXCLUDED_ACCOUNT_NAMES = set()
-ALWAYS_INCLUDE_DOMAINS = {}
-EXCLUDED_TOPICS = set()
 
 def load_csv_from_sheet(gid):
     url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={gid}"
@@ -263,14 +219,6 @@ def initialize_data():
     
     # Load excluded topics
     EXCLUDED_TOPICS.update(load_excluded_topics())
-
-def load_excluded_topics():
-    """Load excluded topics from Google Sheet"""
-    df = load_csv_from_sheet(1653785571)
-    excluded = set()
-    if not df.empty and "Topic" in df.columns:
-        excluded.update(df["Topic"].dropna().astype(str).str.lower())
-    return excluded
 
 # Gong API Client
 class GongAPIClient:
@@ -773,9 +721,8 @@ def process_calls(calls, transcripts, selected_products):
             for i, call_data in enumerate(product_calls):
                 call_data["rank"] = i + 1
     
-    # Generate summaries with ranking info
+    # Generate summaries with ranking info - FIXED: Removed duplicate for loop
     for product, product_calls in calls_by_product.items():
-        for call_data in product_calls:
         for call_data in product_calls:
             summaries.append({
                 "call_id": call_data["call_id"],
