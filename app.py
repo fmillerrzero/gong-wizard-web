@@ -30,6 +30,15 @@ PRODUCT_PRECEDENCE = [
     "iaq monitoring"
 ]
 
+# Product abbreviations for ranking
+PRODUCT_ABBREVIATIONS = {
+    "secure air": "SA",
+    "odcv": "ODCV", 
+    "occupancy analytics": "Occ",
+    "iaq monitoring": "IAQ",
+    "eaas and savings measurement": "EaaS"
+}
+
 # Global variables for Google Sheets data
 PRODUCT_MAPPINGS = {}
 TRACKER_MAPPINGS = {}
@@ -44,6 +53,61 @@ INTERNAL_SPEAKERS = set()
 EXCLUDED_DOMAINS = set()
 EXCLUDED_ACCOUNT_NAMES = set()
 ALWAYS_INCLUDE_DOMAINS = {}
+EXCLUDED_TOPICS = set()
+EXCLUDED_TOPICS = set()
+
+def natural_sort_key(filename):
+    """Helper function for natural sorting of filenames with numbers"""
+    parts = re.split(r'(\d+)', filename)
+    return [int(part) if part.isdigit() else part.lower() for part in parts]
+
+# Add natural sort filter to Jinja2
+@app.template_filter('natural_sort')
+def natural_sort_filter(filenames):
+    return sorted(filenames, key=natural_sort_key)
+
+# Constants
+GONG_BASE_URL = "https://us-11211.api.gong.io"
+SF_TZ = pytz.timezone('America/Los_Angeles')
+OUTPUT_DIR = "/tmp/gong_output"
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+BATCH_SIZE = 10
+TRANSCRIPT_BATCH_SIZE = 50
+SHEET_ID = "1tvItwAqONZYhetTbg7KAHw0OMPaDfCoFC4g6rSg0QvE"
+
+# Product precedence order
+PRODUCT_PRECEDENCE = [
+    "eaas and savings measurement",
+    "odcv", 
+    "secure air",
+    "occupancy analytics",
+    "iaq monitoring"
+]
+
+# Product abbreviations for ranking
+PRODUCT_ABBREVIATIONS = {
+    "secure air": "SA",
+    "odcv": "ODCV", 
+    "occupancy analytics": "Occ",
+    "iaq monitoring": "IAQ",
+    "eaas and savings measurement": "EaaS"
+}
+
+# Global variables for Google Sheets data
+PRODUCT_MAPPINGS = {}
+TRACKER_MAPPINGS = {}
+TRACKER_TO_PRODUCT_MAPPINGS = {}
+CALL_ID_TO_ACCOUNT_NAME = {}
+ACCOUNT_NAME_MAPPINGS = {}
+OWNER_ACCOUNT_NAMES = set()
+TARGET_DOMAINS = set()
+TENANT_DOMAINS = set()
+INTERNAL_DOMAINS = set()
+INTERNAL_SPEAKERS = set()
+EXCLUDED_DOMAINS = set()
+EXCLUDED_ACCOUNT_NAMES = set()
+ALWAYS_INCLUDE_DOMAINS = {}
+EXCLUDED_TOPICS = set()
 
 def load_csv_from_sheet(gid):
     url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={gid}"
@@ -91,6 +155,14 @@ def extract_field_values(context, field_name, object_type=None):
                             values.append(str(value))
     return values
 
+def load_excluded_topics():
+    """Load excluded topics from Google Sheet"""
+    df = load_csv_from_sheet(1653785571)
+    excluded = set()
+    if not df.empty and "Topic" in df.columns:
+        excluded.update(df["Topic"].dropna().astype(str).str.lower())
+    return excluded
+
 # Load all Google Sheets data
 def initialize_data():
     global PRODUCT_MAPPINGS, TRACKER_MAPPINGS, TRACKER_TO_PRODUCT_MAPPINGS
@@ -98,6 +170,7 @@ def initialize_data():
     global OWNER_ACCOUNT_NAMES, TARGET_DOMAINS, TENANT_DOMAINS
     global INTERNAL_DOMAINS, INTERNAL_SPEAKERS
     global EXCLUDED_DOMAINS, EXCLUDED_ACCOUNT_NAMES, ALWAYS_INCLUDE_DOMAINS
+    global EXCLUDED_TOPICS
     
     # Product mappings
     df = load_csv_from_sheet(1216942066)
@@ -187,6 +260,17 @@ def initialize_data():
             product = row.get("Product", "").lower()
             if domain and product:
                 ALWAYS_INCLUDE_DOMAINS.setdefault(domain, []).append(product)
+    
+    # Load excluded topics
+    EXCLUDED_TOPICS.update(load_excluded_topics())
+
+def load_excluded_topics():
+    """Load excluded topics from Google Sheet"""
+    df = load_csv_from_sheet(1653785571)
+    excluded = set()
+    if not df.empty and "Topic" in df.columns:
+        excluded.update(df["Topic"].dropna().astype(str).str.lower())
+    return excluded
 
 # Gong API Client
 class GongAPIClient:
@@ -237,7 +321,8 @@ class GongAPIClient:
                             "brief": True,
                             "keyPoints": True,
                             "highlights": True,
-                            "outline": True
+                            "outline": True,
+                            "topics": True
                         }
                     },
                     "context": "Extended"
@@ -279,13 +364,15 @@ def convert_to_sf_time(utc_time):
         return "N/A"
 
 def check_product_keywords(call, patterns):
-    # Extract and flatten outline
+    # Extract and flatten outline - Edit 10: Enhanced outline processing
     outline = get_field(call.get("content", {}), "outline", "")
     if isinstance(outline, list):
         outline_texts = []
         for item in outline:
             if isinstance(item, dict):
-                outline_texts.extend(str(v) for v in item.values() if isinstance(v, str))
+                for key, value in item.items():
+                    if isinstance(value, str):
+                        outline_texts.append(value)
             elif isinstance(item, str):
                 outline_texts.append(item)
         outline = " ".join(outline_texts)
@@ -413,15 +500,19 @@ def is_internal_speaker(party):
     if name in INTERNAL_SPEAKERS:
         return True
     
-    # Check by email domain
+    # Check by email domain - Edit 9: Subdomain matching
     if email:
         domain = get_email_domain(email)
+        # Exact match
         if domain in INTERNAL_DOMAINS:
+            return True
+        # Subdomain match
+        if any(domain.endswith("." + d) for d in INTERNAL_DOMAINS):
             return True
     
     return False
 
-def format_transcript(call_data, transcript_data):
+def format_transcript(call_data, transcript_data, product=None):
     # Build speaker lookup
     speakers = {}
     speaker_lines = []
@@ -435,7 +526,6 @@ def format_transcript(call_data, transcript_data):
         title = get_field(party, "title", "")
         affiliation = "I" if is_internal_speaker(party) else "E"
         
-        # BUG FIX 4: Handle names properly
         speakers[speaker_id] = {
             "first_name": name.split()[0] if name and " " in name else name or "Unknown",
             "affiliation": affiliation
@@ -446,19 +536,76 @@ def format_transcript(call_data, transcript_data):
             line += f": {title}"
         speaker_lines.append(line)
     
-    # BUG FIX 2: Group consecutive sentences from same speaker
+    # Get EaaS patterns if processing EaaS product
+    eaas_patterns = []
+    if product and product.lower() == "eaas and savings measurement":
+        eaas_patterns = PRODUCT_MAPPINGS.get("eaas and savings measurement", [])
+    
+    # Get call-level topics for exclusion check - from the call_data which contains the full call
+    call_topics = set()
+    if "call" in call_data:
+        topics_list = call_data["call"].get("content", {}).get("topics", [])
+        if isinstance(topics_list, list):
+            for topic_obj in topics_list:
+                if isinstance(topic_obj, dict):
+                    topic_name = get_field(topic_obj, "name", "").lower()
+                    if topic_name:
+                        call_topics.add(topic_name)
+                elif isinstance(topic_obj, str):
+                    call_topics.add(topic_obj.lower())
+    
+    # Group consecutive sentences from same speaker
     transcript_lines = []
     current_speaker = None
     current_sentences = []
     current_time_ms = 0
+    excluded_topics_shown = set()  # Track which excluded topics we've already shown
     
     for mono in transcript_data:
         speaker_id = mono.get("speakerId", "")
         speaker = speakers.get(speaker_id, {"first_name": "Unknown", "affiliation": "E"})
         
+        # Check if monologue has topic field (like utterance version)
+        mono_topic = mono.get("topic", "").lower() if mono.get("topic") else ""
+        
         for sentence in mono.get("sentences", []):
             ms = sentence.get("start", 0)
             text = sentence.get("text", "").strip()
+            
+            # Edit 2+4: Check for excluded topics
+            # First check monologue-level topic, then fall back to call-level topics
+            excluded_topic = None
+            if mono_topic in EXCLUDED_TOPICS:
+                excluded_topic = mono_topic
+            else:
+                # Check if any call-level topic is excluded
+                for topic in call_topics:
+                    if topic in EXCLUDED_TOPICS:
+                        excluded_topic = topic
+                        break
+            
+            if excluded_topic:
+                # Only show each excluded topic once per speaker turn
+                if speaker_id != current_speaker or excluded_topic not in excluded_topics_shown:
+                    text = f"[excluded topic: {excluded_topic}]"
+                    excluded_topics_shown.add(excluded_topic)
+                else:
+                    continue  # Skip if same speaker and already shown this excluded topic
+            else:
+                # Reset excluded topics when we have non-excluded content
+                excluded_topics_shown.clear()
+                
+                # Edit 3: EaaS keyword tagging
+                if eaas_patterns and text:
+                    for pattern in eaas_patterns:
+                        if match := pattern.search(text):
+                            matched_text = match.group()
+                            text = f"[ENERGY_SAVINGS: {matched_text}] {text}"
+                            break
+                
+                # Edit 8: External speakers in ALL CAPS
+                if speaker['affiliation'] != "I" and text and not text.startswith("[excluded topic:"):
+                    text = text.upper()
             
             # If speaker changed or this is the first sentence
             if current_speaker != speaker_id or not current_sentences:
@@ -476,6 +623,9 @@ def format_transcript(call_data, transcript_data):
                 current_speaker = speaker_id
                 current_sentences = [text] if text else []
                 current_time_ms = ms
+                # Reset excluded topics for new speaker
+                if current_speaker != speaker_id:
+                    excluded_topics_shown.clear()
             else:
                 # Same speaker, add to current sentences
                 if text:
@@ -493,11 +643,59 @@ def format_transcript(call_data, transcript_data):
     
     return speaker_lines, transcript_lines
 
-def assign_to_product(products):
-    for product in PRODUCT_PRECEDENCE:
+def assign_to_product(products, selected_products):
+    # Filter precedence to only selected products, maintaining original order
+    selected_lower = [p.lower() for p in selected_products]
+    active_precedence = [p for p in PRODUCT_PRECEDENCE if p in selected_lower]
+    
+    # Find first product in active precedence that matches call's products
+    for product in active_precedence:
         if product in [p.lower() for p in products]:
             return product
     return None
+
+def calculate_ranking_score(call, product):
+    """Calculate ranking score based on keyword matches - Edit 5"""
+    patterns = PRODUCT_MAPPINGS.get(product.lower(), [])
+    if not patterns:
+        return 0
+    
+    # Extract and flatten outline with enhanced processing
+    outline = get_field(call.get("content", {}), "outline", "")
+    if isinstance(outline, list):
+        outline_texts = []
+        for item in outline:
+            if isinstance(item, dict):
+                for key, value in item.items():
+                    if isinstance(value, str):
+                        outline_texts.append(value)
+            elif isinstance(item, str):
+                outline_texts.append(item)
+        outline = " ".join(outline_texts)
+    elif not isinstance(outline, str):
+        outline = ""
+    
+    # Combine all searchable text
+    fields = [
+        get_field(call.get("metaData", {}), "title", ""),
+        get_field(call.get("content", {}), "brief", ""),
+        outline,
+        " ".join(kp.get("text", "") for kp in call.get("content", {}).get("keyPoints", [])),
+        " ".join(h.get("text", "") for h in call.get("content", {}).get("highlights", []))
+    ]
+    combined_text = " ".join(fields).lower()
+    
+    # Count matches
+    score = 0
+    for pattern in patterns:
+        matches = pattern.findall(combined_text)
+        score += len(matches)
+    
+    # Owner bonus
+    if call.get("org_type") == "owner":
+        score *= 1.33
+    
+    return score
 
 def process_calls(calls, transcripts, selected_products):
     calls_by_product = {p.lower(): [] for p in selected_products}
@@ -519,6 +717,9 @@ def process_calls(calls, transcripts, selected_products):
         org_type = determine_org_type(account_name, account_website)
         products = determine_products(call)
         
+        # Store org_type in call for ranking calculation
+        call['org_type'] = org_type
+        
         call_info = {
             "call_id": f"'{call_id}",
             "title": get_field(meta, "title", ""),
@@ -529,108 +730,153 @@ def process_calls(calls, transcripts, selected_products):
             "org_type": org_type,
             "products": products,
             "parties": call.get("parties", []),
-            "summary": get_field(call.get("content", {}), "brief", "")
+            "summary": get_field(call.get("content", {}), "brief", ""),
+            "call": call  # Store original call for topic exclusion and ranking
         }
         
         # Check if we should include
         if not should_include_call(call_info, selected_products):
             continue
         
-        # Add to summary
-        summaries.append({
-            "call_id": call_info["call_id"],
-            "call_title": call_info["title"],
-            "call_date": call_info["date"],
-            "product_tags": "|".join(call_info["products"]),
-            "org_type": call_info["org_type"],
-            "account_name": call_info["account_name"],
-            "account_website": call_info["account_website"],
-            "account_industry": call_info["account_industry"],
-            "call_summary": call_info["summary"]
-        })
-        
         # Process transcript
         if transcript := transcripts.get(call_id):
-            speaker_lines, transcript_lines = format_transcript(call_info, transcript)
-            
-            # Assign to product file
-            if product := assign_to_product(call_info["products"]):
-                # BUG FIX 3: Check if user selected this product
+            # Assign to product file using dynamic precedence
+            if product := assign_to_product(call_info["products"], selected_products):
+                # Check if user selected this product
                 if product in [p.lower() for p in selected_products]:
-                    if product in calls_by_product:
-                        calls_by_product[product].append({
-                            "call_id": call_info["call_id"],
-                            "date": call_info["date"],
-                            "account_name": call_info["account_name"],
-                            "account_website": call_info["account_website"],
-                            "account_industry": call_info["account_industry"],
-                            "org_type": call_info["org_type"],
-                            "products": call_info["products"],
-                            "speakers": speaker_lines,
-                            "transcript": transcript_lines
-                        })
+                    # Format transcript with product for EaaS tagging
+                    speaker_lines, transcript_lines = format_transcript(call_info, transcript, product)
+                    
+                    calls_by_product[product].append({
+                        "call_id": call_info["call_id"],
+                        "date": call_info["date"],
+                        "account_name": call_info["account_name"],
+                        "account_website": call_info["account_website"],
+                        "account_industry": call_info["account_industry"],
+                        "org_type": call_info["org_type"],
+                        "products": call_info["products"],
+                        "speakers": speaker_lines,
+                        "transcript": transcript_lines,
+                        "call": call,  # Store original call object for ranking
+                        "assigned_product": product
+                    })
+    
+    # Edit 5: Rank calls within each product
+    for product, product_calls in calls_by_product.items():
+        if product_calls:
+            # Calculate scores
+            for call_data in product_calls:
+                call_data["score"] = calculate_ranking_score(call_data["call"], product)
+            
+            # Sort by score (descending) and assign ranks
+            product_calls.sort(key=lambda x: x["score"], reverse=True)
+            for i, call_data in enumerate(product_calls):
+                call_data["rank"] = i + 1
+    
+    # Generate summaries with ranking info
+    for product, product_calls in calls_by_product.items():
+        for call_data in product_calls:
+        for call_data in product_calls:
+            summaries.append({
+                "call_id": call_data["call_id"],
+                "call_title": get_field(call_data["call"].get("metaData", {}), "title", ""),
+                "call_date": call_data["date"],
+                "product_tags": "|".join(call_data["products"]),
+                "org_type": call_data["org_type"],
+                "account_name": call_data["account_name"],
+                "account_website": call_data["account_website"],
+                "account_industry": call_data["account_industry"],
+                "transcript_bucket": call_data["assigned_product"],  # Edit 6
+                "call_rank": call_data["rank"],  # Edit 6
+                "call_summary": get_field(call_data["call"].get("content", {}), "brief", "")
+            })
     
     return calls_by_product, summaries
 
 def generate_files(calls_by_product, summaries, start_date, end_date):
     files = []
     
-    # Generate transcript files
+    # Generate transcript files - Edit 5: Multiple files per product
     for product, calls in calls_by_product.items():
         if not calls:
             continue
         
-        filename = f"transcripts_{product.replace(' ', '_')}_{start_date}_{end_date}.txt"
-        filepath = os.path.join(OUTPUT_DIR, filename)
+        # Sort by rank (already done in process_calls)
+        calls.sort(key=lambda x: x["rank"])
         
-        with open(filepath, 'w', encoding='utf-8') as f:
-            # Header
-            f.write("[I]=Internal R-Zero, [E]=External Customer\n")
-            f.write("=" * 50 + "\n")
-            f.write(f"TRANSCRIPT FILE: {product.upper()}\n")
-            f.write(f"Date Range: {start_date} to {end_date}\n")
-            f.write(f"Total Calls: {len(calls)}\n")
-            f.write(f"Generated: {datetime.now(SF_TZ).strftime('%b %d, %Y')}\n")
-            f.write("=" * 50 + "\n\n")
+        # Split into buckets of 10
+        for bucket_idx, i in enumerate(range(0, len(calls), 10)):
+            bucket_calls = calls[i:i+10]
             
-            # Calls
-            for i, call in enumerate(calls):
-                if i > 0:
-                    f.write("\n---\n\n")
+            # Generate filename with abbreviation and rank
+            abbrev = PRODUCT_ABBREVIATIONS.get(product, product[:3].upper())
+            filename = f"{abbrev}_rank_{bucket_idx + 1}.txt"
+            filepath = os.path.join(OUTPUT_DIR, filename)
+            
+            try:
+                with open(filepath, 'w', encoding='utf-8') as f:
+                    # Header - Edit 8: Updated header
+                    f.write("[I]=Internal R-Zero, [E]=External Customer (shown in ALL CAPS)\n")
+                    f.write("=" * 50 + "\n")
+                    f.write(f"TRANSCRIPT FILE: {product.upper()} - RANK {bucket_idx + 1}\n")
+                    f.write(f"Date Range: {start_date} to {end_date}\n")
+                    f.write(f"Calls in this file: {len(bucket_calls)} (ranks {bucket_calls[0]['rank']}-{bucket_calls[-1]['rank']})\n")
+                    f.write(f"Generated: {datetime.now(SF_TZ).strftime('%b %d, %Y')}\n")
+                    f.write("=" * 50 + "\n\n")
+                    
+                    # Calls
+                    for j, call in enumerate(bucket_calls):
+                        if j > 0:
+                            f.write("\n---\n\n")
+                        
+                        f.write(f"CALL: {call['call_id']} (Rank #{call['rank']})\n")
+                        f.write(f"DATE: {call['date']}\n")
+                        f.write(f"ACCOUNT: {call['account_name']}\n")
+                        f.write(f"WEBSITE: {call['account_website']}\n")
+                        f.write(f"INDUSTRY: {call['account_industry']}\n")
+                        f.write(f"ORG TYPE: {call['org_type']}\n")
+                        f.write(f"PRODUCTS: {', '.join(call['products'])}\n\n")
+                        f.write("SPEAKERS:\n")
+                        for speaker in call['speakers']:
+                            f.write(f"{speaker}\n")
+                        f.write("---\n\n")
+                        
+                        for line in call['transcript']:
+                            f.write(f"{line}\n")
                 
-                f.write(f"CALL: {call['call_id']}\n")
-                f.write(f"DATE: {call['date']}\n")
-                f.write(f"ACCOUNT: {call['account_name']}\n")
-                f.write(f"WEBSITE: {call['account_website']}\n")
-                f.write(f"INDUSTRY: {call['account_industry']}\n")
-                f.write(f"ORG TYPE: {call['org_type']}\n")
-                f.write(f"PRODUCTS: {', '.join(call['products'])}\n\n")
-                f.write("SPEAKERS:\n")
-                for speaker in call['speakers']:
-                    f.write(f"{speaker}\n")
-                f.write("---\n\n")
-                
-                for line in call['transcript']:
-                    f.write(f"{line}\n")
-        
-        files.append((product, filename))
+                files.append((product, filename))
+            except Exception as e:
+                print(f"Error writing transcript file {filename}: {str(e)}")
+                continue
     
-    # Generate CSV
+    # Generate CSV - Edit 6: Include new columns
     csv_filename = f"call-summary_{start_date}_{end_date}.csv"
     csv_path = os.path.join(OUTPUT_DIR, csv_filename)
     
-    if summaries:
-        df = pd.DataFrame(summaries)
-        df.to_csv(csv_path, index=False)
-    else:
-        # Empty CSV with headers
-        pd.DataFrame(columns=[
-            "call_id", "call_title", "call_date", "product_tags",
-            "org_type", "account_name", "account_website", 
-            "account_industry", "call_summary"
-        ]).to_csv(csv_path, index=False)
-    
-    files.append(("summary", csv_filename))
+    try:
+        if summaries:
+            df = pd.DataFrame(summaries)
+            # Ensure correct column order
+            columns = [
+                "call_id", "call_title", "call_date", "product_tags",
+                "org_type", "account_name", "account_website", 
+                "account_industry", "transcript_bucket", "call_rank", 
+                "call_summary"
+            ]
+            df = df[columns]
+            df.to_csv(csv_path, index=False)
+        else:
+            # Empty CSV with headers
+            pd.DataFrame(columns=[
+                "call_id", "call_title", "call_date", "product_tags",
+                "org_type", "account_name", "account_website", 
+                "account_industry", "transcript_bucket", "call_rank",
+                "call_summary"
+            ]).to_csv(csv_path, index=False)
+        
+        files.append(("summary", csv_filename))
+    except Exception as e:
+        print(f"Error writing CSV file: {str(e)}")
     
     return files
 
