@@ -688,7 +688,7 @@ def process_calls(calls, transcripts, selected_products):
 def generate_files(calls_by_product, summaries, start_date, end_date):
     files = []
     
-    # Generate transcript files - Edit 5: Multiple files per product
+    # Generate transcript files - UPDATED: Split into buckets of 5 instead of 10
     for product, calls in calls_by_product.items():
         if not calls:
             continue
@@ -696,9 +696,9 @@ def generate_files(calls_by_product, summaries, start_date, end_date):
         # Sort by rank (already done in process_calls)
         calls.sort(key=lambda x: x["rank"])
         
-        # Split into buckets of 10
-        for bucket_idx, i in enumerate(range(0, len(calls), 10)):
-            bucket_calls = calls[i:i+10]
+        # Split into buckets of 5 (CHANGED FROM 10)
+        for bucket_idx, i in enumerate(range(0, len(calls), 5)):
+            bucket_calls = calls[i:i+5]  # CHANGED FROM 10 to 5
             
             # Generate filename with abbreviation and rank
             abbrev = PRODUCT_ABBREVIATIONS.get(product, product[:3].upper())
